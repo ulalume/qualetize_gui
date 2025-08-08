@@ -2,7 +2,7 @@ use crate::color_correction::{
     ColorProcessor, display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
 use crate::types::AppState;
-use egui::{Color32, Pos2, Rect, Vec2};
+use egui::{Color32, Frame, Margin, Pos2, Rect, Vec2};
 use rfd::FileDialog;
 use std::path::Path;
 
@@ -12,72 +12,66 @@ impl UI {
     pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         let mut settings_changed = false;
 
-        ui.heading("Qualetize Settings");
-        ui.separator();
-
+        ui.add_space(10.0);
         // ファイル選択
-        if ui.button("📁 Select Input File").clicked() {
-            if let Some(path) = FileDialog::new()
-                .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
-                .pick_file()
-            {
-                // Signal that we need to load this file
-                // This will be handled in the app update loop
-                let path_str = path.display().to_string();
-                state.input_path = Some(path_str.clone());
-                state.preview_ready = false;
-                state.preview_processing = false;
-                state.output_image = Default::default();
-                state.zoom = 0.8;
-                state.pan_offset = egui::Vec2::ZERO;
-                state.result_message = "File selected, loading...".to_string();
+        ui.horizontal(|ui| {
+            if ui.button("📁 Select Input File").clicked() {
+                if let Some(path) = FileDialog::new()
+                    .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
+                    .pick_file()
+                {
+                    // Signal that we need to load this file
+                    // This will be handled in the app update loop
+                    let path_str = path.display().to_string();
+                    state.input_path = Some(path_str.clone());
+                    state.preview_ready = false;
+                    state.preview_processing = false;
+                    state.output_image = Default::default();
+                    state.zoom = 0.8;
+                    state.pan_offset = egui::Vec2::ZERO;
+                    state.result_message = "File selected, loading...".to_string();
 
-                // Set default output settings
-                if let Some(parent) = path.parent() {
-                    state.output_path = Some(parent.to_string_lossy().to_string());
-                } else {
-                    state.output_path = Some(".".to_string());
+                    // Set default output settings
+                    if let Some(parent) = path.parent() {
+                        state.output_path = Some(parent.to_string_lossy().to_string());
+                    } else {
+                        state.output_path = Some(".".to_string());
+                    }
+
+                    if let Some(stem) = path.file_stem() {
+                        state.output_name = format!("{}_qualetized.bmp", stem.to_string_lossy());
+                    } else {
+                        state.output_name = "output_qualetized.bmp".to_string();
+                    }
+
+                    settings_changed = true;
                 }
-
-                if let Some(stem) = path.file_stem() {
-                    state.output_name = format!("{}_qualetized.bmp", stem.to_string_lossy());
-                } else {
-                    state.output_name = "output_qualetized.bmp".to_string();
-                }
-
-                settings_changed = true;
             }
-        }
 
-        if let Some(path) = &state.input_path {
-            ui.label(format!(
-                "📄 {}",
-                Path::new(path)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-            ));
-        }
+            if let Some(path) = &state.input_path {
+                ui.label(format!(
+                    "📄 {}",
+                    Path::new(path)
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                ));
+            }
+        });
 
         ui.add_space(10.0);
 
+        // 高度な設定トグル
+        ui.checkbox(&mut state.show_advanced, "🔧 Show Advanced Settings");
+
+        ui.add_space(10.0);
         // 基本設定
-        ui.heading("Basic Settings");
+        ui.heading("Basic");
 
         ui.horizontal(|ui| {
             ui.label("Palettes:");
             if ui
                 .add(egui::DragValue::new(&mut state.settings.n_palettes).clamp_range(1..=256))
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
-
-        ui.horizontal(|ui| {
-            ui.label("RGBA Depth:");
-            if ui
-                .text_edit_singleline(&mut state.settings.rgba_depth)
                 .changed()
             {
                 settings_changed = true;
@@ -94,10 +88,58 @@ impl UI {
             }
         });
 
+        ui.horizontal(|ui| {
+            ui.label("RGBA Depth:");
+            if ui
+                .text_edit_singleline(&mut state.settings.rgba_depth)
+                .changed()
+            {
+                settings_changed = true;
+            }
+        });
+
+        if state.show_advanced {
+            Frame::none()
+                .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
+                .inner_margin(Margin::same(4.0))
+                .outer_margin(Margin::same(4.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Tile Width:");
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut state.settings.tile_width)
+                                    .clamp_range(1..=64),
+                            )
+                            .changed()
+                        {
+                            settings_changed = true;
+                        }
+                        ui.label("Height:");
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut state.settings.tile_height)
+                                    .clamp_range(1..=64),
+                            )
+                            .changed()
+                        {
+                            settings_changed = true;
+                        }
+                    });
+
+                    if ui
+                        .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
+                        .changed()
+                    {
+                        settings_changed = true;
+                    }
+                });
+        }
+
         ui.separator();
 
         // 色空間設定
-        ui.heading("Color Space Settings");
+        ui.heading("Color Space");
         egui::ComboBox::from_label("Color Space")
             .selected_text(&state.settings.color_space)
             .show_ui(ui, |ui| {
@@ -168,22 +210,8 @@ impl UI {
 
         ui.separator();
 
-        // Transparency Settings (moved out of advanced)
-        ui.heading("Transparency Settings");
-        if ui
-            .checkbox(
-                &mut state.settings.col0_is_clear,
-                "First Color is Transparent",
-            )
-            .changed()
-        {
-            settings_changed = true;
-        }
-
-        ui.separator();
-
         // Dithering Settings (moved out of advanced)
-        ui.heading("Dithering Settings");
+        ui.heading("Dithering");
         egui::ComboBox::from_label("Dithering Mode")
             .selected_text(&state.settings.dither_mode)
             .show_ui(ui, |ui| {
@@ -273,6 +301,90 @@ impl UI {
         });
 
         ui.separator();
+
+        // Transparency Settings (moved out of advanced)
+        ui.heading("Transparency");
+        if ui
+            .checkbox(
+                &mut state.settings.col0_is_clear,
+                "First Color is Transparent",
+            )
+            .changed()
+        {
+            settings_changed = true;
+        }
+
+        if state.show_advanced {
+            Frame::none()
+                .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
+                .inner_margin(Margin::same(4.0))
+                .outer_margin(Margin::same(4.0))
+                .show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Clear Color:");
+                        if ui
+                            .text_edit_singleline(&mut state.settings.clear_color)
+                            .changed()
+                        {
+                            settings_changed = true;
+                        }
+                    });
+                });
+        }
+
+        ui.separator();
+
+        if state.show_advanced {
+            ui.separator();
+
+            // Clustering Settings (moved to advanced)
+            Frame::none()
+                .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
+                .inner_margin(Margin::same(4.0))
+                .show(ui, |ui| {
+                    ui.heading("Clustering");
+                    ui.horizontal(|ui| {
+                        ui.label("Tile Passes:");
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut state.settings.tile_passes)
+                                    .clamp_range(0..=10000),
+                            )
+                            .changed()
+                        {
+                            settings_changed = true;
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Color Passes:");
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut state.settings.color_passes)
+                                    .clamp_range(0..=1000),
+                            )
+                            .changed()
+                        {
+                            settings_changed = true;
+                        }
+                    });
+
+                    ui.horizontal(|ui| {
+                        ui.label("Split Ratio:");
+                        if ui
+                            .add(
+                                egui::DragValue::new(&mut state.settings.split_ratio)
+                                    .clamp_range(-1.0..=1.0),
+                            )
+                            .changed()
+                        {
+                            settings_changed = true;
+                        }
+                    });
+                });
+
+            ui.separator();
+        }
 
         // カラー補正設定
         ui.heading("Color Correction");
@@ -443,103 +555,6 @@ impl UI {
                 settings_changed = true;
             }
         });
-
-        ui.separator();
-
-        // 高度な設定トグル
-        ui.checkbox(&mut state.show_advanced, "🔧 Show Advanced Settings");
-
-        if state.show_advanced {
-            ui.separator();
-
-            // 高度な基本設定
-            ui.heading("Advanced Basic Settings");
-
-            ui.horizontal(|ui| {
-                ui.label("Tile Width:");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.tile_width).clamp_range(1..=64))
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-                ui.label("Height:");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.tile_height).clamp_range(1..=64))
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
-
-            if ui
-                .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
-                .changed()
-            {
-                settings_changed = true;
-            }
-
-            ui.separator();
-
-            // Clustering Settings (moved to advanced)
-            ui.heading("Clustering Settings");
-            ui.horizontal(|ui| {
-                ui.label("Tile Passes:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut state.settings.tile_passes)
-                            .clamp_range(0..=10000),
-                    )
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Color Passes:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut state.settings.color_passes)
-                            .clamp_range(0..=1000),
-                    )
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
-
-            ui.horizontal(|ui| {
-                ui.label("Split Ratio:");
-                if ui
-                    .add(
-                        egui::DragValue::new(&mut state.settings.split_ratio)
-                            .clamp_range(-1.0..=1.0),
-                    )
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
-
-            ui.separator();
-
-            // Transparency Settings
-            ui.heading("Advanced Transparency Settings");
-            ui.horizontal(|ui| {
-                ui.label("Clear Color:");
-                if ui
-                    .text_edit_singleline(&mut state.settings.clear_color)
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
-        }
-
-        ui.separator();
-
-        ui.separator();
 
         // Status display
         ui.heading("Status");
