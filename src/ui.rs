@@ -59,12 +59,11 @@ impl UI {
             }
         });
 
-        ui.add_space(10.0);
-
+        ui.separator();
         // 高度な設定トグル
         ui.checkbox(&mut state.show_advanced, "🔧 Show Advanced Settings");
 
-        ui.add_space(10.0);
+        ui.separator();
         // 基本設定
         ui.heading("Basic");
 
@@ -335,8 +334,6 @@ impl UI {
         ui.separator();
 
         if state.show_advanced {
-            ui.separator();
-
             // Clustering Settings (moved to advanced)
             Frame::none()
                 .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
