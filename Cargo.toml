@@ -1,0 +1,27 @@
+[package]
+name = "qualetize_gui"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+eframe = "0.26"
+egui = "0.26"
+image = "0.25"
+rfd = "0.13"
+env_logger = "0.10"
+imageproc = "0.24"
+nalgebra = "0.33"
+
+[build-dependencies]
+cc = "*"
+
+[profile.dev]
+opt-level = 1
+debug = false
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"

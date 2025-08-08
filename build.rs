@@ -1,0 +1,20 @@
+fn main() {
+    cc::Build::new()
+        .files([
+            "external/qualetize/source/Qualetize.c",
+            "external/qualetize/source/qualetize-cli.c",
+            "external/qualetize/source/Bitmap.c",
+            "external/qualetize/source/Cluster.c",
+            "external/qualetize/source/Cluster_Vec4f.c",
+            "external/qualetize/source/DitherImage.c",
+        ])
+        .include("external/qualetize/include")
+        .include("external/qualetize/source")
+        .flag("-Dmain=qualetize_cli_entry")
+        .flag("-std=c99")
+        .flag("-O3")
+        .flag("-march=native")
+        .flag("-ffast-math")
+        .flag("-funroll-loops")
+        .compile("qualetize_c");
+}

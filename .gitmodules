@@ -1,0 +1,3 @@
+[submodule "external/qualetize"]
+	path = external/qualetize
+	url = https://github.com/Aikku93/qualetize/
