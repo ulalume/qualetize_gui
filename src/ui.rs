@@ -68,9 +68,11 @@ impl UI {
         ui.heading("Basic");
 
         ui.horizontal(|ui| {
-            ui.label("Palettes:");
+            ui.label("Palettes:")
+                .on_hover_text("Set number of palettes available");
             if ui
                 .add(egui::DragValue::new(&mut state.settings.n_palettes).range(1..=256))
+                .on_hover_text("Number of palettes available")
                 .changed()
             {
                 settings_changed = true;
@@ -78,9 +80,11 @@ impl UI {
         });
 
         ui.horizontal(|ui| {
-            ui.label("Colors per Palette:");
+            ui.label("Colors per Palette:")
+                .on_hover_text("Set number of colours per palette\nNote that this value times the number of palettes must be less than or equal to 256.");
             if ui
                 .add(egui::DragValue::new(&mut state.settings.n_colors).range(1..=256))
+                .on_hover_text("Number of colours per palette")
                 .changed()
             {
                 settings_changed = true;
@@ -88,9 +92,11 @@ impl UI {
         });
 
         ui.horizontal(|ui| {
-            ui.label("RGBA Depth:");
+            ui.label("RGBA Depth:")
+                .on_hover_text("Set RGBA bit depth\nRGBA = 8888 is standard for BMP (24-bit colour + 8-bit alpha)\nFor retro targets, RGBA = 5551 is common");
             if ui
                 .text_edit_singleline(&mut state.settings.rgba_depth)
+                .on_hover_text("RGBA bit depth (e.g., 8888, 5551, 3331)")
                 .changed()
             {
                 settings_changed = true;
@@ -104,18 +110,22 @@ impl UI {
                 .outer_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Tile Width:");
+                        ui.label("Tile Width:")
+                            .on_hover_text("Set tile width for processing");
                         if ui
                             .add(egui::DragValue::new(&mut state.settings.tile_width).range(1..=64))
+                            .on_hover_text("Width of processing tiles")
                             .changed()
                         {
                             settings_changed = true;
                         }
-                        ui.label("Height:");
+                        ui.label("Height:")
+                            .on_hover_text("Set tile height for processing");
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.tile_height).range(1..=64),
                             )
+                            .on_hover_text("Height of processing tiles")
                             .changed()
                         {
                             settings_changed = true;
@@ -124,6 +134,7 @@ impl UI {
 
                     if ui
                         .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
+                        .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colours by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colours in the palette will also be pre-multiplied.")
                         .changed()
                     {
                         settings_changed = true;
@@ -141,6 +152,7 @@ impl UI {
                 let mut changed = false;
                 changed |= ui
                     .selectable_value(&mut state.settings.color_space, "srgb".to_string(), "sRGB")
+                    .on_hover_text("Standard RGB color space")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -148,6 +160,7 @@ impl UI {
                         "ycbcr".to_string(),
                         "YCbCr",
                     )
+                    .on_hover_text("Luma + Chroma color space")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -155,6 +168,7 @@ impl UI {
                         "ycocg".to_string(),
                         "YCoCg",
                     )
+                    .on_hover_text("Luma + Co/Cg color space")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -162,6 +176,7 @@ impl UI {
                         "cielab".to_string(),
                         "CIELAB",
                     )
+                    .on_hover_text("CIE L*a*b* color space\nNOTE: CIELAB has poor performance in most cases")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -169,6 +184,7 @@ impl UI {
                         "ictcp".to_string(),
                         "ICtCp",
                     )
+                    .on_hover_text("ITU-R Rec. 2100 ICtCp color space")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -176,6 +192,7 @@ impl UI {
                         "oklab".to_string(),
                         "OkLab",
                     )
+                    .on_hover_text("OkLab perceptual color space")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -183,6 +200,7 @@ impl UI {
                         "rgb-psy".to_string(),
                         "RGB + Psyopt",
                     )
+                    .on_hover_text("RGB with psychovisual optimization\n(Non-linear light, weighted components)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -190,6 +208,7 @@ impl UI {
                         "ycbcr-psy".to_string(),
                         "YCbCr + Psyopt",
                     )
+                    .on_hover_text("YCbCr with psychovisual optimization\n(Non-linear luma, weighted chroma)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -197,11 +216,14 @@ impl UI {
                         "ycocg-psy".to_string(),
                         "YCoCg + Psyopt",
                     )
+                    .on_hover_text("YCoCg with psychovisual optimization\n(Non-linear luma)")
                     .clicked();
                 if changed {
                     settings_changed = true;
                 }
-            });
+            })
+            .response
+            .on_hover_text("Set colourspace\nDifferent colourspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.");
 
         ui.separator();
 
@@ -213,6 +235,7 @@ impl UI {
                 let mut changed = false;
                 changed |= ui
                     .selectable_value(&mut state.settings.dither_mode, "none".to_string(), "None")
+                    .on_hover_text("No dithering")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -220,6 +243,7 @@ impl UI {
                         "floyd".to_string(),
                         "Floyd-Steinberg",
                     )
+                    .on_hover_text("Floyd-Steinberg error diffusion (default level: 0.5)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -227,6 +251,7 @@ impl UI {
                         "atkinson".to_string(),
                         "Atkinson",
                     )
+                    .on_hover_text("Atkinson error diffusion (default level: 0.5)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -234,6 +259,7 @@ impl UI {
                         "checker".to_string(),
                         "Checkerboard",
                     )
+                    .on_hover_text("Checkerboard dithering (default level: 1.0)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -241,6 +267,7 @@ impl UI {
                         "ord2".to_string(),
                         "2x2 Ordered",
                     )
+                    .on_hover_text("2x2 ordered dithering (default level: 1.0)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -248,6 +275,7 @@ impl UI {
                         "ord4".to_string(),
                         "4x4 Ordered",
                     )
+                    .on_hover_text("4x4 ordered dithering (default level: 1.0)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -255,6 +283,7 @@ impl UI {
                         "ord8".to_string(),
                         "8x8 Ordered",
                     )
+                    .on_hover_text("8x8 ordered dithering (default level: 1.0)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -262,6 +291,7 @@ impl UI {
                         "ord16".to_string(),
                         "16x16 Ordered",
                     )
+                    .on_hover_text("16x16 ordered dithering (default level: 1.0)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -269,6 +299,7 @@ impl UI {
                         "ord32".to_string(),
                         "32x32 Ordered",
                     )
+                    .on_hover_text("32x32 ordered dithering (default level: 1.0)")
                     .clicked();
                 changed |= ui
                     .selectable_value(
@@ -276,19 +307,24 @@ impl UI {
                         "ord64".to_string(),
                         "64x64 Ordered",
                     )
+                    .on_hover_text("64x64 ordered dithering (default level: 1.0)")
                     .clicked();
                 if changed {
                     settings_changed = true;
                 }
-            });
+            })
+            .response
+            .on_hover_text("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colours per palette is very small,\nat the expense of added \"noise\".");
 
         ui.horizontal(|ui| {
-            ui.label("Dither Level:");
+            ui.label("Dither Level:")
+                .on_hover_text("Dithering intensity level");
             if ui
                 .add(egui::Slider::new(
                     &mut state.settings.dither_level,
                     0.0..=2.0,
                 ))
+                .on_hover_text("Adjust dithering intensity (0.0 = no dithering, 2.0 = maximum)")
                 .changed()
             {
                 settings_changed = true;
@@ -304,6 +340,7 @@ impl UI {
                 &mut state.settings.col0_is_clear,
                 "First Color is Transparent",
             )
+            .on_hover_text("First colour of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-colour input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.")
             .changed()
         {
             settings_changed = true;
@@ -316,7 +353,8 @@ impl UI {
                 .outer_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
-                        ui.label("Clear Color:");
+                        ui.label("Clear Color:")
+                            .on_hover_text("Set colour of transparent pixels.\nSet colour of transparent pixels.\nNote that as long as the RGB values match the clear colour,\nthen the pixel will be made fully transparent, regardless of any alpha information.\nCan be 'none', or a '#RRGGBB' hex triad.");
                         if ui
                             .text_edit_singleline(&mut state.settings.clear_color)
                             .changed()
@@ -337,12 +375,14 @@ impl UI {
                 .show(ui, |ui| {
                     ui.heading("Clustering");
                     ui.horizontal(|ui| {
-                        ui.label("Tile Passes:");
+                        ui.label("Tile Passes:")
+                            .on_hover_text("Set tile cluster passes (0 = default)");
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.tile_passes)
-                                    .range(0..=10000),
+                                    .range(0..=1000),
                             )
+                            .on_hover_text("Number of tile clustering passes (0 to 1000)")
                             .changed()
                         {
                             settings_changed = true;
@@ -350,12 +390,14 @@ impl UI {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Color Passes:");
+                        ui.label("Color Passes:")
+                            .on_hover_text("Set colour cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colours together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-colour palettes, set to ~4; for 16-colour palettes, set to 32-64)");
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.color_passes)
-                                    .range(0..=1000),
+                                    .range(0..=100),
                             )
+                            .on_hover_text("Number of color passes (0 to 100)")
                             .changed()
                         {
                             settings_changed = true;
@@ -363,12 +405,14 @@ impl UI {
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Split Ratio:");
+                        ui.label("Split Ratio:")
+                            .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colours;\nRatio = 1 - 2^(1-k/16).");
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.split_ratio)
                                     .range(-1.0..=1.0),
                             )
+                            .on_hover_text("Split Ratio (-1.0 to 1.0)")
                             .changed()
                         {
                             settings_changed = true;
