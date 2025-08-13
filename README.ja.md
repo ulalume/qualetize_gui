@@ -6,15 +6,17 @@
 
 ## Installation
 
+### アプリダウンロード (Windows/ macOS)
+[GitHub Releases](https://github.com/ulalume/qualetize_gui/releases/latest)から最新のアプリをダウンロードしてください。
+
+### Cargo インストール
+Cargo でインストールすることも可能です。
 ```sh
 cargo install --git https://github.com/ulalume/qualetize_gui
+qualetize_gui
 ```
 
 ## Usage
-
-```sh
-qualetize_gui
-```
 
 1. 変換したい画像をドラッグ&ドロップ
 2. プレビューを確認しながらパラメータを調整

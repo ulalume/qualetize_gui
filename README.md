@@ -10,19 +10,21 @@ The default parameters are configured for the Sega Genesis.
 
 ## Installation
 
+### App Download (Windows/macOS)
+Download the latest app from [GitHub Releases](https://github.com/ulalume/qualetize_gui/releases/latest).
+
+### Cargo Installation
+You can also install using Cargo:
 ```sh
 cargo install --git https://github.com/ulalume/qualetize_gui
+qualetize_gui
 ```
 
 ## Usage
 
-```sh
-qualetize_gui
-```
-
 1. Drag & drop the image you want to convert
-2. Adjust parameters while previewing the result in real-time
-3. Export the converted image
+2. Adjust parameters while previewing the result
+3. Export the image
 
 ## Features
 
