@@ -132,6 +132,25 @@ impl UI {
                         }
                     });
 
+                    ui.horizontal(|ui| {
+                        ui.label("Quick presets:");
+                        if ui.small_button("8x8").clicked() {
+                            state.settings.tile_width = 8;
+                            state.settings.tile_height = 8;
+                            settings_changed = true;
+                        }
+                        if ui.small_button("16x16").clicked() {
+                            state.settings.tile_width = 16;
+                            state.settings.tile_height = 16;
+                            settings_changed = true;
+                        }
+                        if ui.small_button("32x32").clicked() {
+                            state.settings.tile_width = 32;
+                            state.settings.tile_height = 32;
+                            settings_changed = true;
+                        }
+                    });
+
                     if ui
                         .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
                         .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colours by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colours in the palette will also be pre-multiplied.")
