@@ -4,6 +4,7 @@ use egui::{TextureHandle, Vec2};
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
     pub size: Vec2,
+    pub palettes: Vec<Vec<egui::Color32>>, // パレット情報を追加
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +37,7 @@ impl Default for ImageData {
         Self {
             texture: None,
             size: Vec2::ZERO,
+            palettes: Vec::new(),
         }
     }
 }

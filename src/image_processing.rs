@@ -11,7 +11,7 @@ unsafe extern "C" {
 
 pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
-    preview_receiver: Option<mpsc::Receiver<Result<Vec<u8>, String>>>,
+    preview_receiver: Option<mpsc::Receiver<Result<(Vec<u8>, QualetizeSettings), String>>>,
 }
 
 impl Default for ImageProcessor {
@@ -40,6 +40,7 @@ impl ImageProcessor {
         Ok(ImageData {
             texture: Some(texture),
             size: egui::Vec2::new(size[0] as f32, size[1] as f32),
+            palettes: Vec::new(), // 入力画像にはパレット情報なし
         })
     }
 
@@ -59,8 +60,10 @@ impl ImageProcessor {
         self.preview_receiver = Some(receiver);
 
         let thread = std::thread::spawn(move || {
-            let result = Self::generate_preview_internal(input_path, settings, color_correction);
-            let _ = sender.send(result);
+            let result =
+                Self::generate_preview_internal(input_path, settings.clone(), color_correction);
+            let result_with_settings = result.map(|data| (data, settings));
+            let _ = sender.send(result_with_settings);
         });
 
         self.preview_thread = Some(thread);
@@ -73,10 +76,12 @@ impl ImageProcessor {
                 self.preview_receiver = None;
 
                 return Some(match result {
-                    Ok(image_data) => match Self::create_texture_from_bmp_data(&image_data, ctx) {
-                        Ok(image_data) => Ok(image_data),
-                        Err(e) => Err(e),
-                    },
+                    Ok((image_data, settings)) => {
+                        match Self::create_texture_from_bmp_data(&image_data, &settings, ctx) {
+                            Ok(image_data) => Ok(image_data),
+                            Err(e) => Err(e),
+                        }
+                    }
                     Err(e) => Err(e),
                 });
             }
@@ -88,7 +93,11 @@ impl ImageProcessor {
         self.preview_thread.is_some()
     }
 
-    fn create_texture_from_bmp_data(image_data: &[u8], ctx: &Context) -> Result<ImageData, String> {
+    fn create_texture_from_bmp_data(
+        image_data: &[u8],
+        settings: &QualetizeSettings,
+        ctx: &Context,
+    ) -> Result<ImageData, String> {
         let img = image::load_from_memory(image_data)
             .map_err(|e| format!("BMP data loading error: {}", e))?;
 
@@ -96,13 +105,132 @@ impl ImageProcessor {
         let size = [rgba_img.width() as usize, rgba_img.height() as usize];
         let pixels = rgba_img.into_raw();
 
+        // indexed colorのパレット情報を抽出
+        let palettes = Self::extract_palettes_from_bmp_data(image_data, settings);
+
         let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
         let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
         Ok(ImageData {
             texture: Some(texture),
             size: egui::Vec2::new(size[0] as f32, size[1] as f32),
+            palettes,
         })
+    }
+
+    fn extract_palettes_from_bmp_data(
+        image_data: &[u8],
+        settings: &QualetizeSettings,
+    ) -> Vec<Vec<egui::Color32>> {
+        // BMPファイルからパレット情報を直接抽出
+        match Self::extract_bmp_palette(image_data) {
+            Ok(palette) => {
+                // パレットを設定に基づいて分割
+                let colors_per_palette = settings.n_colors as usize;
+                let mut palettes = Vec::new();
+
+                for chunk in palette.chunks(colors_per_palette) {
+                    palettes.push(chunk.to_vec());
+                }
+
+                // 設定されたパレット数まで調整
+                while palettes.len() < settings.n_palettes as usize {
+                    palettes.push(Vec::new());
+                }
+                palettes.truncate(settings.n_palettes as usize);
+
+                palettes
+            }
+            Err(_) => {
+                // BMPパレット抽出に失敗した場合は、PNGとして試す
+                Self::extract_png_palette(image_data, settings)
+            }
+        }
+    }
+
+    fn extract_bmp_palette(data: &[u8]) -> Result<Vec<egui::Color32>, String> {
+        if data.len() < 54 {
+            return Err("Invalid BMP file".to_string());
+        }
+
+        // BMPファイルヘッダ
+        if &data[0..2] != b"BM" {
+            return Err("Not a BMP file".to_string());
+        }
+        let data_offset = u32::from_le_bytes([data[10], data[11], data[12], data[13]]);
+        let header_size = u32::from_le_bytes([data[14], data[15], data[16], data[17]]);
+        let bits_per_pixel = u16::from_le_bytes([data[28], data[29]]);
+
+        if bits_per_pixel > 8 {
+            return Err("Not an indexed color BMP".to_string());
+        }
+
+        // パレットの色数
+        let colors_used = u32::from_le_bytes([data[46], data[47], data[48], data[49]]);
+        let colors_used = if colors_used == 0 {
+            1 << bits_per_pixel
+        } else {
+            colors_used
+        };
+
+        // パレット開始位置
+        let palette_start = 14 + header_size as usize;
+        let palette_size = colors_used as usize * 4;
+
+        if palette_start + palette_size > data_offset as usize {
+            return Err("Invalid palette size or data offset".to_string());
+        }
+
+        let mut palette = Vec::with_capacity(colors_used as usize);
+        for i in 0..colors_used as usize {
+            let offset = palette_start + i * 4;
+            if offset + 3 <= data.len() {
+                let b = data[offset];
+                let g = data[offset + 1];
+                let r = data[offset + 2];
+                let a = 255; // Reservedは無視
+                palette.push(egui::Color32::from_rgba_unmultiplied(r, g, b, a));
+            }
+        }
+
+        Ok(palette)
+    }
+
+    fn extract_png_palette(data: &[u8], settings: &QualetizeSettings) -> Vec<Vec<egui::Color32>> {
+        use std::io::Cursor;
+
+        let decoder = png::Decoder::new(Cursor::new(data));
+        if let Ok(reader) = decoder.read_info() {
+            if let Some(palette_data) = reader.info().palette.as_ref() {
+                let mut palette = Vec::new();
+
+                // パレットデータはRGB形式
+                for chunk in palette_data.chunks(3) {
+                    if chunk.len() == 3 {
+                        palette.push(egui::Color32::from_rgb(chunk[0], chunk[1], chunk[2]));
+                    }
+                }
+
+                // パレットを設定に基づいて分割
+                let colors_per_palette = settings.n_colors as usize;
+                let mut palettes = Vec::new();
+
+                for chunk in palette.chunks(colors_per_palette) {
+                    palettes.push(chunk.to_vec());
+                }
+
+                // 設定されたパレット数まで調整
+                while palettes.len() < settings.n_palettes as usize {
+                    palettes.push(Vec::new());
+                }
+                palettes.truncate(settings.n_palettes as usize);
+
+                return palettes;
+            }
+        }
+
+        // フォールバック: 空のパレット
+        vec![vec![egui::Color32::BLACK; settings.n_colors as usize]; settings.n_palettes as usize]
     }
 
     fn generate_preview_internal(

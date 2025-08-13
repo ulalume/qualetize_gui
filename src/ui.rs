@@ -669,6 +669,13 @@ impl UI {
                             Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
                             Color32::WHITE,
                         );
+
+                        // palettes
+                        Self::draw_palettes_overlay(
+                            &painter,
+                            &response.rect,
+                            &state.output_image.palettes,
+                        );
                     }
 
                     // Handle mouse operations for right panel (sync with left)
@@ -788,6 +795,42 @@ impl UI {
                 },
             );
         });
+    }
+
+    fn draw_palettes_overlay(
+        painter: &egui::Painter,
+        rect: &Rect,
+        palettes: &[Vec<egui::Color32>],
+    ) {
+        if palettes.is_empty() {
+            return;
+        }
+
+        let palette_size = 16.0;
+        let palette_spacing = 1.0;
+        let palette_margin = 8.0;
+
+        // パレット表示領域を右下に配置
+        let start_x = rect.max.x - palette_margin;
+        let mut current_y = rect.min.y + palette_margin;
+
+        for (_palette_idx, palette) in palettes.iter().enumerate() {
+            let palette_width =
+                (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
+
+            for (color_idx, &color) in palette.iter().enumerate() {
+                let x =
+                    start_x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
+                let color_rect = Rect::from_min_size(
+                    Pos2::new(x, current_y),
+                    Vec2::new(palette_size, palette_size),
+                );
+
+                painter.rect_filled(color_rect, 2.0, color);
+            }
+
+            current_y += palette_size + palette_spacing; // 次のパレット行へ
+        }
     }
 
     pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
