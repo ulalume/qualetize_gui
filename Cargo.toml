@@ -12,7 +12,6 @@ rfd = "0.15.4"
 env_logger = "0.11.8"
 imageproc = "0.25"
 nalgebra = "0.34"
-png = "0.17"
 
 [build-dependencies]
 cc = "*"

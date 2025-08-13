@@ -142,8 +142,10 @@ impl ImageProcessor {
                 palettes
             }
             Err(_) => {
-                // BMPパレット抽出に失敗した場合は、PNGとして試す
-                Self::extract_png_palette(image_data, settings)
+                vec![
+                    vec![egui::Color32::BLACK; settings.n_colors as usize];
+                    settings.n_palettes as usize
+                ]
             }
         }
     }
@@ -194,43 +196,6 @@ impl ImageProcessor {
         }
 
         Ok(palette)
-    }
-
-    fn extract_png_palette(data: &[u8], settings: &QualetizeSettings) -> Vec<Vec<egui::Color32>> {
-        use std::io::Cursor;
-
-        let decoder = png::Decoder::new(Cursor::new(data));
-        if let Ok(reader) = decoder.read_info() {
-            if let Some(palette_data) = reader.info().palette.as_ref() {
-                let mut palette = Vec::new();
-
-                // パレットデータはRGB形式
-                for chunk in palette_data.chunks(3) {
-                    if chunk.len() == 3 {
-                        palette.push(egui::Color32::from_rgb(chunk[0], chunk[1], chunk[2]));
-                    }
-                }
-
-                // パレットを設定に基づいて分割
-                let colors_per_palette = settings.n_colors as usize;
-                let mut palettes = Vec::new();
-
-                for chunk in palette.chunks(colors_per_palette) {
-                    palettes.push(chunk.to_vec());
-                }
-
-                // 設定されたパレット数まで調整
-                while palettes.len() < settings.n_palettes as usize {
-                    palettes.push(Vec::new());
-                }
-                palettes.truncate(settings.n_palettes as usize);
-
-                return palettes;
-            }
-        }
-
-        // フォールバック: 空のパレット
-        vec![vec![egui::Color32::BLACK; settings.n_colors as usize]; settings.n_palettes as usize]
     }
 
     fn generate_preview_internal(
