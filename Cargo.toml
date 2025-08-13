@@ -4,17 +4,27 @@ version = "0.1.4"
 edition = "2024"
 build = "build.rs"
 
+[[bin]]
+name = "QualetizeGUI"
+path = "src/main.rs"
+
+[package.metadata.bundle]
+name = "QualetizeGUI"
+identifier = "io.github.ulalume.qualetize_gui"
+icon = ["assets/icon.icns"]
+
 [dependencies]
 eframe = "0.32.0"
 egui = "0.32.0"
 image = "0.25"
+imageproc = "0.25"
 rfd = "0.15.4"
 env_logger = "0.11.8"
-imageproc = "0.25"
 nalgebra = "0.34"
 
 [build-dependencies]
 cc = "*"
+embed-resource = "2.5"
 
 [profile.dev]
 opt-level = 1
