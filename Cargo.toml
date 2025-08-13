@@ -1,6 +1,6 @@
 [package]
 name = "qualetize_gui"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2024"
 build = "build.rs"
 
@@ -8,10 +8,10 @@ build = "build.rs"
 eframe = "0.32.0"
 egui = "0.32.0"
 image = "0.25"
-rfd = "0.13"
-env_logger = "0.10"
-imageproc = "0.24"
-nalgebra = "0.33"
+rfd = "0.15.4"
+env_logger = "0.11.8"
+imageproc = "0.25"
+nalgebra = "0.34"
 
 [build-dependencies]
 cc = "*"
