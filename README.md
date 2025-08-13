@@ -28,6 +28,7 @@ qualetize_gui
 
 - Instant preview updates when parameters are changed
 - Color adjustment tools
+- Display palettes
 
 ## Licence
 
