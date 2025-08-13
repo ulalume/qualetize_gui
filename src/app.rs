@@ -207,7 +207,7 @@ impl eframe::App for QualetizeApp {
             );
 
             // Main content
-            ui.allocate_ui_at_rect(content_rect, |ui| {
+            ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
                 if self.state.input_path.is_none() {
                     UI::draw_main_content(ui, &self.state);
                 } else if self.state.preview_ready {
@@ -222,7 +222,7 @@ impl eframe::App for QualetizeApp {
 
             // Footer
             if self.state.input_image.texture.is_some() {
-                ui.allocate_ui_at_rect(footer_rect, |ui| {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(footer_rect), |ui| {
                     ui.separator();
                     UI::draw_footer(ui, &mut self.state);
                 });

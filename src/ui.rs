@@ -70,7 +70,7 @@ impl UI {
         ui.horizontal(|ui| {
             ui.label("Palettes:");
             if ui
-                .add(egui::DragValue::new(&mut state.settings.n_palettes).clamp_range(1..=256))
+                .add(egui::DragValue::new(&mut state.settings.n_palettes).range(1..=256))
                 .changed()
             {
                 settings_changed = true;
@@ -80,7 +80,7 @@ impl UI {
         ui.horizontal(|ui| {
             ui.label("Colors per Palette:");
             if ui
-                .add(egui::DragValue::new(&mut state.settings.n_colors).clamp_range(1..=256))
+                .add(egui::DragValue::new(&mut state.settings.n_colors).range(1..=256))
                 .changed()
             {
                 settings_changed = true;
@@ -98,18 +98,15 @@ impl UI {
         });
 
         if state.show_advanced {
-            Frame::none()
+            Frame::NONE
                 .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
-                .inner_margin(Margin::same(4.0))
-                .outer_margin(Margin::same(4.0))
+                .inner_margin(Margin::same(4))
+                .outer_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Tile Width:");
                         if ui
-                            .add(
-                                egui::DragValue::new(&mut state.settings.tile_width)
-                                    .clamp_range(1..=64),
-                            )
+                            .add(egui::DragValue::new(&mut state.settings.tile_width).range(1..=64))
                             .changed()
                         {
                             settings_changed = true;
@@ -117,8 +114,7 @@ impl UI {
                         ui.label("Height:");
                         if ui
                             .add(
-                                egui::DragValue::new(&mut state.settings.tile_height)
-                                    .clamp_range(1..=64),
+                                egui::DragValue::new(&mut state.settings.tile_height).range(1..=64),
                             )
                             .changed()
                         {
@@ -314,10 +310,10 @@ impl UI {
         }
 
         if state.show_advanced {
-            Frame::none()
+            Frame::NONE
                 .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
-                .inner_margin(Margin::same(4.0))
-                .outer_margin(Margin::same(4.0))
+                .inner_margin(Margin::same(4))
+                .outer_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Clear Color:");
@@ -335,9 +331,9 @@ impl UI {
 
         if state.show_advanced {
             // Clustering Settings (moved to advanced)
-            Frame::none()
+            Frame::NONE
                 .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
-                .inner_margin(Margin::same(4.0))
+                .inner_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.heading("Clustering");
                     ui.horizontal(|ui| {
@@ -345,7 +341,7 @@ impl UI {
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.tile_passes)
-                                    .clamp_range(0..=10000),
+                                    .range(0..=10000),
                             )
                             .changed()
                         {
@@ -358,7 +354,7 @@ impl UI {
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.color_passes)
-                                    .clamp_range(0..=1000),
+                                    .range(0..=1000),
                             )
                             .changed()
                         {
@@ -371,7 +367,7 @@ impl UI {
                         if ui
                             .add(
                                 egui::DragValue::new(&mut state.settings.split_ratio)
-                                    .clamp_range(-1.0..=1.0),
+                                    .range(-1.0..=1.0),
                             )
                             .changed()
                         {
@@ -697,19 +693,7 @@ impl UI {
             ui.centered_and_justified(|ui| {
                 ui.heading("📁 Drop an image file here or use 'Select Input File'");
             });
-        } else if state.preview_ready {
-            // Show operation hints
-            ui.allocate_ui_at_rect(
-                Rect::from_min_size(
-                    ui.min_rect().min + Vec2::new(10.0, 10.0),
-                    Vec2::new(200.0, 60.0),
-                ),
-                |ui| {
-                    ui.label("💡 Left: Original | Right: Processed");
-                    ui.label("🖱️ Drag to pan, scroll to zoom");
-                },
-            );
-        } else {
+        } else if !state.preview_ready {
             ui.centered_and_justified(|ui| {
                 ui.heading("⏳ Processing...");
             });
@@ -786,12 +770,11 @@ impl UI {
                     // Draw background
                     painter.rect_filled(painter.clip_rect(), 0.0, Color32::from_gray(64));
 
-                    // Show processing status in the center
-                    ui.allocate_ui_at_rect(
-                        Rect::from_center_size(
+                    ui.scope_builder(
+                        egui::UiBuilder::new().max_rect(Rect::from_center_size(
                             painter.clip_rect().center(),
                             Vec2::new(200.0, 100.0),
-                        ),
+                        )),
                         |ui| {
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                                 ui.label("⏳");

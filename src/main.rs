@@ -22,6 +22,6 @@ fn main() -> Result<(), eframe::Error> {
     eframe::run_native(
         "Qualetize GUI - Image Quantization Tool",
         options,
-        Box::new(|cc| Box::new(QualetizeApp::new(cc))),
+        Box::new(|cc| Ok(Box::new(QualetizeApp::new(cc)))),
     )
 }

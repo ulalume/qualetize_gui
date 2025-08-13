@@ -5,8 +5,8 @@ edition = "2024"
 build = "build.rs"
 
 [dependencies]
-eframe = "0.26"
-egui = "0.26"
+eframe = "0.32.0"
+egui = "0.32.0"
 image = "0.25"
 rfd = "0.13"
 env_logger = "0.10"
