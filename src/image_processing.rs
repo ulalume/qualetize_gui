@@ -35,7 +35,7 @@ impl ImageProcessor {
         let pixels = rgba_img.into_raw();
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
-        let texture = ctx.load_texture("input", color_image, egui::TextureOptions::default());
+        let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
 
         Ok(ImageData {
             texture: Some(texture),
@@ -97,7 +97,7 @@ impl ImageProcessor {
         let pixels = rgba_img.into_raw();
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
-        let texture = ctx.load_texture("output", color_image, egui::TextureOptions::default());
+        let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
         Ok(ImageData {
             texture: Some(texture),
