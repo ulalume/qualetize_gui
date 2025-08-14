@@ -15,6 +15,7 @@ fn main() -> Result<(), eframe::Error> {
             .with_inner_size([1200.0, 800.0])
             .with_min_inner_size([800.0, 600.0])
             .with_drag_and_drop(true)
+            .with_icon(egui::IconData::default())
             .with_title("Qualetize GUI - Image Quantization Tool"),
         ..Default::default()
     };
