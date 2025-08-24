@@ -27,7 +27,7 @@ impl UI {
                     state.preview_ready = false;
                     state.preview_processing = false;
                     state.output_image = Default::default();
-                    state.zoom = 0.8;
+                    state.zoom = 1.0;
                     state.pan_offset = egui::Vec2::ZERO;
                     state.result_message = "File selected, loading...".to_string();
 
@@ -954,30 +954,46 @@ impl UI {
     pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         let export_clicked = false;
 
-        ui.horizontal(|ui| {
-            // Left: Reset View button
+        let width = ui.available_width();
+        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
             if ui.button("🔄 Reset View").clicked() {
-                state.zoom = 0.8;
+                state.zoom = 1.0;
                 state.pan_offset = Vec2::ZERO;
             }
-
             ui.label(format!("🔍 Zoom: {:.1}x", state.zoom));
 
-            // Center: Operation hints
-            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+            if width > 700.0 {
                 ui.separator();
                 ui.label("💡 Left: Original | Right: Processed");
+            }
+            if width > 510.0 {
                 ui.separator();
-                ui.label("🖱️ Drag to pan, scroll to zoom");
+                ui.label("🖱 Drag to pan, scroll to zoom");
                 ui.separator();
-            });
+            }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let response = ui.add_enabled(
-                    state.preview_ready,
-                    egui::Button::new("💾 Export Image"),
-                );
-            
+                ui.style_mut().spacing.button_padding = egui::vec2(10.0, 4.0);
+
+                let color1 = egui::Color32::from_rgb(240, 100, 156);
+                let color2 = egui::Color32::from_rgb(131, 100, 144);
+                let style = &mut ui.style_mut();
+                style.visuals.widgets.inactive.fg_stroke =
+                    egui::Stroke::new(1.0, egui::Color32::WHITE);
+                style.visuals.widgets.inactive.weak_bg_fill = color1;
+
+                style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, color2);
+                style.visuals.widgets.hovered.fg_stroke =
+                    egui::Stroke::new(1.0, egui::Color32::WHITE);
+                style.visuals.widgets.hovered.weak_bg_fill = color1;
+
+                style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, color2);
+                style.visuals.widgets.active.fg_stroke =
+                    egui::Stroke::new(1.0, egui::Color32::WHITE);
+                style.visuals.widgets.active.weak_bg_fill = color2;
+
+                let response =
+                    ui.add_enabled(state.preview_ready, egui::Button::new("💾 Export Image"));
                 if response.clicked() {
                     Self::show_export_dialog(state);
                 }

@@ -38,7 +38,7 @@ impl QualetizeApp {
         self.state.preview_ready = false;
         self.state.preview_processing = false;
         self.state.output_image = Default::default();
-        self.state.zoom = 0.8;
+        self.state.zoom = 1.0;
         self.state.pan_offset = egui::Vec2::ZERO;
         self.state.result_message = "Loading image...".to_string();
         self.state.last_settings_change_time = Some(std::time::Instant::now());
@@ -140,8 +140,10 @@ impl QualetizeApp {
         let width_divisible = image_width % tile_width == 0;
         let height_divisible = image_height % tile_height == 0;
 
-        println!("Tile size check: image {}×{}, tile {}×{}, divisible: width={}, height={}", 
-                 image_width, image_height, tile_width, tile_height, width_divisible, height_divisible);
+        println!(
+            "Tile size check: image {}×{}, tile {}×{}, divisible: width={}, height={}",
+            image_width, image_height, tile_width, tile_height, width_divisible, height_divisible
+        );
 
         if !width_divisible || !height_divisible {
             self.state.tile_size_warning = true;
@@ -167,7 +169,8 @@ impl QualetizeApp {
             self.state.preview_processing = false;
             self.state.settings_changed = false;
             self.state.last_settings_change_time = None;
-            self.state.result_message = "Cannot process: Image size incompatible with tile size".to_string();
+            self.state.result_message =
+                "Cannot process: Image size incompatible with tile size".to_string();
             return;
         }
 
@@ -205,10 +208,10 @@ impl QualetizeApp {
     }
 
     fn should_repaint(&self) -> bool {
-        self.state.preview_processing 
-            || self.state.settings_changed 
+        self.state.preview_processing
+            || self.state.settings_changed
             || self.state.last_settings_change_time.is_some()
-            || self.state.tile_size_warning  // 警告状態の変更時も再描画
+            || self.state.tile_size_warning // 警告状態の変更時も再描画
     }
 }
 
@@ -236,15 +239,16 @@ impl eframe::App for QualetizeApp {
                     if settings_changed {
                         self.state.settings_changed = true;
                         self.state.last_settings_change_time = Some(std::time::Instant::now());
-                        
+
                         // タイルサイズの互換性をチェック
                         self.check_tile_size_compatibility();
-                        
+
                         // 進行中の処理があれば即座にキャンセル
                         if self.image_processor.is_processing() {
                             self.image_processor.cancel_current_processing();
                             self.state.preview_processing = false;
-                            self.state.result_message = "Previous processing cancelled, will update soon...".to_string();
+                            self.state.result_message =
+                                "Previous processing cancelled, will update soon...".to_string();
                         }
                     }
                 });
@@ -254,7 +258,7 @@ impl eframe::App for QualetizeApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Main content area
             let available_rect = ui.available_rect_before_wrap();
-            let footer_height = 24.0;
+            let footer_height = 30.0;
             let content_rect = egui::Rect::from_min_size(
                 available_rect.min,
                 egui::Vec2::new(
