@@ -254,7 +254,7 @@ impl eframe::App for QualetizeApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Main content area
             let available_rect = ui.available_rect_before_wrap();
-            let footer_height = 40.0;
+            let footer_height = 24.0;
             let content_rect = egui::Rect::from_min_size(
                 available_rect.min,
                 egui::Vec2::new(
