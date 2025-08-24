@@ -899,11 +899,15 @@ impl UI {
             return;
         }
 
-        let palette_size = 16.0;
-        let palette_spacing = 1.0;
         let palette_margin = 8.0;
+        let palette_spacing = 1.0;
+        let palette_size = 4.0_f32.max(16.0_f32.min(
+            (rect.width()
+                - palette_margin * 2.0
+                - ((palettes[0].len() as f32) - 1.0) * palette_spacing)
+                / (palettes[0].len() as f32),
+        ));
 
-        // パレット表示領域を右下に配置
         let start_x = rect.max.x - palette_margin;
         let mut current_y = rect.min.y + palette_margin;
 
@@ -919,7 +923,13 @@ impl UI {
                     Vec2::new(palette_size, palette_size),
                 );
 
-                painter.rect_filled(color_rect, 2.0, color);
+                painter.rect_filled(color_rect, 0.0, color);
+                painter.rect_stroke(
+                    color_rect,
+                    0.0,
+                    egui::Stroke::new(1.0, Color32::from_gray(48)),
+                    egui::StrokeKind::Middle,
+                );
             }
 
             current_y += palette_size + palette_spacing; // 次のパレット行へ
