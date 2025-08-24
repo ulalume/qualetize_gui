@@ -146,20 +146,15 @@ impl ColorProcessor {
         corrections != &default
     }
 
-    // Apply quick presets
-    // pub fn preset_increase_contrast() -> ColorCorrection {
-    //     ColorCorrection {
-    //         contrast: 1.2,
-    //         ..ColorCorrection::default()
-    //     }
-    // }
-
-    // pub fn preset_brighten() -> ColorCorrection {
-    //     ColorCorrection {
-    //         brightness: 0.1,
-    //         ..ColorCorrection::default()
-    //     }
-    // }
+    pub fn preset_dark() -> ColorCorrection {
+        ColorCorrection {
+            contrast: 1.75,
+            gamma: 0.28,
+            saturation: 0.30,
+            hue_shift: 100.0,
+            ..ColorCorrection::default()
+        }
+    }
 
     pub fn preset_vibrant() -> ColorCorrection {
         ColorCorrection {

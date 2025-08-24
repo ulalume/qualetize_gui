@@ -590,7 +590,7 @@ impl UI {
         // カラー補正プリセット
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let button_width = (ui.available_width() - 24.0) / 4.0;
+            let button_width = (ui.available_width() - 36.0) / 5.0;
 
             if ui
                 .add_sized([button_width, 24.0], egui::Button::new("🔄 Reset"))
@@ -621,6 +621,14 @@ impl UI {
                 .clicked()
             {
                 state.color_correction = ColorProcessor::preset_retro_cool();
+                settings_changed = true;
+            }
+
+            if ui
+                .add_sized([button_width, 24.0], egui::Button::new("🌚 Dark"))
+                .clicked()
+            {
+                state.color_correction = ColorProcessor::preset_dark();
                 settings_changed = true;
             }
         });
