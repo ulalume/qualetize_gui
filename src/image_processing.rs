@@ -56,11 +56,15 @@ struct QualetizeResult {
     settings: QualetizeSettings,
     width: u32,
     height: u32,
+    generation_id: u64, // 処理の世代ID
 }
 
 pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
     preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
+    cancel_sender: Option<mpsc::Sender<()>>,
+    current_generation_id: u64, // 現在の処理世代ID
+    active_threads: Vec<std::thread::JoinHandle<()>>, // アクティブなスレッドのリスト
 }
 
 impl Default for ImageProcessor {
@@ -68,6 +72,9 @@ impl Default for ImageProcessor {
         Self {
             preview_thread: None,
             preview_receiver: None,
+            cancel_sender: None,
+            current_generation_id: 0,
+            active_threads: Vec::new(),
         }
     }
 }
@@ -177,24 +184,33 @@ impl ImageProcessor {
         color_correction: ColorCorrection,
     ) {
         // Cancel any existing processing
-        if self.preview_thread.is_some() {
-            self.preview_thread = None;
-            self.preview_receiver = None;
-        }
+        self.cancel_current_processing();
 
-        let (sender, receiver) = mpsc::channel();
-        self.preview_receiver = Some(receiver);
+        let (result_sender, result_receiver) = mpsc::channel();
+        let (cancel_sender, cancel_receiver) = mpsc::channel();
+        let generation_id = self.current_generation_id;
+        
+        self.preview_receiver = Some(result_receiver);
+        self.cancel_sender = Some(cancel_sender);
 
         let thread = std::thread::spawn(move || {
-            let result =
-                Self::generate_preview_internal(input_path, settings, color_correction);
-            let _ = sender.send(result);
+            let result = Self::generate_preview_internal(
+                input_path, 
+                settings, 
+                color_correction, 
+                cancel_receiver,
+                generation_id
+            );
+            let _ = result_sender.send(result);
         });
 
         self.preview_thread = Some(thread);
     }
 
     pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
+        // 完了した古いスレッドをクリーンアップ
+        self.cleanup_finished_threads();
+        
         if let Some(receiver) = &mut self.preview_receiver {
             if let Ok(result) = receiver.try_recv() {
                 self.preview_thread = None;
@@ -202,12 +218,26 @@ impl ImageProcessor {
 
                 return Some(match result {
                     Ok(qualetize_result) => {
-                        match Self::create_texture_from_qualetize_result(qualetize_result, ctx) {
-                            Ok(image_data) => Ok(image_data),
-                            Err(e) => Err(e),
+                        // 世代IDをチェックして、古い結果は無視
+                        if qualetize_result.generation_id == self.current_generation_id {
+                            println!("Accepting result from generation {}", qualetize_result.generation_id);
+                            match Self::create_texture_from_qualetize_result(qualetize_result, ctx) {
+                                Ok(image_data) => Ok(image_data),
+                                Err(e) => Err(e),
+                            }
+                        } else {
+                            println!("Ignoring outdated result from generation {} (current: {})", 
+                                qualetize_result.generation_id, self.current_generation_id);
+                            return None; // 古い結果は無視
                         }
                     }
-                    Err(e) => Err(e),
+                    Err(e) => {
+                        if e.contains("Processing cancelled") {
+                            return None; // キャンセルされた処理は無視
+                        } else {
+                            Err(e)
+                        }
+                    }
                 });
             }
         }
@@ -216,6 +246,31 @@ impl ImageProcessor {
 
     pub fn is_processing(&self) -> bool {
         self.preview_thread.is_some()
+    }
+
+    pub fn cancel_current_processing(&mut self) {
+        if let Some(cancel_sender) = &self.cancel_sender {
+            let _ = cancel_sender.send(()); // キャンセル信号を送信
+        }
+        
+        // 古いスレッドをバックグラウンドで実行継続させる（結果は無視）
+        if let Some(old_thread) = self.preview_thread.take() {
+            self.active_threads.push(old_thread);
+        }
+        
+        // 現在の処理をクリア
+        self.preview_receiver = None;
+        self.cancel_sender = None;
+        
+        // 世代IDを更新（古い結果を無視するため）
+        self.current_generation_id += 1;
+        
+        // 完了した古いスレッドをクリーンアップ
+        self.cleanup_finished_threads();
+    }
+    
+    fn cleanup_finished_threads(&mut self) {
+        self.active_threads.retain(|thread| !thread.is_finished());
     }
 
     fn create_texture_from_qualetize_result(
@@ -228,6 +283,7 @@ impl ImageProcessor {
             settings,
             width,
             height,
+            generation_id: _,
         } = result;
 
         // インデックスカラーデータをRGBA画像に変換
@@ -289,8 +345,16 @@ impl ImageProcessor {
         input_path: String,
         settings: QualetizeSettings,
         color_correction: ColorCorrection,
+        cancel_receiver: mpsc::Receiver<()>,
+        generation_id: u64,
     ) -> Result<QualetizeResult, String> {
-        println!("Starting preview generation for: {}", input_path);
+        println!("Starting preview generation for: {} (generation {})", input_path, generation_id);
+
+        // キャンセルチェック
+        if cancel_receiver.try_recv().is_ok() {
+            println!("Processing cancelled for generation {}", generation_id);
+            return Err("Processing cancelled".to_string());
+        }
 
         // Load and process image
         let img = image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
@@ -305,6 +369,11 @@ impl ImageProcessor {
         let width = rgba_img.width();
         let height = rgba_img.height();
         let input_data = rgba_img.into_raw();
+
+        // キャンセルチェック
+        if cancel_receiver.try_recv().is_ok() {
+            return Err("Processing cancelled".to_string());
+        }
 
         // Convert RGBA to BGRA for qualetize
         let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
@@ -382,6 +451,7 @@ impl ImageProcessor {
             settings,
             width,
             height,
+            generation_id,
         })
     }
 
