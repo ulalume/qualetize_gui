@@ -70,25 +70,38 @@ impl UI {
         ui.horizontal(|ui| {
             ui.label("Palettes:")
                 .on_hover_text("Set number of palettes available");
+
+            // パレット数の最大値を色数に基づいて制限
+            let max_palettes = 256 / state.settings.n_colors.max(1);
+            // 色数の最大値をパレット数に基づいて制限
+            let max_colors = 256 / state.settings.n_palettes.max(1);
+
             if ui
-                .add(egui::DragValue::new(&mut state.settings.n_palettes).range(1..=256))
+                .add(egui::DragValue::new(&mut state.settings.n_palettes).range(1..=max_palettes))
                 .on_hover_text("Number of palettes available")
                 .changed()
             {
                 settings_changed = true;
             }
-        });
 
-        ui.horizontal(|ui| {
-            ui.label("Colors per Palette:")
+            ui.label("*");
+
+            ui.label("Colors:")
                 .on_hover_text("Set number of colours per palette\nNote that this value times the number of palettes must be less than or equal to 256.");
+
+
             if ui
-                .add(egui::DragValue::new(&mut state.settings.n_colors).range(1..=256))
+                .add(egui::DragValue::new(&mut state.settings.n_colors).range(1..=max_colors))
                 .on_hover_text("Number of colours per palette")
                 .changed()
             {
                 settings_changed = true;
             }
+
+            ui.label("=");
+            ui.label(egui::RichText::new(format!("{}", state.settings.n_colors * state.settings.n_palettes))
+              .strong()).on_hover_text("Palettes * Colors per palette must be <= 256");
+            ui.label("(max: 256)");
         });
 
         ui.horizontal(|ui| {
@@ -343,7 +356,7 @@ impl UI {
                     &mut state.settings.dither_level,
                     0.0..=2.0,
                 ))
-                .on_hover_text("Adjust dithering intensity (0.0 = no dithering, 2.0 = maximum)")
+                .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
                 .changed()
             {
                 settings_changed = true;
@@ -620,7 +633,10 @@ impl UI {
             let elapsed = last_change_time.elapsed();
             if elapsed < state.debounce_delay {
                 let remaining = state.debounce_delay - elapsed;
-                ui.label(format!("⏱️ Preview will update in {:.1}s...", remaining.as_secs_f32()));
+                ui.label(format!(
+                    "⏱️ Preview will update in {:.1}s...",
+                    remaining.as_secs_f32()
+                ));
             }
         } else if !state.result_message.is_empty() {
             ui.label(&state.result_message);
