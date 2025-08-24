@@ -389,7 +389,7 @@ impl UI {
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
                         ui.label("Clear Color:")
-                            .on_hover_text("Set colour of transparent pixels.\nSet colour of transparent pixels.\nNote that as long as the RGB values match the clear colour,\nthen the pixel will be made fully transparent, regardless of any alpha information.\nCan be 'none', or a '#RRGGBB' hex triad.");
+                            .on_hover_text("Set colour of transparent pixels.\nNote that as long as the RGB values match the clear colour,\nthen the pixel will be made fully transparent, regardless of any alpha information.\nCan be 'none', or a '#RRGGBB' hex triad.");
                         if ui
                             .text_edit_singleline(&mut state.settings.clear_color)
                             .changed()
