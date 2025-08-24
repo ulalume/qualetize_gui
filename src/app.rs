@@ -58,6 +58,9 @@ impl QualetizeApp {
                 // Set default output path and name
                 self.set_default_output_settings(&path);
 
+                // Check tile size compatibility
+                self.check_tile_size_compatibility();
+
                 // Trigger preview generation
                 self.state.settings_changed = true;
             }
@@ -105,6 +108,11 @@ impl QualetizeApp {
     }
 
     fn handle_settings_changes(&mut self) {
+        // 設定が変更された場合は常にタイルサイズをチェック
+        if self.state.settings_changed {
+            self.check_tile_size_compatibility();
+        }
+
         // デバウンス機能：設定変更から一定時間経過後にプレビュー生成を開始
         if self.state.settings_changed && self.state.input_path.is_some() {
             if let Some(last_change_time) = self.state.last_settings_change_time {
@@ -117,11 +125,56 @@ impl QualetizeApp {
         }
     }
 
+    fn check_tile_size_compatibility(&mut self) -> bool {
+        if self.state.input_image.texture.is_none() {
+            self.state.tile_size_warning = false;
+            self.state.tile_size_warning_message.clear();
+            return true; // 画像がない場合は問題なし
+        }
+
+        let image_width = self.state.input_image.size.x as u16;
+        let image_height = self.state.input_image.size.y as u16;
+        let tile_width = self.state.settings.tile_width;
+        let tile_height = self.state.settings.tile_height;
+
+        let width_divisible = image_width % tile_width == 0;
+        let height_divisible = image_height % tile_height == 0;
+
+        println!("Tile size check: image {}×{}, tile {}×{}, divisible: width={}, height={}", 
+                 image_width, image_height, tile_width, tile_height, width_divisible, height_divisible);
+
+        if !width_divisible || !height_divisible {
+            self.state.tile_size_warning = true;
+            self.state.tile_size_warning_message = format!(
+                "Image size ({}×{}) is not divisible by tile size ({}×{}). Qualetize processing cannot proceed.",
+                image_width, image_height, tile_width, tile_height
+            );
+            // 警告が発生した場合はプレビュー状態をリセット
+            self.state.preview_ready = false;
+            println!("Warning set: {}", self.state.tile_size_warning_message);
+            false
+        } else {
+            self.state.tile_size_warning = false;
+            self.state.tile_size_warning_message.clear();
+            println!("No warning - sizes are compatible");
+            true
+        }
+    }
+
     fn start_preview_generation(&mut self) {
-        if let Some(input_path) = &self.state.input_path {
+        // タイルサイズの互換性をチェック
+        if !self.check_tile_size_compatibility() {
+            self.state.preview_processing = false;
+            self.state.settings_changed = false;
+            self.state.last_settings_change_time = None;
+            self.state.result_message = "Cannot process: Image size incompatible with tile size".to_string();
+            return;
+        }
+
+        if let Some(input_path) = self.state.input_path.clone() {
             if !self.image_processor.is_processing() {
                 self.image_processor.start_preview_generation(
-                    input_path.clone(),
+                    input_path,
                     self.state.settings.clone(),
                     self.state.color_correction.clone(),
                 );
@@ -155,6 +208,7 @@ impl QualetizeApp {
         self.state.preview_processing 
             || self.state.settings_changed 
             || self.state.last_settings_change_time.is_some()
+            || self.state.tile_size_warning  // 警告状態の変更時も再描画
     }
 }
 
@@ -182,6 +236,9 @@ impl eframe::App for QualetizeApp {
                     if settings_changed {
                         self.state.settings_changed = true;
                         self.state.last_settings_change_time = Some(std::time::Instant::now());
+                        
+                        // タイルサイズの互換性をチェック
+                        self.check_tile_size_compatibility();
                         
                         // 進行中の処理があれば即座にキャンセル
                         if self.image_processor.is_processing() {
@@ -214,6 +271,9 @@ impl eframe::App for QualetizeApp {
             ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
                 if self.state.input_path.is_none() {
                     UI::draw_main_content(ui, &self.state);
+                } else if self.state.tile_size_warning {
+                    // 警告がある場合は常に警告表示（プレビューより優先）
+                    UI::draw_input_only_view(ui, &mut self.state);
                 } else if self.state.preview_ready {
                     UI::draw_image_view(ui, &mut self.state);
                 } else if self.state.input_image.texture.is_some() {

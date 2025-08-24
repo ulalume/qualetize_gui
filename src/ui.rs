@@ -590,7 +590,7 @@ impl UI {
         // カラー補正プリセット
         ui.add_space(4.0);
         ui.horizontal(|ui| {
-            let button_width = (ui.available_width() - 36.0) / 5.0;
+            let button_width = (ui.available_width() - (4.0 * 8.0)) / 5.0;
 
             if ui
                 .add_sized([button_width, 24.0], egui::Button::new("🔄 Reset"))
@@ -857,7 +857,7 @@ impl UI {
                 },
             );
 
-            // Right panel - Processing message
+            // Right panel - Processing message or warning
             ui.allocate_ui_with_layout(
                 Vec2::new(split_x, available_size.y),
                 egui::Layout::top_down(egui::Align::Center),
@@ -873,14 +873,29 @@ impl UI {
                     ui.scope_builder(
                         egui::UiBuilder::new().max_rect(Rect::from_center_size(
                             painter.clip_rect().center(),
-                            Vec2::new(200.0, 100.0),
+                            Vec2::new(300.0, 150.0),
                         )),
                         |ui| {
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                                ui.label("⏳");
-                                ui.label("Processing...");
-                                if !state.result_message.is_empty() {
-                                    ui.label(&state.result_message);
+                                if state.tile_size_warning {
+                                    // Show warning
+                                    ui.label(egui::RichText::new("⚠️").size(32.0).color(Color32::YELLOW));
+                                    ui.label(egui::RichText::new("Tile Size Warning").size(16.0).color(Color32::YELLOW));
+                                    ui.add_space(10.0);
+                                    ui.label(egui::RichText::new(&state.tile_size_warning_message)
+                                        .size(12.0)
+                                        .color(Color32::WHITE));
+                                    ui.add_space(10.0);
+                                    ui.label(egui::RichText::new("Adjust tile width/height in settings to match image dimensions.")
+                                        .size(11.0)
+                                        .color(Color32::LIGHT_GRAY));
+                                } else {
+                                    // Show processing message
+                                    ui.label("⏳");
+                                    ui.label("Processing...");
+                                    if !state.result_message.is_empty() {
+                                        ui.label(&state.result_message);
+                                    }
                                 }
                             });
                         },
