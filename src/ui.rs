@@ -616,6 +616,12 @@ impl UI {
         ui.heading("Status");
         if state.preview_processing {
             ui.label("🔄 Generating preview...");
+        } else if let Some(last_change_time) = state.last_settings_change_time {
+            let elapsed = last_change_time.elapsed();
+            if elapsed < state.debounce_delay {
+                let remaining = state.debounce_delay - elapsed;
+                ui.label(format!("⏱️ Preview will update in {:.1}s...", remaining.as_secs_f32()));
+            }
         } else if !state.result_message.is_empty() {
             ui.label(&state.result_message);
         }

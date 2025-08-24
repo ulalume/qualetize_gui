@@ -41,6 +41,7 @@ impl QualetizeApp {
         self.state.zoom = 0.8;
         self.state.pan_offset = egui::Vec2::ZERO;
         self.state.result_message = "Loading image...".to_string();
+        self.state.last_settings_change_time = Some(std::time::Instant::now());
 
         // Cancel any existing processing
         if self.image_processor.is_processing() {
@@ -90,15 +91,6 @@ impl QualetizeApp {
         }
     }
 
-    fn handle_color_correction_changes(&mut self) {
-        if self.state.settings_changed
-            && self.state.input_path.is_some()
-            && !self.image_processor.is_processing()
-        {
-            self.start_preview_generation();
-        }
-    }
-
     fn handle_file_selection(&mut self, ctx: &egui::Context) {
         // Check if a new file was selected via dialog but not yet loaded
         if let Some(path) = &self.state.input_path.clone() {
@@ -113,11 +105,15 @@ impl QualetizeApp {
     }
 
     fn handle_settings_changes(&mut self) {
-        if self.state.settings_changed
-            && self.state.input_path.is_some()
-            && !self.image_processor.is_processing()
-        {
-            self.start_preview_generation();
+        // デバウンス機能：設定変更から一定時間経過後にプレビュー生成を開始
+        if self.state.settings_changed && self.state.input_path.is_some() {
+            if let Some(last_change_time) = self.state.last_settings_change_time {
+                let elapsed = last_change_time.elapsed();
+                if elapsed >= self.state.debounce_delay {
+                    // 進行中の処理があってもキャンセルして新しい処理を開始
+                    self.start_preview_generation();
+                }
+            }
         }
     }
 
@@ -131,6 +127,7 @@ impl QualetizeApp {
                 );
                 self.state.preview_processing = true;
                 self.state.settings_changed = false;
+                self.state.last_settings_change_time = None; // リセット
                 self.state.result_message = "Generating preview...".to_string();
             }
         }
@@ -155,7 +152,9 @@ impl QualetizeApp {
     }
 
     fn should_repaint(&self) -> bool {
-        self.state.preview_processing || self.state.settings_changed
+        self.state.preview_processing 
+            || self.state.settings_changed 
+            || self.state.last_settings_change_time.is_some()
     }
 }
 
@@ -173,9 +172,6 @@ impl eframe::App for QualetizeApp {
         // Handle settings changes after checking completion
         self.handle_settings_changes();
 
-        // Handle color correction changes
-        self.handle_color_correction_changes();
-
         // サイドパネル（設定）
         egui::SidePanel::left("settings_panel")
             .default_width(320.0)
@@ -183,8 +179,16 @@ impl eframe::App for QualetizeApp {
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let settings_changed = UI::draw_settings_panel(ui, &mut self.state);
-                    if settings_changed && !self.state.preview_processing {
+                    if settings_changed {
                         self.state.settings_changed = true;
+                        self.state.last_settings_change_time = Some(std::time::Instant::now());
+                        
+                        // 進行中の処理があれば即座にキャンセル
+                        if self.image_processor.is_processing() {
+                            self.image_processor.cancel_current_processing();
+                            self.state.preview_processing = false;
+                            self.state.result_message = "Previous processing cancelled, will update soon...".to_string();
+                        }
                     }
                 });
             });

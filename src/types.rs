@@ -106,6 +106,10 @@ pub struct AppState {
     pub preview_processing: bool,
     pub result_message: String,
     pub settings_changed: bool,
+    
+    // デバウンス機能
+    pub last_settings_change_time: Option<std::time::Instant>,
+    pub debounce_delay: std::time::Duration,
 }
 
 impl Default for AppState {
@@ -130,6 +134,10 @@ impl Default for AppState {
             preview_processing: false,
             result_message: String::new(),
             settings_changed: false,
+            
+            // デバウンス機能 - 100msの遅延（応答性向上）
+            last_settings_change_time: None,
+            debounce_delay: std::time::Duration::from_millis(100),
         }
     }
 }
