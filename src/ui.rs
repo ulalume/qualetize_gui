@@ -116,9 +116,11 @@ impl UI {
             }
         });
 
+        Color32::from_rgb(208, 208, 208).to_opaque();
         if state.show_advanced {
             Frame::NONE
-                .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
+                .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 48))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 80)))
                 .inner_margin(Margin::same(4))
                 .outer_margin(Margin::same(4))
                 .show(ui, |ui| {
@@ -380,7 +382,8 @@ impl UI {
 
         if state.show_advanced {
             Frame::NONE
-                .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
+                .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 48))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 80)))
                 .inner_margin(Margin::same(4))
                 .outer_margin(Margin::same(4))
                 .show(ui, |ui| {
@@ -402,7 +405,8 @@ impl UI {
         if state.show_advanced {
             // Clustering Settings (moved to advanced)
             Frame::NONE
-                .fill(Color32::from_rgb(208, 208, 208)) // 内側の余白（margin
+                .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 48))
+                .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 80)))
                 .inner_margin(Margin::same(4))
                 .show(ui, |ui| {
                     ui.heading("Clustering");
