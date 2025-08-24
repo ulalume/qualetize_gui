@@ -42,7 +42,7 @@ impl Default for ImageData {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct QualetizeSettings {
     pub tile_width: u16,
     pub tile_height: u16,

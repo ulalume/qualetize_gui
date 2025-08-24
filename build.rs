@@ -15,7 +15,7 @@ fn main() {
         ])
         .include("external/qualetize/include")
         .include("external/qualetize/source")
-        .flag("-Dmain=qualetize_cli_entry")
+
         .flag("-std=c99")
         .flag("-O3")
         .flag("-ffast-math")

@@ -1,17 +1,66 @@
 use crate::color_correction::ColorProcessor;
 use crate::types::{ColorCorrection, ImageData, QualetizeSettings};
 use egui::{ColorImage, Context};
-use std::ffi::CString;
-use std::os::raw::c_char;
 use std::sync::mpsc;
 
+#[repr(C)]
+struct Vec4f {
+    f32: [f32; 4],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+struct BGRA8 {
+    b: u8,
+    g: u8,
+    r: u8,
+    a: u8,
+}
+
+#[repr(C)]
+struct QualetizePlan {
+    tile_width: u16,
+    tile_height: u16,
+    n_palette_colours: u16,
+    n_tile_palettes: u16,
+    colourspace: u8,
+    first_colour_is_transparent: u8,
+    premultiplied_alpha: u8,
+    dither_type: u8,
+    dither_level: f32,
+    split_ratio: f32,
+    n_tile_cluster_passes: u32,
+    n_colour_cluster_passes: u32,
+    colour_depth: Vec4f,
+    transparent_colour: BGRA8,
+}
+
 unsafe extern "C" {
-    fn qualetize_cli_entry(argc: i32, argv: *const *const c_char) -> i32;
+    fn Qualetize(
+        output_px_data: *mut u8,
+        output_palette: *mut BGRA8,
+        input_bitmap: *const BGRA8,
+        input_palette: *const BGRA8,
+        input_width: u32,
+        input_height: u32,
+        plan: *const QualetizePlan,
+        rmse: *mut Vec4f,
+    ) -> u8;
+}
+
+// Qualetizeの処理結果を格納する構造体
+#[derive(Debug)]
+struct QualetizeResult {
+    image_data: Vec<u8>,
+    palette_data: Vec<BGRA8>,
+    settings: QualetizeSettings,
+    width: u32,
+    height: u32,
 }
 
 pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
-    preview_receiver: Option<mpsc::Receiver<Result<(Vec<u8>, QualetizeSettings), String>>>,
+    preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
 }
 
 impl Default for ImageProcessor {
@@ -26,6 +75,83 @@ impl Default for ImageProcessor {
 impl ImageProcessor {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    fn parse_color_space(color_space: &str) -> u8 {
+        match color_space.to_lowercase().as_str() {
+            "srgb" => 0,
+            "rgb_linear" => 1,
+            "ycbcr" => 2,
+            "ycocg" => 3,
+            "cielab" => 4,
+            "ictcp" => 5,
+            "oklab" => 6,
+            "rgb_psy" => 7,
+            "ycbcr_psy" => 8,
+            "ycocg_psy" => 9,
+            _ => 0, // Default to sRGB
+        }
+    }
+
+    fn parse_dither_mode(dither_mode: &str) -> u8 {
+        match dither_mode.to_lowercase().as_str() {
+            "none" => 0,
+            "floyd" | "floyd-steinberg" => 0xFE,
+            "atkinson" => 0xFD,
+            "checker" => 0xFF,
+            _ => {
+                // Try to parse as ordered dithering (1-8)
+                if let Ok(n) = dither_mode.parse::<u8>() {
+                    if n >= 1 && n <= 8 {
+                        return n;
+                    }
+                }
+                0xFE // Default to Floyd-Steinberg
+            }
+        }
+    }
+
+    fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
+        if rgba_depth.len() == 4 {
+            let chars: Vec<char> = rgba_depth.chars().collect();
+            [
+                Self::char_to_depth(chars[0]),
+                Self::char_to_depth(chars[1]),
+                Self::char_to_depth(chars[2]),
+                Self::char_to_depth(chars[3]),
+            ]
+        } else {
+            [255.0, 255.0, 255.0, 255.0] // Default to 8-bit
+        }
+    }
+
+    fn char_to_depth(c: char) -> f32 {
+        match c {
+            '1' => 1.0,
+            '2' => 3.0,
+            '3' => 7.0,
+            '4' => 15.0,
+            '5' => 31.0,
+            '6' => 63.0,
+            '7' => 127.0,
+            '8' => 255.0,
+            _ => 255.0,
+        }
+    }
+
+    fn parse_clear_color(clear_color: &str) -> BGRA8 {
+        if clear_color == "none" {
+            BGRA8 { b: 0, g: 0, r: 0, a: 0 }
+        } else if let Ok(color_val) = u32::from_str_radix(clear_color.trim_start_matches("0x"), 16) {
+            BGRA8 {
+                b: (color_val & 0xFF) as u8,
+                g: ((color_val >> 8) & 0xFF) as u8,
+                r: ((color_val >> 16) & 0xFF) as u8,
+                a: ((color_val >> 24) & 0xFF) as u8,
+            }
+        } else {
+            BGRA8 { b: 0, g: 0, r: 0, a: 0 }
+        }
     }
 
     pub fn load_image_from_path(path: &str, ctx: &Context) -> Result<ImageData, String> {
@@ -61,9 +187,8 @@ impl ImageProcessor {
 
         let thread = std::thread::spawn(move || {
             let result =
-                Self::generate_preview_internal(input_path, settings.clone(), color_correction);
-            let result_with_settings = result.map(|data| (data, settings));
-            let _ = sender.send(result_with_settings);
+                Self::generate_preview_internal(input_path, settings, color_correction);
+            let _ = sender.send(result);
         });
 
         self.preview_thread = Some(thread);
@@ -76,8 +201,8 @@ impl ImageProcessor {
                 self.preview_receiver = None;
 
                 return Some(match result {
-                    Ok((image_data, settings)) => {
-                        match Self::create_texture_from_bmp_data(&image_data, &settings, ctx) {
+                    Ok(qualetize_result) => {
+                        match Self::create_texture_from_qualetize_result(qualetize_result, ctx) {
                             Ok(image_data) => Ok(image_data),
                             Err(e) => Err(e),
                         }
@@ -93,137 +218,82 @@ impl ImageProcessor {
         self.preview_thread.is_some()
     }
 
-    fn create_texture_from_bmp_data(
-        image_data: &[u8],
-        settings: &QualetizeSettings,
+    fn create_texture_from_qualetize_result(
+        result: QualetizeResult,
         ctx: &Context,
     ) -> Result<ImageData, String> {
-        let img = image::load_from_memory(image_data)
-            .map_err(|e| format!("BMP data loading error: {}", e))?;
+        let QualetizeResult {
+            image_data,
+            palette_data,
+            settings,
+            width,
+            height,
+        } = result;
 
-        let rgba_img = img.to_rgba8();
-        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let pixels = rgba_img.into_raw();
+        // インデックスカラーデータをRGBA画像に変換
+        let mut rgba_pixels = Vec::with_capacity((width * height * 4) as usize);
+        for &pixel_index in &image_data {
+            let palette_index = pixel_index as usize;
+            if palette_index < palette_data.len() {
+                let color = &palette_data[palette_index];
+                rgba_pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+            } else {
+                rgba_pixels.extend_from_slice(&[0, 0, 0, 255]);
+            }
+        }
 
-        // indexed colorのパレット情報を抽出
-        let palettes = Self::extract_palettes_from_bmp_data(image_data, settings);
-
-        let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let size = [width as usize, height as usize];
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_pixels);
         let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
+
+        // パレット情報を直接変換
+        let palettes = Self::convert_palette_data(&palette_data, &settings);
 
         Ok(ImageData {
             texture: Some(texture),
-            size: egui::Vec2::new(size[0] as f32, size[1] as f32),
+            size: egui::Vec2::new(width as f32, height as f32),
             palettes,
         })
     }
 
-    fn extract_palettes_from_bmp_data(
-        image_data: &[u8],
+    fn convert_palette_data(
+        palette_data: &[BGRA8],
         settings: &QualetizeSettings,
     ) -> Vec<Vec<egui::Color32>> {
-        // BMPファイルからパレット情報を直接抽出
-        match Self::extract_bmp_palette(image_data) {
-            Ok(palette) => {
-                // パレットを設定に基づいて分割
-                let colors_per_palette = settings.n_colors as usize;
-                let mut palettes = Vec::new();
+        let colors_per_palette = settings.n_colors as usize;
+        let mut palettes = Vec::new();
 
-                for chunk in palette.chunks(colors_per_palette) {
-                    palettes.push(chunk.to_vec());
-                }
+        // パレットデータをegui::Color32に変換し、設定に基づいて分割
+        let egui_colors: Vec<egui::Color32> = palette_data
+            .iter()
+            .map(|bgra| egui::Color32::from_rgba_unmultiplied(bgra.r, bgra.g, bgra.b, bgra.a))
+            .collect();
 
-                // 設定されたパレット数まで調整
-                while palettes.len() < settings.n_palettes as usize {
-                    palettes.push(Vec::new());
-                }
-                palettes.truncate(settings.n_palettes as usize);
-
-                palettes
-            }
-            Err(_) => {
-                vec![
-                    vec![egui::Color32::BLACK; settings.n_colors as usize];
-                    settings.n_palettes as usize
-                ]
-            }
+        for chunk in egui_colors.chunks(colors_per_palette) {
+            palettes.push(chunk.to_vec());
         }
+
+        // 設定されたパレット数まで調整
+        while palettes.len() < settings.n_palettes as usize {
+            palettes.push(vec![egui::Color32::BLACK; colors_per_palette]);
+        }
+        palettes.truncate(settings.n_palettes as usize);
+
+        println!("Converted {} palettes with {} colors each", palettes.len(), colors_per_palette);
+        palettes
     }
 
-    fn extract_bmp_palette(data: &[u8]) -> Result<Vec<egui::Color32>, String> {
-        if data.len() < 54 {
-            return Err("Invalid BMP file".to_string());
-        }
 
-        // BMPファイルヘッダ
-        if &data[0..2] != b"BM" {
-            return Err("Not a BMP file".to_string());
-        }
-        let data_offset = u32::from_le_bytes([data[10], data[11], data[12], data[13]]);
-        let header_size = u32::from_le_bytes([data[14], data[15], data[16], data[17]]);
-        let bits_per_pixel = u16::from_le_bytes([data[28], data[29]]);
-
-        if bits_per_pixel > 8 {
-            return Err("Not an indexed color BMP".to_string());
-        }
-
-        // パレットの色数
-        let colors_used = u32::from_le_bytes([data[46], data[47], data[48], data[49]]);
-        let colors_used = if colors_used == 0 {
-            1 << bits_per_pixel
-        } else {
-            colors_used
-        };
-
-        // パレット開始位置
-        let palette_start = 14 + header_size as usize;
-        let palette_size = colors_used as usize * 4;
-
-        if palette_start + palette_size > data_offset as usize {
-            return Err("Invalid palette size or data offset".to_string());
-        }
-
-        let mut palette = Vec::with_capacity(colors_used as usize);
-        for i in 0..colors_used as usize {
-            let offset = palette_start + i * 4;
-            if offset + 3 <= data.len() {
-                let b = data[offset];
-                let g = data[offset + 1];
-                let r = data[offset + 2];
-                let a = 255; // Reservedは無視
-                palette.push(egui::Color32::from_rgba_unmultiplied(r, g, b, a));
-            }
-        }
-
-        Ok(palette)
-    }
 
     fn generate_preview_internal(
         input_path: String,
         settings: QualetizeSettings,
         color_correction: ColorCorrection,
-    ) -> Result<Vec<u8>, String> {
+    ) -> Result<QualetizeResult, String> {
         println!("Starting preview generation for: {}", input_path);
 
-        // Create temporary BMP file
+        // Load and process image
         let img = image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
-        let temp_dir = std::env::temp_dir();
-        let temp_input = temp_dir.join(format!(
-            "temp_input_{}.bmp",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
-        let temp_output = temp_dir.join(format!(
-            "temp_output_{}.bmp",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
-
-        // Convert to RGBA and apply color corrections
         let mut rgba_img = img.to_rgba8();
 
         // Apply color corrections if any are active
@@ -231,112 +301,139 @@ impl ImageProcessor {
             println!("Applying color corrections: {:?}", color_correction);
             rgba_img = ColorProcessor::apply_corrections(&rgba_img, &color_correction);
         }
-        rgba_img
-            .save(&temp_input)
-            .map_err(|e| format!("BMP save error: {}", e))?;
 
-        println!(
-            "Running qualetize with temp files: {} -> {}",
-            temp_input.display(),
-            temp_output.display()
-        );
+        let width = rgba_img.width();
+        let height = rgba_img.height();
+        let input_data = rgba_img.into_raw();
 
-        // Run qualetize
-        let result = Self::run_qualetize_with_settings(
-            temp_input.to_str().unwrap(),
-            temp_output.to_str().unwrap(),
-            settings,
-        );
+        // Convert RGBA to BGRA for qualetize
+        let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
+        for chunk in input_data.chunks_exact(4) {
+            bgra_data.push(BGRA8 {
+                b: chunk[2],
+                g: chunk[1],
+                r: chunk[0],
+                a: chunk[3],
+            });
+        }
 
-        // Read result
-        let output_data = match result {
-            Ok(_) => {
-                println!(
-                    "Qualetize succeeded, reading output file: {}",
-                    temp_output.display()
-                );
-                let file_exists = temp_output.exists();
-                println!("Output file exists: {}", file_exists);
-                if file_exists {
-                    let file_size = std::fs::metadata(&temp_output)
-                        .map(|m| m.len())
-                        .unwrap_or(0);
-                    println!("Output file size: {} bytes", file_size);
-                }
-                std::fs::read(&temp_output).map_err(|e| format!("Output file read error: {}", e))
-            }
-            Err(e) => {
-                println!("Qualetize failed with error: {}", e);
-                Err(e)
-            }
+        // Parse settings
+        let color_space_id = Self::parse_color_space(&settings.color_space);
+        let dither_type_id = Self::parse_dither_mode(&settings.dither_mode);
+        let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
+        let clear_color = Self::parse_clear_color(&settings.clear_color);
+
+        // Create qualetize plan
+        let plan = QualetizePlan {
+            tile_width: settings.tile_width,
+            tile_height: settings.tile_height,
+            n_palette_colours: settings.n_colors,
+            n_tile_palettes: settings.n_palettes,
+            colourspace: color_space_id,
+            first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
+            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
+            dither_type: dither_type_id,
+            dither_level: settings.dither_level,
+            split_ratio: settings.split_ratio,
+            n_tile_cluster_passes: settings.tile_passes,
+            n_colour_cluster_passes: settings.color_passes,
+            colour_depth: Vec4f {
+                f32: [
+                    rgba_depth[0],
+                    rgba_depth[1],
+                    rgba_depth[2],
+                    rgba_depth[3],
+                ],
+            },
+            transparent_colour: clear_color,
         };
 
-        // Clean up temporary files
-        let _ = std::fs::remove_file(&temp_input);
-        let _ = std::fs::remove_file(&temp_output);
+        // Prepare output buffers
+        let output_size = (width * height) as usize;
+        let mut output_data: Vec<u8> = vec![0; output_size];
+        let palette_size = (settings.n_palettes * settings.n_colors) as usize;
+        let mut output_palette: Vec<BGRA8> = vec![BGRA8 { b: 0, g: 0, r: 0, a: 0 }; palette_size];
+        let mut rmse = Vec4f { f32: [0.0; 4] };
 
-        output_data
+        // Call qualetize
+        let result = unsafe {
+            Qualetize(
+                output_data.as_mut_ptr(),
+                output_palette.as_mut_ptr(),
+                bgra_data.as_ptr(),
+                std::ptr::null(),
+                width,
+                height,
+                &plan,
+                &mut rmse,
+            )
+        };
+
+        if result == 0 {
+            return Err("Qualetize processing failed".to_string());
+        }
+
+        println!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
+
+        // 結果を構造体として返す
+        Ok(QualetizeResult {
+            image_data: output_data,
+            palette_data: output_palette,
+            settings,
+            width,
+            height,
+        })
     }
 
-    fn run_qualetize_with_settings(
-        input_path: &str,
-        output_path: &str,
-        settings: QualetizeSettings,
-    ) -> Result<(), String> {
-        let mut args = vec![
-            "qualetize".to_string(),
-            input_path.to_string(),
-            output_path.to_string(),
-        ];
+    fn create_bmp_from_rgba(rgba_data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
+        // Simple BMP creation for compatibility
+        let row_size = ((width * 4 + 3) / 4) * 4; // 4-byte aligned
+        let image_size = row_size * height;
+        let file_size = 54 + image_size; // BMP header (54 bytes) + image data
 
-        // Add option arguments
-        args.push(format!("-tw:{}", settings.tile_width));
-        args.push(format!("-th:{}", settings.tile_height));
-        args.push(format!("-npal:{}", settings.n_palettes));
-        args.push(format!("-cols:{}", settings.n_colors));
-        args.push(format!("-rgba:{}", settings.rgba_depth));
-        args.push(format!(
-            "-premulalpha:{}",
-            if settings.premul_alpha { "y" } else { "n" }
-        ));
-        args.push(format!("-colspace:{}", settings.color_space));
-        args.push(format!(
-            "-dither:{},{}",
-            settings.dither_mode, settings.dither_level
-        ));
-        args.push(format!("-tilepasses:{}", settings.tile_passes));
-        args.push(format!("-colourpasses:{}", settings.color_passes));
-        args.push(format!("-splitratio:{}", settings.split_ratio));
-        args.push(format!(
-            "-col0isclear:{}",
-            if settings.col0_is_clear { "y" } else { "n" }
-        ));
-        args.push(format!("-clearcol:{}", settings.clear_color));
+        let mut bmp_data = Vec::with_capacity(file_size as usize);
 
-        // Call C function
-        let c_args: Vec<CString> = args
-            .iter()
-            .map(|arg| CString::new(arg.as_str()).unwrap())
-            .collect();
-        let c_ptrs: Vec<*const c_char> = c_args.iter().map(|arg| arg.as_ptr()).collect();
+        // BMP File Header (14 bytes)
+        bmp_data.extend_from_slice(b"BM"); // Signature
+        bmp_data.extend_from_slice(&(file_size as u32).to_le_bytes()); // File size
+        bmp_data.extend_from_slice(&[0, 0, 0, 0]); // Reserved
+        bmp_data.extend_from_slice(&54u32.to_le_bytes()); // Data offset
 
-        println!(
-            "Calling qualetize_cli_entry with {} arguments",
-            c_args.len()
-        );
-        for (i, arg) in args.iter().enumerate() {
-            println!("  Arg {}: {}", i, arg);
+        // BMP Info Header (40 bytes)
+        bmp_data.extend_from_slice(&40u32.to_le_bytes()); // Header size
+        bmp_data.extend_from_slice(&(width as i32).to_le_bytes()); // Width
+        bmp_data.extend_from_slice(&(height as i32).to_le_bytes()); // Height
+        bmp_data.extend_from_slice(&1u16.to_le_bytes()); // Planes
+        bmp_data.extend_from_slice(&32u16.to_le_bytes()); // Bits per pixel
+        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Compression
+        bmp_data.extend_from_slice(&(image_size as u32).to_le_bytes()); // Image size
+        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // X pixels per meter
+        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Y pixels per meter
+        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Colors used
+        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Important colors
+
+        // Image data (bottom-up, BGRA format)
+        for y in (0..height).rev() {
+            for x in 0..width {
+                let pixel_idx = ((y * width + x) * 4) as usize;
+                if pixel_idx + 3 < rgba_data.len() {
+                    // Convert RGBA to BGRA
+                    bmp_data.push(rgba_data[pixel_idx + 2]); // B
+                    bmp_data.push(rgba_data[pixel_idx + 1]); // G
+                    bmp_data.push(rgba_data[pixel_idx + 0]); // R
+                    bmp_data.push(rgba_data[pixel_idx + 3]); // A
+                } else {
+                    bmp_data.extend_from_slice(&[0, 0, 0, 255]);
+                }
+            }
+            // Add padding if necessary
+            let padding = row_size - (width * 4);
+            for _ in 0..padding {
+                bmp_data.push(0);
+            }
         }
 
-        let ret = unsafe { qualetize_cli_entry(c_args.len() as i32, c_ptrs.as_ptr()) };
-
-        println!("qualetize_cli_entry returned: {}", ret);
-
-        if ret == 0 {
-            Ok(())
-        } else {
-            Err(format!("Processing error: exit code {}", ret))
-        }
+        Ok(bmp_data)
     }
 
     pub fn export_image(
@@ -345,35 +442,103 @@ impl ImageProcessor {
         settings: QualetizeSettings,
         color_correction: ColorCorrection,
     ) -> Result<(), String> {
-        // Convert input image to BMP
+        // Load and process image
         let img = image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
-        let temp_dir = std::env::temp_dir();
-        let temp_input = temp_dir.join(format!(
-            "temp_export_input_{}.bmp",
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_millis()
-        ));
-
-        // Convert to RGBA and apply color corrections
         let mut rgba_img = img.to_rgba8();
 
         // Apply color corrections if any are active
         if ColorProcessor::has_corrections(&color_correction) {
             rgba_img = ColorProcessor::apply_corrections(&rgba_img, &color_correction);
         }
-        rgba_img
-            .save(&temp_input)
-            .map_err(|e| format!("BMP save error: {}", e))?;
 
-        // Run qualetize
-        let result =
-            Self::run_qualetize_with_settings(temp_input.to_str().unwrap(), &output_path, settings);
+        let width = rgba_img.width();
+        let height = rgba_img.height();
+        let input_data = rgba_img.into_raw();
 
-        // Clean up temporary file
-        let _ = std::fs::remove_file(&temp_input);
+        // Convert RGBA to BGRA for qualetize
+        let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
+        for chunk in input_data.chunks_exact(4) {
+            bgra_data.push(BGRA8 {
+                b: chunk[2],
+                g: chunk[1],
+                r: chunk[0],
+                a: chunk[3],
+            });
+        }
 
-        result.map(|_| ())
+        // Parse settings
+        let color_space_id = Self::parse_color_space(&settings.color_space);
+        let dither_type_id = Self::parse_dither_mode(&settings.dither_mode);
+        let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
+        let clear_color = Self::parse_clear_color(&settings.clear_color);
+
+        // Create qualetize plan
+        let plan = QualetizePlan {
+            tile_width: settings.tile_width,
+            tile_height: settings.tile_height,
+            n_palette_colours: settings.n_colors,
+            n_tile_palettes: settings.n_palettes,
+            colourspace: color_space_id,
+            first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
+            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
+            dither_type: dither_type_id,
+            dither_level: settings.dither_level,
+            split_ratio: settings.split_ratio,
+            n_tile_cluster_passes: settings.tile_passes,
+            n_colour_cluster_passes: settings.color_passes,
+            colour_depth: Vec4f {
+                f32: [
+                    rgba_depth[0],
+                    rgba_depth[1],
+                    rgba_depth[2],
+                    rgba_depth[3],
+                ],
+            },
+            transparent_colour: clear_color,
+        };
+
+        // Prepare output buffers
+        let output_size = (width * height) as usize;
+        let mut output_data: Vec<u8> = vec![0; output_size];
+        let palette_size = (settings.n_palettes * settings.n_colors) as usize;
+        let mut output_palette: Vec<BGRA8> = vec![BGRA8 { b: 0, g: 0, r: 0, a: 0 }; palette_size];
+        let mut rmse = Vec4f { f32: [0.0; 4] };
+
+        // Call qualetize
+        let result = unsafe {
+            Qualetize(
+                output_data.as_mut_ptr(),
+                output_palette.as_mut_ptr(),
+                bgra_data.as_ptr(),
+                std::ptr::null(),
+                width,
+                height,
+                &plan,
+                &mut rmse,
+            )
+        };
+
+        if result == 0 {
+            return Err("Qualetize processing failed".to_string());
+        }
+
+        // インデックスカラーデータをRGBA画像に変換してBMPとして保存
+        let mut output_bgra: Vec<u8> = Vec::with_capacity(output_size * 4);
+        for &pixel_index in &output_data {
+            let palette_index = pixel_index as usize;
+            if palette_index < output_palette.len() {
+                let color = &output_palette[palette_index];
+                output_bgra.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+            } else {
+                output_bgra.extend_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+
+        let bmp_data = Self::create_bmp_from_rgba(&output_bgra, width, height)?;
+        std::fs::write(&output_path, bmp_data)
+            .map_err(|e| format!("Failed to write output file: {}", e))?;
+
+        println!("Export completed successfully to: {}", output_path);
+        Ok(())
     }
 }
