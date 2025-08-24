@@ -617,7 +617,7 @@ impl UI {
             }
 
             if ui
-                .add_sized([button_width, 24.0], egui::Button::new("❄️ Cool"))
+                .add_sized([button_width, 24.0], egui::Button::new("❄ Cool"))
                 .clicked()
             {
                 state.color_correction = ColorProcessor::preset_retro_cool();
@@ -879,7 +879,7 @@ impl UI {
                             ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
                                 if state.tile_size_warning {
                                     // Show warning
-                                    ui.label(egui::RichText::new("⚠️").size(32.0).color(Color32::YELLOW));
+                                    ui.label(egui::RichText::new("⚠").size(32.0).color(Color32::YELLOW));
                                     ui.label(egui::RichText::new("Tile Size Warning").size(16.0).color(Color32::YELLOW));
                                     ui.add_space(10.0);
                                     ui.label(egui::RichText::new(&state.tile_size_warning_message)
@@ -972,9 +972,13 @@ impl UI {
                 ui.separator();
             });
 
-            // Right: Export Image button
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("💾 Export Image").clicked() && state.preview_ready {
+                let response = ui.add_enabled(
+                    state.preview_ready,
+                    egui::Button::new("💾 Export Image"),
+                );
+            
+                if response.clicked() {
                     Self::show_export_dialog(state);
                 }
             });
