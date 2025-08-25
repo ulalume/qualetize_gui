@@ -170,63 +170,6 @@ impl Default for DitherMode {
     }
 }
 
-impl ColorSpace {
-    /// Get a color space by string name for compatibility with external APIs
-    pub fn from_str_lossy(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "srgb" => ColorSpace::Srgb,
-            "rgb_linear" => ColorSpace::RgbLinear,
-            "ycbcr" => ColorSpace::Ycbcr,
-            "ycocg" => ColorSpace::Ycocg,
-            "cielab" => ColorSpace::Cielab,
-            "ictcp" => ColorSpace::Ictcp,
-            "oklab" => ColorSpace::Oklab,
-            "rgb-psy" | "rgb_psy" => ColorSpace::RgbPsy,
-            "ycbcr-psy" | "ycbcr_psy" => ColorSpace::YcbcrPsy,
-            "ycocg-psy" | "ycocg_psy" => ColorSpace::YcocgPsy,
-            _ => ColorSpace::Srgb, // Safe default
-        }
-    }
-
-    /// Check if this color space is computationally intensive
-    pub fn is_expensive(&self) -> bool {
-        matches!(self, ColorSpace::Cielab)
-    }
-}
-
-impl DitherMode {
-    /// Get a dither mode by string name for compatibility with external APIs
-    pub fn from_str_lossy(s: &str) -> Self {
-        match s.to_lowercase().as_str() {
-            "none" => DitherMode::None,
-            "floyd" | "floyd-steinberg" => DitherMode::Floyd,
-            "atkinson" => DitherMode::Atkinson,
-            "checker" | "checkerboard" => DitherMode::Checker,
-            "ord2" | "2x2" => DitherMode::Ord2,
-            "ord4" | "4x4" => DitherMode::Ord4,
-            "ord8" | "8x8" => DitherMode::Ord8,
-            "ord16" | "16x16" => DitherMode::Ord16,
-            "ord32" | "32x32" => DitherMode::Ord32,
-            "ord64" | "64x64" => DitherMode::Ord64,
-            _ => DitherMode::Floyd, // Safe default
-        }
-    }
-
-    /// Get the recommended default dither level for this mode
-    pub fn default_level(&self) -> f32 {
-        match self {
-            DitherMode::None => 0.0,
-            DitherMode::Floyd | DitherMode::Atkinson => 0.5,
-            _ => 1.0, // Ordered dithering modes
-        }
-    }
-
-    /// Check if this dither mode supports variable intensity levels
-    pub fn supports_levels(&self) -> bool {
-        !matches!(self, DitherMode::None)
-    }
-}
-
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
