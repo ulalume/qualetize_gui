@@ -140,9 +140,14 @@ impl QualetizeApp {
         let width_divisible = image_width % tile_width == 0;
         let height_divisible = image_height % tile_height == 0;
 
-        println!(
+        log::debug!(
             "Tile size check: image {}×{}, tile {}×{}, divisible: width={}, height={}",
-            image_width, image_height, tile_width, tile_height, width_divisible, height_divisible
+            image_width,
+            image_height,
+            tile_width,
+            tile_height,
+            width_divisible,
+            height_divisible
         );
 
         if !width_divisible || !height_divisible {
@@ -153,12 +158,15 @@ impl QualetizeApp {
             );
             // 警告が発生した場合はプレビュー状態をリセット
             self.state.preview_ready = false;
-            println!("Warning set: {}", self.state.tile_size_warning_message);
+            log::warn!(
+                "Tile size warning: {}",
+                self.state.tile_size_warning_message
+            );
             false
         } else {
             self.state.tile_size_warning = false;
             self.state.tile_size_warning_message.clear();
-            println!("No warning - sizes are compatible");
+            log::debug!("No warning - sizes are compatible");
             true
         }
     }
@@ -244,7 +252,7 @@ impl eframe::App for QualetizeApp {
                         self.check_tile_size_compatibility();
 
                         // 進行中の処理があれば即座にキャンセル
-                        if self.image_processor.is_processing() {
+                        if self.image_processor.is_processing() || self.state.preview_processing {
                             self.image_processor.cancel_current_processing();
                             self.state.preview_processing = false;
                             self.state.result_message =

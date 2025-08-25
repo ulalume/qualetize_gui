@@ -2881,6 +2881,7 @@ dependencies = [
  "env_logger",
  "image",
  "imageproc",
+ "log",
  "nalgebra 0.34.0",
  "rfd",
 ]

@@ -1,0 +1,29 @@
+mod footer;
+mod image_viewer;
+mod settings_panel;
+
+use crate::types::AppState;
+
+pub struct UI;
+
+impl UI {
+    pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+        settings_panel::draw_settings_panel(ui, state)
+    }
+
+    pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
+        image_viewer::draw_image_view(ui, state)
+    }
+
+    pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
+        image_viewer::draw_input_only_view(ui, state)
+    }
+
+    pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {
+        image_viewer::draw_main_content(ui, state)
+    }
+
+    pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+        footer::draw_footer(ui, state)
+    }
+}

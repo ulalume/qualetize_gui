@@ -63,7 +63,7 @@ pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
     preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
     cancel_sender: Option<mpsc::Sender<()>>,
-    current_generation_id: u64, // 現在の処理世代ID
+    current_generation_id: u64,                       // 現在の処理世代ID
     active_threads: Vec<std::thread::JoinHandle<()>>, // アクティブなスレッドのリスト
 }
 
@@ -148,8 +148,14 @@ impl ImageProcessor {
 
     fn parse_clear_color(clear_color: &str) -> BGRA8 {
         if clear_color == "none" {
-            BGRA8 { b: 0, g: 0, r: 0, a: 0 }
-        } else if let Ok(color_val) = u32::from_str_radix(clear_color.trim_start_matches("0x"), 16) {
+            BGRA8 {
+                b: 0,
+                g: 0,
+                r: 0,
+                a: 0,
+            }
+        } else if let Ok(color_val) = u32::from_str_radix(clear_color.trim_start_matches("0x"), 16)
+        {
             BGRA8 {
                 b: (color_val & 0xFF) as u8,
                 g: ((color_val >> 8) & 0xFF) as u8,
@@ -157,7 +163,12 @@ impl ImageProcessor {
                 a: ((color_val >> 24) & 0xFF) as u8,
             }
         } else {
-            BGRA8 { b: 0, g: 0, r: 0, a: 0 }
+            BGRA8 {
+                b: 0,
+                g: 0,
+                r: 0,
+                a: 0,
+            }
         }
     }
 
@@ -189,17 +200,17 @@ impl ImageProcessor {
         let (result_sender, result_receiver) = mpsc::channel();
         let (cancel_sender, cancel_receiver) = mpsc::channel();
         let generation_id = self.current_generation_id;
-        
+
         self.preview_receiver = Some(result_receiver);
         self.cancel_sender = Some(cancel_sender);
 
         let thread = std::thread::spawn(move || {
             let result = Self::generate_preview_internal(
-                input_path, 
-                settings, 
-                color_correction, 
+                input_path,
+                settings,
+                color_correction,
                 cancel_receiver,
-                generation_id
+                generation_id,
             );
             let _ = result_sender.send(result);
         });
@@ -210,7 +221,7 @@ impl ImageProcessor {
     pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
         // 完了した古いスレッドをクリーンアップ
         self.cleanup_finished_threads();
-        
+
         if let Some(receiver) = &mut self.preview_receiver {
             if let Ok(result) = receiver.try_recv() {
                 self.preview_thread = None;
@@ -220,14 +231,21 @@ impl ImageProcessor {
                     Ok(qualetize_result) => {
                         // 世代IDをチェックして、古い結果は無視
                         if qualetize_result.generation_id == self.current_generation_id {
-                            println!("Accepting result from generation {}", qualetize_result.generation_id);
-                            match Self::create_texture_from_qualetize_result(qualetize_result, ctx) {
+                            log::debug!(
+                                "Accepting result from generation {}",
+                                qualetize_result.generation_id
+                            );
+                            match Self::create_texture_from_qualetize_result(qualetize_result, ctx)
+                            {
                                 Ok(image_data) => Ok(image_data),
                                 Err(e) => Err(e),
                             }
                         } else {
-                            println!("Ignoring outdated result from generation {} (current: {})", 
-                                qualetize_result.generation_id, self.current_generation_id);
+                            log::debug!(
+                                "Ignoring outdated result from generation {} (current: {})",
+                                qualetize_result.generation_id,
+                                self.current_generation_id
+                            );
                             return None; // 古い結果は無視
                         }
                     }
@@ -252,23 +270,23 @@ impl ImageProcessor {
         if let Some(cancel_sender) = &self.cancel_sender {
             let _ = cancel_sender.send(()); // キャンセル信号を送信
         }
-        
+
         // 古いスレッドをバックグラウンドで実行継続させる（結果は無視）
         if let Some(old_thread) = self.preview_thread.take() {
             self.active_threads.push(old_thread);
         }
-        
+
         // 現在の処理をクリア
         self.preview_receiver = None;
         self.cancel_sender = None;
-        
+
         // 世代IDを更新（古い結果を無視するため）
         self.current_generation_id += 1;
-        
+
         // 完了した古いスレッドをクリーンアップ
         self.cleanup_finished_threads();
     }
-    
+
     fn cleanup_finished_threads(&mut self) {
         self.active_threads.retain(|thread| !thread.is_finished());
     }
@@ -335,11 +353,40 @@ impl ImageProcessor {
         }
         palettes.truncate(settings.n_palettes as usize);
 
-        println!("Converted {} palettes with {} colors each", palettes.len(), colors_per_palette);
+        log::debug!(
+            "Converted {} palettes with {} colors each",
+            palettes.len(),
+            colors_per_palette
+        );
         palettes
     }
 
+    fn create_qualetize_plan(
+        settings: &QualetizeSettings,
+        _color_correction: &ColorCorrection,
+    ) -> Result<QualetizePlan, String> {
+        let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
+        let clear_color = Self::parse_clear_color(&settings.clear_color);
 
+        Ok(QualetizePlan {
+            tile_width: settings.tile_width,
+            tile_height: settings.tile_height,
+            n_palette_colours: settings.n_colors,
+            n_tile_palettes: settings.n_palettes,
+            colourspace: Self::parse_color_space(&settings.color_space),
+            first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
+            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
+            dither_type: Self::parse_dither_mode(&settings.dither_mode),
+            dither_level: settings.dither_level,
+            split_ratio: settings.split_ratio,
+            n_tile_cluster_passes: settings.tile_passes,
+            n_colour_cluster_passes: settings.color_passes,
+            colour_depth: Vec4f {
+                f32: [rgba_depth[0], rgba_depth[1], rgba_depth[2], rgba_depth[3]],
+            },
+            transparent_colour: clear_color,
+        })
+    }
 
     fn generate_preview_internal(
         input_path: String,
@@ -348,11 +395,15 @@ impl ImageProcessor {
         cancel_receiver: mpsc::Receiver<()>,
         generation_id: u64,
     ) -> Result<QualetizeResult, String> {
-        println!("Starting preview generation for: {} (generation {})", input_path, generation_id);
+        log::info!(
+            "Starting preview generation for: {} (generation {})",
+            input_path,
+            generation_id
+        );
 
         // キャンセルチェック
         if cancel_receiver.try_recv().is_ok() {
-            println!("Processing cancelled for generation {}", generation_id);
+            log::info!("Processing cancelled for generation {}", generation_id);
             return Err("Processing cancelled".to_string());
         }
 
@@ -362,7 +413,7 @@ impl ImageProcessor {
 
         // Apply color corrections if any are active
         if ColorProcessor::has_corrections(&color_correction) {
-            println!("Applying color corrections: {:?}", color_correction);
+            log::debug!("Applying color corrections: {:?}", color_correction);
             rgba_img = ColorProcessor::apply_corrections(&rgba_img, &color_correction);
         }
 
@@ -386,42 +437,22 @@ impl ImageProcessor {
             });
         }
 
-        // Parse settings
-        let color_space_id = Self::parse_color_space(&settings.color_space);
-        let dither_type_id = Self::parse_dither_mode(&settings.dither_mode);
-        let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
-        let clear_color = Self::parse_clear_color(&settings.clear_color);
-
         // Create qualetize plan
-        let plan = QualetizePlan {
-            tile_width: settings.tile_width,
-            tile_height: settings.tile_height,
-            n_palette_colours: settings.n_colors,
-            n_tile_palettes: settings.n_palettes,
-            colourspace: color_space_id,
-            first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
-            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
-            dither_type: dither_type_id,
-            dither_level: settings.dither_level,
-            split_ratio: settings.split_ratio,
-            n_tile_cluster_passes: settings.tile_passes,
-            n_colour_cluster_passes: settings.color_passes,
-            colour_depth: Vec4f {
-                f32: [
-                    rgba_depth[0],
-                    rgba_depth[1],
-                    rgba_depth[2],
-                    rgba_depth[3],
-                ],
-            },
-            transparent_colour: clear_color,
-        };
+        let plan = Self::create_qualetize_plan(&settings, &color_correction)?;
 
         // Prepare output buffers
         let output_size = (width * height) as usize;
         let mut output_data: Vec<u8> = vec![0; output_size];
         let palette_size = (settings.n_palettes * settings.n_colors) as usize;
-        let mut output_palette: Vec<BGRA8> = vec![BGRA8 { b: 0, g: 0, r: 0, a: 0 }; palette_size];
+        let mut output_palette: Vec<BGRA8> = vec![
+            BGRA8 {
+                b: 0,
+                g: 0,
+                r: 0,
+                a: 0
+            };
+            palette_size
+        ];
         let mut rmse = Vec4f { f32: [0.0; 4] };
 
         // Call qualetize
@@ -442,7 +473,7 @@ impl ImageProcessor {
             return Err("Qualetize processing failed".to_string());
         }
 
-        println!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
+        log::debug!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
 
         // 結果を構造体として返す
         Ok(QualetizeResult {
@@ -536,42 +567,22 @@ impl ImageProcessor {
             });
         }
 
-        // Parse settings
-        let color_space_id = Self::parse_color_space(&settings.color_space);
-        let dither_type_id = Self::parse_dither_mode(&settings.dither_mode);
-        let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
-        let clear_color = Self::parse_clear_color(&settings.clear_color);
-
         // Create qualetize plan
-        let plan = QualetizePlan {
-            tile_width: settings.tile_width,
-            tile_height: settings.tile_height,
-            n_palette_colours: settings.n_colors,
-            n_tile_palettes: settings.n_palettes,
-            colourspace: color_space_id,
-            first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
-            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
-            dither_type: dither_type_id,
-            dither_level: settings.dither_level,
-            split_ratio: settings.split_ratio,
-            n_tile_cluster_passes: settings.tile_passes,
-            n_colour_cluster_passes: settings.color_passes,
-            colour_depth: Vec4f {
-                f32: [
-                    rgba_depth[0],
-                    rgba_depth[1],
-                    rgba_depth[2],
-                    rgba_depth[3],
-                ],
-            },
-            transparent_colour: clear_color,
-        };
+        let plan = Self::create_qualetize_plan(&settings, &color_correction)?;
 
         // Prepare output buffers
         let output_size = (width * height) as usize;
         let mut output_data: Vec<u8> = vec![0; output_size];
         let palette_size = (settings.n_palettes * settings.n_colors) as usize;
-        let mut output_palette: Vec<BGRA8> = vec![BGRA8 { b: 0, g: 0, r: 0, a: 0 }; palette_size];
+        let mut output_palette: Vec<BGRA8> = vec![
+            BGRA8 {
+                b: 0,
+                g: 0,
+                r: 0,
+                a: 0
+            };
+            palette_size
+        ];
         let mut rmse = Vec4f { f32: [0.0; 4] };
 
         // Call qualetize
@@ -608,7 +619,7 @@ impl ImageProcessor {
         std::fs::write(&output_path, bmp_data)
             .map_err(|e| format!("Failed to write output file: {}", e))?;
 
-        println!("Export completed successfully to: {}", output_path);
+        log::info!("Export completed successfully to: {}", output_path);
         Ok(())
     }
 }

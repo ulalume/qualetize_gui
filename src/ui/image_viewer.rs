@@ -1,0 +1,312 @@
+use crate::types::AppState;
+use egui::{Color32, Pos2, Rect, Vec2};
+
+pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
+    let available_size = ui.available_size();
+    let split_x = available_size.x / 2.0;
+
+    // Clone the image data to avoid borrow conflicts
+    let input_image = state.input_image.clone();
+    let output_image = state.output_image.clone();
+    let zoom = state.zoom;
+    let pan_offset = state.pan_offset;
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(1.0, 0.0);
+
+        // Left panel - Input image
+        let mut zoom_changed = false;
+        let mut pan_changed = egui::Vec2::ZERO;
+
+        draw_image_panel_readonly(
+            ui,
+            split_x,
+            available_size.y,
+            &input_image,
+            zoom,
+            pan_offset,
+            &mut zoom_changed,
+            &mut pan_changed,
+        );
+
+        // Right panel - Output image with palettes
+        draw_image_panel_readonly(
+            ui,
+            split_x,
+            available_size.y,
+            &output_image,
+            zoom,
+            pan_offset,
+            &mut zoom_changed,
+            &mut pan_changed,
+        );
+
+        // Apply changes back to state
+        if zoom_changed {
+            // This will be handled by the mouse interaction
+        }
+        if pan_changed != egui::Vec2::ZERO {
+            state.pan_offset += pan_changed;
+        }
+    });
+
+    // Handle mouse interaction separately to avoid borrow conflicts
+    if ui.ui_contains_pointer() {
+        let ctx = ui.ctx();
+        let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
+        if scroll_delta != 0.0 {
+            let zoom_factor = 1.0 + scroll_delta * 0.001;
+            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 10.0);
+        }
+    }
+}
+
+pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
+    let available_size = ui.available_size();
+    let split_x = available_size.x / 2.0;
+
+    // Clone the image data to avoid borrow conflicts
+    let input_image = state.input_image.clone();
+    let zoom = state.zoom;
+    let pan_offset = state.pan_offset;
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing = egui::vec2(1.0, 0.0);
+
+        // Left panel - Input image
+        let mut zoom_changed = false;
+        let mut pan_changed = egui::Vec2::ZERO;
+
+        draw_image_panel_readonly(
+            ui,
+            split_x,
+            available_size.y,
+            &input_image,
+            zoom,
+            pan_offset,
+            &mut zoom_changed,
+            &mut pan_changed,
+        );
+
+        // Right panel - Status/Warning message
+        draw_status_panel(ui, state, split_x, available_size.y);
+
+        // Apply changes back to state
+        if pan_changed != egui::Vec2::ZERO {
+            state.pan_offset += pan_changed;
+        }
+    });
+
+    // Handle mouse interaction separately to avoid borrow conflicts
+    if ui.ui_contains_pointer() {
+        let ctx = ui.ctx();
+        let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
+        if scroll_delta != 0.0 {
+            let zoom_factor = 1.0 + scroll_delta * 0.001;
+            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 10.0);
+        }
+    }
+}
+
+pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {
+    if state.input_path.is_none() {
+        ui.centered_and_justified(|ui| {
+            ui.heading("📁 Drop an image file here or use 'Select Input File'");
+        });
+    } else if !state.preview_ready {
+        ui.centered_and_justified(|ui| {
+            ui.heading("⏳ Processing...");
+        });
+    }
+}
+
+fn draw_image_panel_readonly(
+    ui: &mut egui::Ui,
+    width: f32,
+    height: f32,
+    image_data: &crate::types::ImageData,
+    zoom: f32,
+    pan_offset: Vec2,
+    _zoom_changed: &mut bool,
+    pan_changed: &mut Vec2,
+) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, height),
+        egui::Layout::top_down(egui::Align::Center),
+        |ui| {
+            let (response, painter) =
+                ui.allocate_painter(Vec2::new(width, height), egui::Sense::click_and_drag());
+
+            // Draw background
+            painter.rect_filled(response.rect, 0.0, Color32::from_gray(64));
+
+            if let Some(texture) = image_data.texture.as_ref() {
+                let original_size = image_data.size;
+
+                let image_rect =
+                    calculate_image_rect(&response.rect, original_size, zoom, pan_offset);
+
+                painter.image(
+                    texture.id(),
+                    image_rect,
+                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                    Color32::WHITE,
+                );
+
+                // Draw palettes overlay for output image
+                if !image_data.palettes.is_empty() {
+                    draw_palettes_overlay(&painter, &response.rect, &image_data.palettes);
+                }
+            }
+
+            // Handle pan
+            if response.dragged() {
+                *pan_changed += response.drag_delta();
+            }
+        },
+    );
+}
+
+fn draw_status_panel(ui: &mut egui::Ui, state: &AppState, width: f32, height: f32) {
+    ui.allocate_ui_with_layout(
+        Vec2::new(width, height),
+        egui::Layout::top_down(egui::Align::Center),
+        |ui| {
+            let (_, painter) = ui.allocate_painter(Vec2::new(width, height), egui::Sense::hover());
+
+            // Draw background
+            painter.rect_filled(painter.clip_rect(), 0.0, Color32::from_gray(64));
+
+            ui.scope_builder(
+                egui::UiBuilder::new().max_rect(Rect::from_center_size(
+                    painter.clip_rect().center(),
+                    Vec2::new(300.0, 150.0),
+                )),
+                |ui| {
+                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
+                        if state.tile_size_warning {
+                            draw_warning_message(ui, state);
+                        } else {
+                            draw_processing_message(ui, state);
+                        }
+                    });
+                },
+            );
+        },
+    );
+}
+
+fn draw_warning_message(ui: &mut egui::Ui, state: &AppState) {
+    ui.label(egui::RichText::new("⚠").size(32.0).color(Color32::YELLOW));
+    ui.label(
+        egui::RichText::new("Tile Size Warning")
+            .size(16.0)
+            .color(Color32::YELLOW),
+    );
+    ui.add_space(10.0);
+    ui.label(
+        egui::RichText::new(&state.tile_size_warning_message)
+            .size(12.0)
+            .color(Color32::WHITE),
+    );
+    ui.add_space(10.0);
+    ui.label(
+        egui::RichText::new("Adjust tile width/height in settings to match image dimensions.")
+            .size(11.0)
+            .color(Color32::LIGHT_GRAY),
+    );
+}
+
+fn draw_processing_message(ui: &mut egui::Ui, state: &AppState) {
+    ui.label("⏳");
+    ui.label("Processing...");
+    if !state.result_message.is_empty() {
+        ui.label(&state.result_message);
+    }
+}
+
+fn calculate_image_rect(
+    available_rect: &Rect,
+    original_size: Vec2,
+    zoom: f32,
+    pan_offset: Vec2,
+) -> Rect {
+    // Scale to fit while maintaining aspect ratio
+    let scale_x = available_rect.width() / original_size.x;
+    let scale_y = available_rect.height() / original_size.y;
+    let base_scale = scale_x.min(scale_y);
+    let scale = (base_scale * zoom).min(10.0);
+
+    let display_size = original_size * scale;
+    let view_center = available_rect.center() + pan_offset;
+
+    Rect::from_center_size(view_center, display_size)
+}
+
+fn draw_palettes_overlay(painter: &egui::Painter, rect: &Rect, palettes: &[Vec<egui::Color32>]) {
+    if palettes.is_empty() {
+        return;
+    }
+
+    let palette_margin = 8.0;
+    let palette_spacing = 1.0;
+    let palette_size = calculate_palette_size(rect, palettes, palette_margin, palette_spacing);
+
+    let start_x = rect.max.x - palette_margin;
+    let mut current_y = rect.min.y + palette_margin;
+
+    for palette in palettes {
+        draw_single_palette(
+            painter,
+            palette,
+            start_x,
+            current_y,
+            palette_size,
+            palette_spacing,
+        );
+        current_y += palette_size + palette_spacing;
+    }
+}
+
+fn calculate_palette_size(
+    rect: &Rect,
+    palettes: &[Vec<egui::Color32>],
+    palette_margin: f32,
+    palette_spacing: f32,
+) -> f32 {
+    if let Some(first_palette) = palettes.first() {
+        4.0_f32.max(16.0_f32.min(
+            (rect.width()
+                - palette_margin * 2.0
+                - ((first_palette.len() as f32) - 1.0) * palette_spacing)
+                / (first_palette.len() as f32),
+        ))
+    } else {
+        8.0
+    }
+}
+
+fn draw_single_palette(
+    painter: &egui::Painter,
+    palette: &[egui::Color32],
+    start_x: f32,
+    y: f32,
+    palette_size: f32,
+    palette_spacing: f32,
+) {
+    let palette_width = (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
+
+    for (color_idx, &color) in palette.iter().enumerate() {
+        let x = start_x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
+        let color_rect =
+            Rect::from_min_size(Pos2::new(x, y), Vec2::new(palette_size, palette_size));
+
+        painter.rect_filled(color_rect, 0.0, color);
+        painter.rect_stroke(
+            color_rect,
+            0.0,
+            egui::Stroke::new(1.0, Color32::from_gray(48)),
+            egui::StrokeKind::Middle,
+        );
+    }
+}
