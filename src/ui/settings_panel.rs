@@ -50,6 +50,8 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     // Color correction settings
     settings_changed |= draw_color_correction_settings(ui, state);
 
+    ui.separator();
+
     // Status display
     draw_status_section(ui, state);
 
