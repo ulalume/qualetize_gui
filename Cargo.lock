@@ -2884,6 +2884,7 @@ dependencies = [
  "log",
  "nalgebra 0.34.0",
  "rfd",
+ "serde",
 ]
 
 [[package]]

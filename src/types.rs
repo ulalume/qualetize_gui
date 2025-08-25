@@ -1,5 +1,232 @@
 use egui::{TextureHandle, Vec2};
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ColorSpace {
+    Srgb,
+    RgbLinear,
+    Ycbcr,
+    Ycocg,
+    Cielab,
+    Ictcp,
+    Oklab,
+    RgbPsy,
+    YcbcrPsy,
+    YcocgPsy,
+}
+
+impl ColorSpace {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ColorSpace::Srgb => "sRGB",
+            ColorSpace::RgbLinear => "RGB Linear",
+            ColorSpace::Ycbcr => "YCbCr",
+            ColorSpace::Ycocg => "YCoCg",
+            ColorSpace::Cielab => "CIELAB",
+            ColorSpace::Ictcp => "ICtCp",
+            ColorSpace::Oklab => "OkLab",
+            ColorSpace::RgbPsy => "RGB + Psyopt",
+            ColorSpace::YcbcrPsy => "YCbCr + Psyopt",
+            ColorSpace::YcocgPsy => "YCoCg + Psyopt",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            ColorSpace::Srgb => "Standard RGB color space",
+            ColorSpace::RgbLinear => "Linear RGB color space",
+            ColorSpace::Ycbcr => "Luma + Chroma color space",
+            ColorSpace::Ycocg => "Luma + Co/Cg color space",
+            ColorSpace::Cielab => {
+                "CIE L*a*b* color space\nNOTE: CIELAB has poor performance in most cases"
+            }
+            ColorSpace::Ictcp => "ITU-R Rec. 2100 ICtCp color space",
+            ColorSpace::Oklab => "OkLab perceptual color space",
+            ColorSpace::RgbPsy => {
+                "RGB with psychovisual optimization\n(Non-linear light, weighted components)"
+            }
+            ColorSpace::YcbcrPsy => {
+                "YCbCr with psychovisual optimization\n(Non-linear luma, weighted chroma)"
+            }
+            ColorSpace::YcocgPsy => "YCoCg with psychovisual optimization\n(Non-linear luma)",
+        }
+    }
+
+    pub fn to_id(&self) -> u8 {
+        match self {
+            ColorSpace::Srgb => 0,
+            ColorSpace::RgbLinear => 1,
+            ColorSpace::Ycbcr => 2,
+            ColorSpace::Ycocg => 3,
+            ColorSpace::Cielab => 4,
+            ColorSpace::Ictcp => 5,
+            ColorSpace::Oklab => 6,
+            ColorSpace::RgbPsy => 7,
+            ColorSpace::YcbcrPsy => 8,
+            ColorSpace::YcocgPsy => 9,
+        }
+    }
+
+    pub fn all() -> &'static [ColorSpace] {
+        &[
+            ColorSpace::Srgb,
+            ColorSpace::RgbLinear,
+            ColorSpace::Ycbcr,
+            ColorSpace::Ycocg,
+            ColorSpace::Cielab,
+            ColorSpace::Ictcp,
+            ColorSpace::Oklab,
+            ColorSpace::RgbPsy,
+            ColorSpace::YcbcrPsy,
+            ColorSpace::YcocgPsy,
+        ]
+    }
+}
+
+impl Default for ColorSpace {
+    fn default() -> Self {
+        ColorSpace::Srgb
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum DitherMode {
+    None,
+    Floyd,
+    Atkinson,
+    Checker,
+    Ord2,
+    Ord4,
+    Ord8,
+    Ord16,
+    Ord32,
+    Ord64,
+}
+
+impl DitherMode {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            DitherMode::None => "None",
+            DitherMode::Floyd => "Floyd-Steinberg",
+            DitherMode::Atkinson => "Atkinson",
+            DitherMode::Checker => "Checkerboard",
+            DitherMode::Ord2 => "2x2 Ordered",
+            DitherMode::Ord4 => "4x4 Ordered",
+            DitherMode::Ord8 => "8x8 Ordered",
+            DitherMode::Ord16 => "16x16 Ordered",
+            DitherMode::Ord32 => "32x32 Ordered",
+            DitherMode::Ord64 => "64x64 Ordered",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            DitherMode::None => "No dithering",
+            DitherMode::Floyd => "Floyd-Steinberg error diffusion (default level: 0.5)",
+            DitherMode::Atkinson => "Atkinson error diffusion (default level: 0.5)",
+            DitherMode::Checker => "Checkerboard dithering (default level: 1.0)",
+            DitherMode::Ord2 => "2x2 ordered dithering (default level: 1.0)",
+            DitherMode::Ord4 => "4x4 ordered dithering (default level: 1.0)",
+            DitherMode::Ord8 => "8x8 ordered dithering (default level: 1.0)",
+            DitherMode::Ord16 => "16x16 ordered dithering (default level: 1.0)",
+            DitherMode::Ord32 => "32x32 ordered dithering (default level: 1.0)",
+            DitherMode::Ord64 => "64x64 ordered dithering (default level: 1.0)",
+        }
+    }
+
+    pub fn to_id(&self) -> u8 {
+        match self {
+            DitherMode::None => 0,
+            DitherMode::Floyd => 0xFE,
+            DitherMode::Atkinson => 0xFD,
+            DitherMode::Checker => 0xFF,
+            DitherMode::Ord2 => 2,
+            DitherMode::Ord4 => 4,
+            DitherMode::Ord8 => 6,
+            DitherMode::Ord16 => 7,
+            DitherMode::Ord32 => 8,
+            DitherMode::Ord64 => 9,
+        }
+    }
+
+    pub fn all() -> &'static [DitherMode] {
+        &[
+            DitherMode::None,
+            DitherMode::Floyd,
+            DitherMode::Atkinson,
+            DitherMode::Checker,
+            DitherMode::Ord2,
+            DitherMode::Ord4,
+            DitherMode::Ord8,
+            DitherMode::Ord16,
+            DitherMode::Ord32,
+            DitherMode::Ord64,
+        ]
+    }
+}
+
+impl Default for DitherMode {
+    fn default() -> Self {
+        DitherMode::Floyd
+    }
+}
+
+impl ColorSpace {
+    /// Get a color space by string name for compatibility with external APIs
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "srgb" => ColorSpace::Srgb,
+            "rgb_linear" => ColorSpace::RgbLinear,
+            "ycbcr" => ColorSpace::Ycbcr,
+            "ycocg" => ColorSpace::Ycocg,
+            "cielab" => ColorSpace::Cielab,
+            "ictcp" => ColorSpace::Ictcp,
+            "oklab" => ColorSpace::Oklab,
+            "rgb-psy" | "rgb_psy" => ColorSpace::RgbPsy,
+            "ycbcr-psy" | "ycbcr_psy" => ColorSpace::YcbcrPsy,
+            "ycocg-psy" | "ycocg_psy" => ColorSpace::YcocgPsy,
+            _ => ColorSpace::Srgb, // Safe default
+        }
+    }
+
+    /// Check if this color space is computationally intensive
+    pub fn is_expensive(&self) -> bool {
+        matches!(self, ColorSpace::Cielab)
+    }
+}
+
+impl DitherMode {
+    /// Get a dither mode by string name for compatibility with external APIs
+    pub fn from_str_lossy(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "none" => DitherMode::None,
+            "floyd" | "floyd-steinberg" => DitherMode::Floyd,
+            "atkinson" => DitherMode::Atkinson,
+            "checker" | "checkerboard" => DitherMode::Checker,
+            "ord2" | "2x2" => DitherMode::Ord2,
+            "ord4" | "4x4" => DitherMode::Ord4,
+            "ord8" | "8x8" => DitherMode::Ord8,
+            "ord16" | "16x16" => DitherMode::Ord16,
+            "ord32" | "32x32" => DitherMode::Ord32,
+            "ord64" | "64x64" => DitherMode::Ord64,
+            _ => DitherMode::Floyd, // Safe default
+        }
+    }
+
+    /// Get the recommended default dither level for this mode
+    pub fn default_level(&self) -> f32 {
+        match self {
+            DitherMode::None => 0.0,
+            DitherMode::Floyd | DitherMode::Atkinson => 0.5,
+            _ => 1.0, // Ordered dithering modes
+        }
+    }
+
+    /// Check if this dither mode supports variable intensity levels
+    pub fn supports_levels(&self) -> bool {
+        !matches!(self, DitherMode::None)
+    }
+}
+
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
@@ -50,8 +277,8 @@ pub struct QualetizeSettings {
     pub n_colors: u16,
     pub rgba_depth: String,
     pub premul_alpha: bool,
-    pub color_space: String,
-    pub dither_mode: String,
+    pub color_space: ColorSpace,
+    pub dither_mode: DitherMode,
     pub dither_level: f32,
     pub tile_passes: u32,
     pub color_passes: u32,
@@ -69,8 +296,8 @@ impl Default for QualetizeSettings {
             n_colors: 16,                   // デフォルト値: 16
             rgba_depth: "3331".to_string(), // デフォルト値: 3331
             premul_alpha: false,
-            color_space: "srgb".to_string(), // デフォルト値: sRGB
-            dither_mode: "floyd".to_string(),
+            color_space: ColorSpace::Srgb, // デフォルト値: sRGB
+            dither_mode: DitherMode::Floyd,
             dither_level: 0.5,
             tile_passes: 1000, // デフォルト値: 1000
             color_passes: 100, // デフォルト値: 100
@@ -106,11 +333,11 @@ pub struct AppState {
     pub preview_processing: bool,
     pub result_message: String,
     pub settings_changed: bool,
-    
+
     // 警告状態
     pub tile_size_warning: bool,
     pub tile_size_warning_message: String,
-    
+
     // デバウンス機能
     pub last_settings_change_time: Option<std::time::Instant>,
     pub debounce_delay: std::time::Duration,
@@ -138,11 +365,11 @@ impl Default for AppState {
             preview_processing: false,
             result_message: String::new(),
             settings_changed: false,
-            
+
             // 警告状態
             tile_size_warning: false,
             tile_size_warning_message: String::new(),
-            
+
             // デバウンス機能 - 100msの遅延（応答性向上）
             last_settings_change_time: None,
             debounce_delay: std::time::Duration::from_millis(100),

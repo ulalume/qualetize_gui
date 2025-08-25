@@ -84,40 +84,6 @@ impl ImageProcessor {
         Self::default()
     }
 
-    fn parse_color_space(color_space: &str) -> u8 {
-        match color_space.to_lowercase().as_str() {
-            "srgb" => 0,
-            "rgb_linear" => 1,
-            "ycbcr" => 2,
-            "ycocg" => 3,
-            "cielab" => 4,
-            "ictcp" => 5,
-            "oklab" => 6,
-            "rgb_psy" => 7,
-            "ycbcr_psy" => 8,
-            "ycocg_psy" => 9,
-            _ => 0, // Default to sRGB
-        }
-    }
-
-    fn parse_dither_mode(dither_mode: &str) -> u8 {
-        match dither_mode.to_lowercase().as_str() {
-            "none" => 0,
-            "floyd" | "floyd-steinberg" => 0xFE,
-            "atkinson" => 0xFD,
-            "checker" => 0xFF,
-            _ => {
-                // Try to parse as ordered dithering (1-8)
-                if let Ok(n) = dither_mode.parse::<u8>() {
-                    if n >= 1 && n <= 8 {
-                        return n;
-                    }
-                }
-                0xFE // Default to Floyd-Steinberg
-            }
-        }
-    }
-
     fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
         if rgba_depth.len() == 4 {
             let chars: Vec<char> = rgba_depth.chars().collect();
@@ -373,10 +339,10 @@ impl ImageProcessor {
             tile_height: settings.tile_height,
             n_palette_colours: settings.n_colors,
             n_tile_palettes: settings.n_palettes,
-            colourspace: Self::parse_color_space(&settings.color_space),
+            colourspace: settings.color_space.to_id(),
             first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
             premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
-            dither_type: Self::parse_dither_mode(&settings.dither_mode),
+            dither_type: settings.dither_mode.to_id(),
             dither_level: settings.dither_level,
             split_ratio: settings.split_ratio,
             n_tile_cluster_passes: settings.tile_passes,

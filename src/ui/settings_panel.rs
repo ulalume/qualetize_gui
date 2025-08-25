@@ -1,7 +1,7 @@
 use crate::color_correction::{
     ColorProcessor, display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
-use crate::types::AppState;
+use crate::types::{AppState, ColorSpace, DitherMode};
 use egui::{Color32, Frame, Margin};
 use rfd::FileDialog;
 use std::path::Path;
@@ -232,24 +232,12 @@ fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.heading("Color Space");
     egui::ComboBox::from_label("Color Space")
-        .selected_text(&state.settings.color_space)
+        .selected_text(state.settings.color_space.display_name())
         .show_ui(ui, |ui| {
-            let color_spaces = [
-                ("srgb", "sRGB", "Standard RGB color space"),
-                ("ycbcr", "YCbCr", "Luma + Chroma color space"),
-                ("ycocg", "YCoCg", "Luma + Co/Cg color space"),
-                ("cielab", "CIELAB", "CIE L*a*b* color space\nNOTE: CIELAB has poor performance in most cases"),
-                ("ictcp", "ICtCp", "ITU-R Rec. 2100 ICtCp color space"),
-                ("oklab", "OkLab", "OkLab perceptual color space"),
-                ("rgb-psy", "RGB + Psyopt", "RGB with psychovisual optimization\n(Non-linear light, weighted components)"),
-                ("ycbcr-psy", "YCbCr + Psyopt", "YCbCr with psychovisual optimization\n(Non-linear luma, weighted chroma)"),
-                ("ycocg-psy", "YCoCg + Psyopt", "YCoCg with psychovisual optimization\n(Non-linear luma)"),
-            ];
-
-            for (value, label, tooltip) in color_spaces {
+            for color_space in ColorSpace::all() {
                 if ui
-                    .selectable_value(&mut state.settings.color_space, value.to_string(), label)
-                    .on_hover_text(tooltip)
+                    .selectable_value(&mut state.settings.color_space, color_space.clone(), color_space.display_name())
+                    .on_hover_text(color_space.description())
                     .clicked()
                 {
                     settings_changed = true;
@@ -267,25 +255,12 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.heading("Dithering");
     egui::ComboBox::from_label("Dithering Mode")
-        .selected_text(&state.settings.dither_mode)
+        .selected_text(state.settings.dither_mode.display_name())
         .show_ui(ui, |ui| {
-            let dither_modes = [
-                ("none", "None", "No dithering"),
-                ("floyd", "Floyd-Steinberg", "Floyd-Steinberg error diffusion (default level: 0.5)"),
-                ("atkinson", "Atkinson", "Atkinson error diffusion (default level: 0.5)"),
-                ("checker", "Checkerboard", "Checkerboard dithering (default level: 1.0)"),
-                ("ord2", "2x2 Ordered", "2x2 ordered dithering (default level: 1.0)"),
-                ("ord4", "4x4 Ordered", "4x4 ordered dithering (default level: 1.0)"),
-                ("ord8", "8x8 Ordered", "8x8 ordered dithering (default level: 1.0)"),
-                ("ord16", "16x16 Ordered", "16x16 ordered dithering (default level: 1.0)"),
-                ("ord32", "32x32 Ordered", "32x32 ordered dithering (default level: 1.0)"),
-                ("ord64", "64x64 Ordered", "64x64 ordered dithering (default level: 1.0)"),
-            ];
-
-            for (value, label, tooltip) in dither_modes {
+            for dither_mode in DitherMode::all() {
                 if ui
-                    .selectable_value(&mut state.settings.dither_mode, value.to_string(), label)
-                    .on_hover_text(tooltip)
+                    .selectable_value(&mut state.settings.dither_mode, dither_mode.clone(), dither_mode.display_name())
+                    .on_hover_text(dither_mode.description())
                     .clicked()
                 {
                     settings_changed = true;
