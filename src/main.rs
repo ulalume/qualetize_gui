@@ -1,3 +1,4 @@
+#![windows_subsystem = "windows"]
 mod app;
 mod color_correction;
 mod image_processing;

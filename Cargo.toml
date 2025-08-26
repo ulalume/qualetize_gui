@@ -7,6 +7,7 @@ build = "build.rs"
 [[bin]]
 name = "QualetizeGUI"
 path = "src/main.rs"
+windows_subsystem = "windows"
 
 [package.metadata.bundle]
 name = "QualetizeGUI"
