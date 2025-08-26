@@ -384,7 +384,9 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
         .spacing([4.0, 6.0])
         .show(ui, |ui| {
             let available_width = ui.available_width();
-            let slider_width = (available_width * 0.6).max(120.0);
+            let slider_width = (available_width * 0.6).max(180.0);
+
+            ui.style_mut().spacing.slider_width = slider_width;
 
             // Brightness
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

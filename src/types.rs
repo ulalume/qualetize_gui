@@ -170,6 +170,38 @@ impl Default for DitherMode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum ExportFormat {
+    PngIndexed,
+    Bmp,
+}
+
+impl ExportFormat {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ExportFormat::PngIndexed => "PNG",
+            ExportFormat::Bmp => "BMP",
+        }
+    }
+
+    pub fn extension(&self) -> &'static str {
+        match self {
+            ExportFormat::PngIndexed => "png",
+            ExportFormat::Bmp => "bmp",
+        }
+    }
+
+    pub fn all() -> &'static [ExportFormat] {
+        &[ExportFormat::Bmp, ExportFormat::PngIndexed]
+    }
+}
+
+impl Default for ExportFormat {
+    fn default() -> Self {
+        ExportFormat::Bmp
+    }
+}
+
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
@@ -262,6 +294,7 @@ pub struct AppState {
     // UI状態
     pub show_advanced: bool,
     pub preview_ready: bool,
+    pub selected_export_format: ExportFormat,
 
     // 画像表示制御
     pub zoom: f32,
@@ -297,6 +330,7 @@ impl Default for AppState {
 
             show_advanced: false,
             preview_ready: false,
+            selected_export_format: ExportFormat::default(),
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,

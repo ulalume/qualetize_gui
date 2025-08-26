@@ -508,6 +508,7 @@ impl ImageProcessor {
         output_path: String,
         settings: QualetizeSettings,
         color_correction: ColorCorrection,
+        export_format: crate::types::ExportFormat,
     ) -> Result<(), String> {
         // Load and process image
         let img = image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
@@ -569,23 +570,103 @@ impl ImageProcessor {
             return Err("Qualetize processing failed".to_string());
         }
 
-        // インデックスカラーデータをRGBA画像に変換してBMPとして保存
-        let mut output_bgra: Vec<u8> = Vec::with_capacity(output_size * 4);
+        // インデックスカラーデータをRGBA画像に変換
+        let mut output_rgba: Vec<u8> = Vec::with_capacity(output_size * 4);
         for &pixel_index in &output_data {
             let palette_index = pixel_index as usize;
             if palette_index < output_palette.len() {
                 let color = &output_palette[palette_index];
-                output_bgra.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+                output_rgba.extend_from_slice(&[color.r, color.g, color.b, color.a]);
             } else {
-                output_bgra.extend_from_slice(&[0, 0, 0, 255]);
+                output_rgba.extend_from_slice(&[0, 0, 0, 255]);
             }
         }
 
-        let bmp_data = Self::create_bmp_from_rgba(&output_bgra, width, height)?;
-        std::fs::write(&output_path, bmp_data)
-            .map_err(|e| format!("Failed to write output file: {}", e))?;
+        // 選択されたフォーマットで保存
+        Self::save_image_by_format(
+            &output_path,
+            &output_rgba,
+            &output_data,
+            &output_palette,
+            width,
+            height,
+            export_format,
+        )?;
 
         log::info!("Export completed successfully to: {}", output_path);
+        Ok(())
+    }
+
+    fn save_image_by_format(
+        output_path: &str,
+        rgba_data: &[u8],
+        index_data: &[u8],
+        palette_data: &[BGRA8],
+        width: u32,
+        height: u32,
+        export_format: crate::types::ExportFormat,
+    ) -> Result<(), String> {
+        use crate::types::ExportFormat;
+
+        match export_format {
+            ExportFormat::PngIndexed => {
+                Self::save_indexed_png(output_path, index_data, palette_data, width, height)?;
+            }
+            ExportFormat::Bmp => {
+                let bmp_data = Self::create_bmp_from_rgba(rgba_data, width, height)?;
+                std::fs::write(output_path, bmp_data)
+                    .map_err(|e| format!("Failed to write BMP file: {}", e))?;
+            }
+        }
+
+        log::info!(
+            "Export completed successfully to: {} (format: {})",
+            output_path,
+            export_format.display_name()
+        );
+        Ok(())
+    }
+
+    fn save_indexed_png(
+        output_path: &str,
+        index_data: &[u8],
+        palette_data: &[BGRA8],
+        width: u32,
+        height: u32,
+    ) -> Result<(), String> {
+        use std::fs::File;
+        use std::io::BufWriter;
+
+        // Create PNG encoder
+        let file = File::create(output_path)
+            .map_err(|e| format!("Failed to create output file: {}", e))?;
+        let ref mut w = BufWriter::new(file);
+
+        let mut encoder = png::Encoder::new(w, width, height);
+        encoder.set_color(png::ColorType::Indexed);
+        encoder.set_depth(png::BitDepth::Eight);
+
+        // Convert palette to PNG format (RGB)
+        let png_palette: Vec<u8> = palette_data
+            .iter()
+            .take(256) // PNG indexed mode supports max 256 colors
+            .flat_map(|color| [color.r, color.g, color.b])
+            .collect();
+
+        // Create transparency array for alpha channel
+        let transparency: Vec<u8> = palette_data.iter().take(256).map(|color| color.a).collect();
+
+        encoder.set_palette(png_palette);
+        encoder.set_trns(transparency);
+
+        let mut writer = encoder
+            .write_header()
+            .map_err(|e| format!("Failed to write PNG header: {}", e))?;
+
+        writer
+            .write_image_data(index_data)
+            .map_err(|e| format!("Failed to write PNG image data: {}", e))?;
+
         Ok(())
     }
 }
