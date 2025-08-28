@@ -198,7 +198,7 @@ impl ExportFormat {
 
 impl Default for ExportFormat {
     fn default() -> Self {
-        ExportFormat::Bmp
+        ExportFormat::PngIndexed
     }
 }
 
