@@ -452,11 +452,19 @@ impl ImageProcessor {
         })
     }
 
-    fn create_bmp_from_rgba(rgba_data: &[u8], width: u32, height: u32) -> Result<Vec<u8>, String> {
-        // Simple BMP creation for compatibility
-        let row_size = ((width * 4 + 3) / 4) * 4; // 4-byte aligned
+    fn create_bmp_from_indexed(
+        index_data: &[u8],
+        palette_data: &[BGRA8],
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, String> {
+        // Create 8-bit indexed BMP with palette (always 256 entries)
+        let palette_size = palette_data.len().min(256); // Max 256 colors for 8-bit
+        let row_size = ((width + 3) / 4) * 4; // 4-byte aligned for 8-bit data
         let image_size = row_size * height;
-        let file_size = 54 + image_size; // BMP header (54 bytes) + image data
+        let palette_bytes = 256 * 4; // Always 256 palette entries * 4 bytes each (BGRA)
+        let data_offset = 54 + palette_bytes; // Header + palette
+        let file_size = data_offset + image_size;
 
         let mut bmp_data = Vec::with_capacity(file_size as usize);
 
@@ -464,37 +472,47 @@ impl ImageProcessor {
         bmp_data.extend_from_slice(b"BM"); // Signature
         bmp_data.extend_from_slice(&(file_size as u32).to_le_bytes()); // File size
         bmp_data.extend_from_slice(&[0, 0, 0, 0]); // Reserved
-        bmp_data.extend_from_slice(&54u32.to_le_bytes()); // Data offset
+        bmp_data.extend_from_slice(&(data_offset as u32).to_le_bytes()); // Data offset
 
         // BMP Info Header (40 bytes)
         bmp_data.extend_from_slice(&40u32.to_le_bytes()); // Header size
         bmp_data.extend_from_slice(&(width as i32).to_le_bytes()); // Width
         bmp_data.extend_from_slice(&(height as i32).to_le_bytes()); // Height
         bmp_data.extend_from_slice(&1u16.to_le_bytes()); // Planes
-        bmp_data.extend_from_slice(&32u16.to_le_bytes()); // Bits per pixel
+        bmp_data.extend_from_slice(&8u16.to_le_bytes()); // Bits per pixel (8-bit indexed)
         bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Compression
         bmp_data.extend_from_slice(&(image_size as u32).to_le_bytes()); // Image size
         bmp_data.extend_from_slice(&0u32.to_le_bytes()); // X pixels per meter
         bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Y pixels per meter
-        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Colors used
+        bmp_data.extend_from_slice(&256u32.to_le_bytes()); // Colors used (always 256 for 8-bit)
         bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Important colors
 
-        // Image data (bottom-up, BGRA format)
+        // Color palette (BGRA format, 4 bytes per color)
+        for i in 0..palette_size {
+            let color = &palette_data[i];
+            bmp_data.push(color.b); // Blue
+            bmp_data.push(color.g); // Green
+            bmp_data.push(color.r); // Red
+            bmp_data.push(color.a); // Alpha (reserved in BMP, usually 0)
+        }
+
+        // Fill remaining palette entries if less than 256
+        for _ in palette_size..256 {
+            bmp_data.extend_from_slice(&[0, 0, 0, 0]);
+        }
+
+        // Image data (bottom-up, 8-bit indexed)
         for y in (0..height).rev() {
             for x in 0..width {
-                let pixel_idx = ((y * width + x) * 4) as usize;
-                if pixel_idx + 3 < rgba_data.len() {
-                    // Convert RGBA to BGRA
-                    bmp_data.push(rgba_data[pixel_idx + 2]); // B
-                    bmp_data.push(rgba_data[pixel_idx + 1]); // G
-                    bmp_data.push(rgba_data[pixel_idx + 0]); // R
-                    bmp_data.push(rgba_data[pixel_idx + 3]); // A
+                let pixel_idx = (y * width + x) as usize;
+                if pixel_idx < index_data.len() {
+                    bmp_data.push(index_data[pixel_idx]);
                 } else {
-                    bmp_data.extend_from_slice(&[0, 0, 0, 255]);
+                    bmp_data.push(0);
                 }
             }
             // Add padding if necessary
-            let padding = row_size - (width * 4);
+            let padding = row_size - width;
             for _ in 0..padding {
                 bmp_data.push(0);
             }
@@ -585,7 +603,6 @@ impl ImageProcessor {
         // 選択されたフォーマットで保存
         Self::save_image_by_format(
             &output_path,
-            &output_rgba,
             &output_data,
             &output_palette,
             width,
@@ -599,7 +616,6 @@ impl ImageProcessor {
 
     fn save_image_by_format(
         output_path: &str,
-        rgba_data: &[u8],
         index_data: &[u8],
         palette_data: &[BGRA8],
         width: u32,
@@ -613,7 +629,8 @@ impl ImageProcessor {
                 Self::save_indexed_png(output_path, index_data, palette_data, width, height)?;
             }
             ExportFormat::Bmp => {
-                let bmp_data = Self::create_bmp_from_rgba(rgba_data, width, height)?;
+                let bmp_data =
+                    Self::create_bmp_from_indexed(index_data, palette_data, width, height)?;
                 std::fs::write(output_path, bmp_data)
                     .map_err(|e| format!("Failed to write BMP file: {}", e))?;
             }
