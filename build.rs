@@ -19,7 +19,8 @@ fn main() {
         .flag("-std=c99")
         .flag("-O3")
         .flag("-ffast-math")
-        .flag("-funroll-loops");
+        .flag("-funroll-loops")
+        .flag(&format!("-include{}", "external/qualetize_math_header.h"));
 
     let host = std::env::var("HOST").unwrap();
     let target = std::env::var("TARGET").unwrap();
