@@ -3,23 +3,9 @@ use crate::color_correction::{
 };
 use crate::types::{AppState, ColorSpace, DitherMode};
 use egui::{Color32, Frame, Margin};
-use rfd::FileDialog;
-use std::path::Path;
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-
-    ui.add_space(10.0);
-
-    // File selection section
-    settings_changed |= draw_file_selection(ui, state);
-
-    ui.separator();
-
-    // Advanced settings toggle
-    ui.checkbox(&mut state.show_advanced, "🔧 Show Advanced Settings");
-
-    ui.separator();
 
     // Basic settings
     settings_changed |= draw_basic_settings(ui, state);
@@ -54,55 +40,6 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     // Status display
     draw_status_section(ui, state);
-
-    settings_changed
-}
-
-fn draw_file_selection(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let mut settings_changed = false;
-
-    ui.horizontal(|ui| {
-        if ui.button("📁 Select Input File").clicked() {
-            if let Some(path) = FileDialog::new()
-                .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
-                .pick_file()
-            {
-                let path_str = path.display().to_string();
-                state.input_path = Some(path_str.clone());
-                state.preview_ready = false;
-                state.preview_processing = false;
-                state.output_image = Default::default();
-                state.zoom = 1.0;
-                state.pan_offset = egui::Vec2::ZERO;
-                state.result_message = "File selected, loading...".to_string();
-
-                // Set default output settings
-                if let Some(parent) = path.parent() {
-                    state.output_path = Some(parent.to_string_lossy().to_string());
-                } else {
-                    state.output_path = Some(".".to_string());
-                }
-
-                if let Some(stem) = path.file_stem() {
-                    state.output_name = format!("{}_qualetized.bmp", stem.to_string_lossy());
-                } else {
-                    state.output_name = "output_qualetized.bmp".to_string();
-                }
-
-                settings_changed = true;
-            }
-        }
-
-        if let Some(path) = &state.input_path {
-            ui.label(format!(
-                "📄 {}",
-                Path::new(path)
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-            ));
-        }
-    });
 
     settings_changed
 }

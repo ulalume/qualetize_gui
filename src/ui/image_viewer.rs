@@ -20,6 +20,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     };
 
     ui.horizontal(|ui| {
+        ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
         // Left panel - Original image
         if state.show_original_image {
             draw_image_panel_readonly(
@@ -83,6 +84,7 @@ pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
     let mut pan_changed = egui::Vec2::ZERO;
 
     ui.horizontal(|ui| {
+        ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
         // Left panel - Orignal image
         if state.show_original_image {
             draw_image_panel_readonly(
