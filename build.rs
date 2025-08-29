@@ -13,14 +13,13 @@ fn main() {
             "external/qualetize/source/Cluster_Vec4f.c",
             "external/qualetize/source/DitherImage.c",
         ])
-	.define("M_PI", "3.14159265358979323846")
         .include("external/qualetize/include")
         .include("external/qualetize/source")
-
         .flag("-std=c99")
         .flag("-O3")
         .flag("-ffast-math")
-        .flag("-funroll-loops");
+        .flag("-funroll-loops")
+        .warnings(false);
 
     let host = std::env::var("HOST").unwrap();
     let target = std::env::var("TARGET").unwrap();
@@ -35,7 +34,12 @@ fn main() {
         build.flag("-march=native");
     }
 
+    if target.contains("linux") {
+        build.define("M_PI", "3.14159265358979323846");
+    }
     if target.contains("windows") {
+        build.flag("-D_USE_MATH_DEFINES");
+
         let version = env::var("CARGO_PKG_VERSION").unwrap();
         let parts: Vec<&str> = version.split('.').collect();
         let major = parts.get(0).unwrap_or(&"0");
@@ -81,10 +85,6 @@ PRODUCTVERSION {version_comma}
         fs::write(&rc_path, rc).unwrap();
 
         embed_resource::compile(rc_path, embed_resource::NONE);
-        build.flag("-D_USE_MATH_DEFINES");
-        if cfg!(target_os = "macos") {
-            build.compiler("/opt/homebrew/bin/x86_64-w64-mingw32-gcc");
-        }
     }
 
     build.compile("qualetize_c");
