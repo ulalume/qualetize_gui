@@ -277,7 +277,7 @@ impl Default for QualetizeSettings {
             tile_passes: 1000,
             color_passes: 100,
             split_ratio: -1.0,
-            col0_is_clear: true,
+            col0_is_clear: false,
             clear_color: "none".to_string(),
         }
     }
@@ -295,6 +295,10 @@ pub struct AppState {
     pub show_advanced: bool,
     pub preview_ready: bool,
     pub selected_export_format: ExportFormat,
+
+    // display options
+    pub show_original_image: bool,
+    pub show_palettes: bool,
 
     // 画像表示制御
     pub zoom: f32,
@@ -332,6 +336,9 @@ impl Default for AppState {
             show_advanced: false,
             preview_ready: false,
             selected_export_format: ExportFormat::default(),
+
+            show_original_image: true,
+            show_palettes: true,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
