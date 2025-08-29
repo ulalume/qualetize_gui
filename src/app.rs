@@ -266,19 +266,35 @@ impl eframe::App for QualetizeApp {
         egui::CentralPanel::default().show(ctx, |ui| {
             // Main content area
             let available_rect = ui.available_rect_before_wrap();
+            let header_height = 30.0;
             let footer_height = 30.0;
+
+            // Calculate layout rectangles
+            let header_rect = egui::Rect::from_min_size(
+                egui::Pos2::new(available_rect.min.x, available_rect.min.y / 2.0),
+                egui::Vec2::new(available_rect.width(), header_height),
+            );
             let content_rect = egui::Rect::from_min_size(
-                available_rect.min,
+                egui::Pos2::new(available_rect.min.x, available_rect.min.y + header_height),
                 egui::Vec2::new(
                     available_rect.width(),
-                    available_rect.height() - footer_height,
+                    available_rect.height() - header_height - footer_height,
                 ),
             );
             let footer_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(available_rect.min.x, available_rect.max.y - footer_height),
+                egui::Pos2::new(
+                    available_rect.min.x,
+                    available_rect.max.y - footer_height + available_rect.min.y / 2.0,
+                ),
                 egui::Vec2::new(available_rect.width(), footer_height),
             );
 
+            // Header
+            if self.state.input_image.texture.is_some() {
+                ui.scope_builder(egui::UiBuilder::new().max_rect(header_rect), |ui| {
+                    UI::draw_header(ui, &mut self.state);
+                });
+            }
             // Main content
             ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
                 if self.state.input_path.is_none() {
@@ -295,11 +311,9 @@ impl eframe::App for QualetizeApp {
                     UI::draw_main_content(ui, &self.state);
                 }
             });
-
             // Footer
             if self.state.input_image.texture.is_some() {
                 ui.scope_builder(egui::UiBuilder::new().max_rect(footer_rect), |ui| {
-                    ui.separator();
                     UI::draw_footer(ui, &mut self.state);
                 });
             }

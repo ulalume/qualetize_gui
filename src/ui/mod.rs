@@ -1,4 +1,5 @@
 mod footer;
+mod header;
 mod image_viewer;
 mod settings_panel;
 
@@ -21,6 +22,10 @@ impl UI {
 
     pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {
         image_viewer::draw_main_content(ui, state)
+    }
+
+    pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+        header::draw_header(ui, state)
     }
 
     pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {

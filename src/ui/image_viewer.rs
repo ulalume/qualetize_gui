@@ -3,12 +3,20 @@ use egui::{Color32, Pos2, Rect, Vec2};
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available_size = ui.available_size();
-    let split_x = available_size.x / 2.0;
+    let split_x = if state.show_original_image {
+        available_size.x / 2.0
+    } else {
+        available_size.x
+    };
 
     // Clone the image data to avoid borrow conflicts
     let input_image = state.input_image.clone();
     let output_image = state.output_image.clone();
-    let zoom = state.zoom;
+    let zoom = if state.show_original_image {
+        state.zoom
+    } else {
+        state.zoom / 2.0
+    };
     let pan_offset = state.pan_offset;
 
     ui.horizontal(|ui| {
@@ -18,16 +26,19 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
         let mut zoom_changed = false;
         let mut pan_changed = egui::Vec2::ZERO;
 
-        draw_image_panel_readonly(
-            ui,
-            split_x,
-            available_size.y,
-            &input_image,
-            zoom,
-            pan_offset,
-            &mut zoom_changed,
-            &mut pan_changed,
-        );
+        if state.show_original_image {
+            draw_image_panel_readonly(
+                ui,
+                split_x,
+                available_size.y,
+                &input_image,
+                zoom,
+                pan_offset,
+                &mut zoom_changed,
+                &mut pan_changed,
+                &state,
+            );
+        }
 
         // Right panel - Output image with palettes
         draw_image_panel_readonly(
@@ -39,6 +50,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
             pan_offset,
             &mut zoom_changed,
             &mut pan_changed,
+            &state,
         );
 
         // Apply changes back to state
@@ -63,11 +75,19 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
 
 pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available_size = ui.available_size();
-    let split_x = available_size.x / 2.0;
+    let split_x = if state.show_original_image {
+        available_size.x / 2.0
+    } else {
+        available_size.x
+    };
 
     // Clone the image data to avoid borrow conflicts
     let input_image = state.input_image.clone();
-    let zoom = state.zoom;
+    let zoom = if state.show_original_image {
+        state.zoom
+    } else {
+        state.zoom / 2.0
+    };
     let pan_offset = state.pan_offset;
 
     ui.horizontal(|ui| {
@@ -77,16 +97,19 @@ pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
         let mut zoom_changed = false;
         let mut pan_changed = egui::Vec2::ZERO;
 
-        draw_image_panel_readonly(
-            ui,
-            split_x,
-            available_size.y,
-            &input_image,
-            zoom,
-            pan_offset,
-            &mut zoom_changed,
-            &mut pan_changed,
-        );
+        if state.show_original_image {
+            draw_image_panel_readonly(
+                ui,
+                split_x,
+                available_size.y,
+                &input_image,
+                zoom,
+                pan_offset,
+                &mut zoom_changed,
+                &mut pan_changed,
+                &state,
+            );
+        };
 
         // Right panel - Status/Warning message
         draw_status_panel(ui, state, split_x, available_size.y);
@@ -129,6 +152,7 @@ fn draw_image_panel_readonly(
     pan_offset: Vec2,
     _zoom_changed: &mut bool,
     pan_changed: &mut Vec2,
+    state: &AppState,
 ) {
     ui.allocate_ui_with_layout(
         Vec2::new(width, height),
@@ -154,7 +178,7 @@ fn draw_image_panel_readonly(
                 );
 
                 // Draw palettes overlay for output image
-                if !image_data.palettes.is_empty() {
+                if !image_data.palettes.is_empty() && state.show_palettes {
                     draw_palettes_overlay(&painter, &response.rect, &image_data.palettes);
                 }
             }
@@ -235,7 +259,7 @@ fn calculate_image_rect(
     let scale_x = available_rect.width() / original_size.x;
     let scale_y = available_rect.height() / original_size.y;
     let base_scale = scale_x.min(scale_y);
-    let scale = (base_scale * zoom).min(10.0);
+    let scale = base_scale * zoom;
 
     let display_size = original_size * scale;
     let view_center = available_rect.center() + pan_offset;

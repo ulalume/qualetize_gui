@@ -296,6 +296,10 @@ pub struct AppState {
     pub preview_ready: bool,
     pub selected_export_format: ExportFormat,
 
+    // display options
+    pub show_original_image: bool,
+    pub show_palettes: bool,
+
     // 画像表示制御
     pub zoom: f32,
     pub pan_offset: Vec2,
@@ -331,6 +335,9 @@ impl Default for AppState {
             show_advanced: false,
             preview_ready: false,
             selected_export_format: ExportFormat::default(),
+
+            show_original_image: true,
+            show_palettes: true,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
