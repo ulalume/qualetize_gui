@@ -84,7 +84,7 @@ impl ColorSpace {
 
 impl Default for ColorSpace {
     fn default() -> Self {
-        ColorSpace::Srgb
+        ColorSpace::RgbLinear
     }
 }
 
@@ -267,15 +267,15 @@ impl Default for QualetizeSettings {
         Self {
             tile_width: 8,
             tile_height: 8,
-            n_palettes: 1,                  // デフォルト値: 1
-            n_colors: 16,                   // デフォルト値: 16
-            rgba_depth: "3331".to_string(), // デフォルト値: 3331
+            n_palettes: 1,
+            n_colors: 16,
+            rgba_depth: "3331".to_string(),
             premul_alpha: false,
-            color_space: ColorSpace::Srgb, // デフォルト値: sRGB
-            dither_mode: DitherMode::Floyd,
+            color_space: ColorSpace::default(),
+            dither_mode: DitherMode::default(),
             dither_level: 0.5,
-            tile_passes: 1000, // デフォルト値: 1000
-            color_passes: 100, // デフォルト値: 100
+            tile_passes: 1000,
+            color_passes: 100,
             split_ratio: -1.0,
             col0_is_clear: true,
             clear_color: "none".to_string(),
