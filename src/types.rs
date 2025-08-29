@@ -277,7 +277,7 @@ impl Default for QualetizeSettings {
             tile_passes: 1000,
             color_passes: 100,
             split_ratio: -1.0,
-            col0_is_clear: false,
+            col0_is_clear: true,
             clear_color: "none".to_string(),
         }
     }
@@ -296,10 +296,6 @@ pub struct AppState {
     pub preview_ready: bool,
     pub selected_export_format: ExportFormat,
 
-    // display options
-    pub show_original_image: bool,
-    pub show_palettes: bool,
-
     // 画像表示制御
     pub zoom: f32,
     pub pan_offset: Vec2,
@@ -310,7 +306,9 @@ pub struct AppState {
 
     // 処理状態
     // pub processing: bool,
-    pub split_screen_view: bool,
+    // display options
+    pub show_original_image: bool,
+    pub show_palettes: bool,
     pub preview_processing: bool,
     pub result_message: String,
     pub settings_changed: bool,
@@ -337,9 +335,6 @@ impl Default for AppState {
             preview_ready: false,
             selected_export_format: ExportFormat::default(),
 
-            show_original_image: true,
-            show_palettes: true,
-
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
 
@@ -347,7 +342,8 @@ impl Default for AppState {
             color_correction: ColorCorrection::default(),
 
             // processing: false,
-            split_screen_view: false, // Default to single-panel view
+            show_original_image: true, // Default to single-panel view
+            show_palettes: true,
             preview_processing: false,
             result_message: String::new(),
             settings_changed: false,

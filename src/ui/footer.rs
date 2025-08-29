@@ -8,19 +8,9 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let width = ui.available_width();
 
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-        let button_text = if state.split_screen_view {
-            "Single View"
-        } else {
-            "Split View"
-        };
-        if ui.button(button_text).clicked() {
-            state.split_screen_view = !state.split_screen_view;
-        }
-        ui.separator();
-
         draw_view_controls(ui, state);
 
-        if state.split_screen_view && width > 780.0 {
+        if state.show_original_image && width > 780.0 {
             ui.separator();
             ui.label("💡 Left: Original | Right: Processed");
         }
