@@ -13,6 +13,7 @@ fn main() {
             "external/qualetize/source/Cluster_Vec4f.c",
             "external/qualetize/source/DitherImage.c",
         ])
+	.define("M_PI", "3.14159265358979323846")
         .include("external/qualetize/include")
         .include("external/qualetize/source")
 
