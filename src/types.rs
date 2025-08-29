@@ -277,7 +277,7 @@ impl Default for QualetizeSettings {
             tile_passes: 1000,
             color_passes: 100,
             split_ratio: -1.0,
-            col0_is_clear: true,
+            col0_is_clear: false,
             clear_color: "none".to_string(),
         }
     }
