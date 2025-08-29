@@ -276,7 +276,11 @@ impl eframe::App for QualetizeApp {
 
         // Main（Images）
         egui::CentralPanel::default()
-            .frame(egui::Frame::default().inner_margin(0.0))
+            .frame(
+                egui::Frame::default()
+                    .inner_margin(0.0)
+                    .fill(ctx.style().visuals.window_fill()),
+            )
             .show(ctx, |ui| {
                 // Main
                 if self.state.input_path.is_none() {
