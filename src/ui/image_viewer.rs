@@ -3,36 +3,52 @@ use egui::{Color32, Pos2, Rect, Vec2};
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     let available_size = ui.available_size();
-    let split_x = available_size.x / 2.0;
-
-    // Clone the image data to avoid borrow conflicts
-    let input_image = state.input_image.clone();
-    let output_image = state.output_image.clone();
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;
+    let mut zoom_changed = false;
+    let mut pan_changed = egui::Vec2::ZERO;
 
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing = egui::vec2(1.0, 0.0);
+    if state.split_screen_view {
+        // Split-screen view
+        let split_x = available_size.x / 2.0;
 
-        // Left panel - Input image
-        let mut zoom_changed = false;
-        let mut pan_changed = egui::Vec2::ZERO;
+        // Clone the image data to avoid borrow conflicts
+        let input_image = state.input_image.clone();
+        let output_image = state.output_image.clone();
 
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing = egui::vec2(1.0, 0.0);
+
+            // Left panel - Input image
+            draw_image_panel_readonly(
+                ui,
+                split_x,
+                available_size.y,
+                &input_image,
+                zoom,
+                pan_offset,
+                &mut zoom_changed,
+                &mut pan_changed,
+            );
+
+            // Right panel - Output image with palettes
+            draw_image_panel_readonly(
+                ui,
+                split_x,
+                available_size.y,
+                &output_image,
+                zoom,
+                pan_offset,
+                &mut zoom_changed,
+                &mut pan_changed,
+            );
+        });
+    } else {
+        // Single-panel view
+        let output_image = state.output_image.clone();
         draw_image_panel_readonly(
             ui,
-            split_x,
-            available_size.y,
-            &input_image,
-            zoom,
-            pan_offset,
-            &mut zoom_changed,
-            &mut pan_changed,
-        );
-
-        // Right panel - Output image with palettes
-        draw_image_panel_readonly(
-            ui,
-            split_x,
+            available_size.x, // Use full width
             available_size.y,
             &output_image,
             zoom,
@@ -40,17 +56,14 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
             &mut zoom_changed,
             &mut pan_changed,
         );
+    }
+    
+    // Apply changes back to state (this block is common to both views)
+    if pan_changed != egui::Vec2::ZERO {
+        state.pan_offset += pan_changed;
+    }
 
-        // Apply changes back to state
-        if zoom_changed {
-            // This will be handled by the mouse interaction
-        }
-        if pan_changed != egui::Vec2::ZERO {
-            state.pan_offset += pan_changed;
-        }
-    });
-
-    // Handle mouse interaction separately to avoid borrow conflicts
+    // Handle mouse interaction (this block is also common)
     if ui.ui_contains_pointer() {
         let ctx = ui.ctx();
         let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);

@@ -306,6 +306,7 @@ pub struct AppState {
 
     // 処理状態
     // pub processing: bool,
+    pub split_screen_view: bool,
     pub preview_processing: bool,
     pub result_message: String,
     pub settings_changed: bool,
@@ -339,6 +340,7 @@ impl Default for AppState {
             color_correction: ColorCorrection::default(),
 
             // processing: false,
+            split_screen_view: false, // Default to single-panel view
             preview_processing: false,
             result_message: String::new(),
             settings_changed: false,
