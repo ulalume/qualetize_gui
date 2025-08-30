@@ -46,7 +46,7 @@ impl QualetizeApp {
 
         // Cancel any existing processing
         if self.image_processor.is_processing() {
-            // Force cancel existing processing
+            self.image_processor.cancel_current_processing();
             self.image_processor = ImageProcessor::new();
         }
 
@@ -130,7 +130,7 @@ impl QualetizeApp {
         if self.state.input_image.texture.is_none() {
             self.state.tile_size_warning = false;
             self.state.tile_size_warning_message.clear();
-            return true; // 画像がない場合は問題なし
+            return true;
         }
 
         let image_width = self.state.input_image.size.x as u16;
@@ -157,7 +157,6 @@ impl QualetizeApp {
                 "Image size ({}×{}) is not divisible by tile size ({}×{}). Qualetize processing cannot proceed.",
                 image_width, image_height, tile_width, tile_height
             );
-            // 警告が発生した場合はプレビュー状態をリセット
             self.state.preview_ready = false;
             log::warn!(
                 "Tile size warning: {}",
