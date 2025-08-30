@@ -4,6 +4,7 @@ use egui::{Color32, Pos2, Rect, Vec2};
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     const HORIZONTAL_MARGIN: f32 = 4.0;
     let mut available_size = ui.available_size();
+    available_size.y -= 32.0; // footer size
 
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;

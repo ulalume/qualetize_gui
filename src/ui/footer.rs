@@ -20,8 +20,8 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
             ui.label("🖱 Drag to pan, scroll to zoom");
         }
-        ui.separator();
 
+        ui.separator();
         draw_export_controls(ui, state);
     });
 
