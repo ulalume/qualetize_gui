@@ -7,7 +7,6 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
 
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;
-    let mut zoom_changed = false;
     let mut pan_changed = egui::Vec2::ZERO;
 
     if state.show_original_image {
@@ -24,31 +23,37 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
         ui.style_mut().spacing.item_spacing = egui::vec2(HORIZONTAL_MARGIN, 0.0);
         // Left panel - Original image
         if state.show_original_image {
-            draw_image_panel_readonly(
+            draw_image_panel(
                 ui,
                 split_x,
                 available_size.y,
                 &state.input_image,
                 zoom,
                 pan_offset,
-                &mut zoom_changed,
                 &mut pan_changed,
                 &state,
+                false,
             );
         }
 
-        // Right panel - Output image with palettes
-        draw_image_panel_readonly(
-            ui,
-            split_x,
-            available_size.y,
-            &state.output_image,
-            zoom,
-            pan_offset,
-            &mut zoom_changed,
-            &mut pan_changed,
-            &state,
-        );
+        // Right panel
+        if state.tile_size_warning || !state.preview_ready {
+            // Status/ Warning message
+            draw_status_panel(ui, state, split_x, available_size.y);
+        } else {
+            // Output image with palettes
+            draw_image_panel(
+                ui,
+                split_x,
+                available_size.y,
+                &state.output_image,
+                zoom,
+                pan_offset,
+                &mut pan_changed,
+                &state,
+                state.preview_processing,
+            );
+        }
     });
 
     // Apply changes back to state (this block is common to both views)
@@ -57,60 +62,6 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     }
 
     // Handle mouse interaction (this block is also common)
-    if ui.ui_contains_pointer() {
-        let ctx = ui.ctx();
-        let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
-        if scroll_delta != 0.0 {
-            let zoom_factor = 1.0 + scroll_delta * 0.001;
-            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
-        }
-    }
-}
-
-pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
-    let mut available_size = ui.available_size();
-    if state.show_original_image {
-        available_size.x -= HORIZONTAL_MARGIN;
-    }
-
-    let split_x = if state.show_original_image {
-        available_size.x / 2.0
-    } else {
-        available_size.x
-    };
-
-    let zoom = state.zoom;
-    let pan_offset = state.pan_offset;
-    let mut zoom_changed = false;
-    let mut pan_changed = egui::Vec2::ZERO;
-
-    ui.horizontal(|ui| {
-        ui.style_mut().spacing.item_spacing = egui::vec2(HORIZONTAL_MARGIN, 0.0);
-        // Left panel - Orignal image
-        if state.show_original_image {
-            draw_image_panel_readonly(
-                ui,
-                split_x,
-                available_size.y,
-                &state.input_image,
-                zoom,
-                pan_offset,
-                &mut zoom_changed,
-                &mut pan_changed,
-                &state,
-            );
-        };
-
-        // Right panel - Status/Warning message
-        draw_status_panel(ui, state, split_x, available_size.y);
-
-        // Apply changes back to state
-        if pan_changed != egui::Vec2::ZERO {
-            state.pan_offset += pan_changed;
-        }
-    });
-
-    // Handle mouse interaction separately to avoid borrow conflicts
     if ui.ui_contains_pointer() {
         let ctx = ui.ctx();
         let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
@@ -133,16 +84,24 @@ pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {
     }
 }
 
-fn draw_image_panel_readonly(
+fn draw_processing_message(ui: &mut egui::Ui, state: &AppState) {
+    ui.label("⏳");
+    ui.label("Processing...");
+    if !state.result_message.is_empty() {
+        ui.label(&state.result_message);
+    }
+}
+
+fn draw_image_panel(
     ui: &mut egui::Ui,
     width: f32,
     height: f32,
     image_data: &crate::types::ImageData,
     zoom: f32,
     pan_offset: Vec2,
-    _zoom_changed: &mut bool,
     pan_changed: &mut Vec2,
     state: &AppState,
+    has_spinner: bool,
 ) {
     ui.allocate_ui_with_layout(
         Vec2::new(width, height),
@@ -171,6 +130,20 @@ fn draw_image_panel_readonly(
                 if !image_data.palettes.is_empty() && state.show_palettes {
                     draw_palettes_overlay(&painter, &response.rect, &image_data.palettes);
                 }
+            }
+
+            if has_spinner {
+                let center = response.rect.center();
+                let radius = 16.0;
+                let num_lines = 12;
+                let time = ui.ctx().input(|i| i.time) as f32;
+                for i in 0..num_lines {
+                    let angle = i as f32 / num_lines as f32 * std::f32::consts::TAU + time;
+                    let start = center + egui::vec2(angle.cos(), angle.sin()) * radius * 0.5;
+                    let end = center + egui::vec2(angle.cos(), angle.sin()) * radius;
+                    painter.line_segment([start, end], (2.5, Color32::LIGHT_GRAY));
+                }
+                ui.ctx().request_repaint();
             }
 
             // Handle pan
@@ -229,14 +202,6 @@ fn draw_warning_message(ui: &mut egui::Ui, state: &AppState) {
             .size(11.0)
             .color(Color32::LIGHT_GRAY),
     );
-}
-
-fn draw_processing_message(ui: &mut egui::Ui, state: &AppState) {
-    ui.label("⏳");
-    ui.label("Processing...");
-    if !state.result_message.is_empty() {
-        ui.label(&state.result_message);
-    }
 }
 
 fn calculate_image_rect(

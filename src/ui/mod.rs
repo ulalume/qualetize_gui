@@ -1,3 +1,4 @@
+mod colors;
 mod footer;
 mod header;
 mod image_viewer;
@@ -14,10 +15,6 @@ impl UI {
 
     pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
         image_viewer::draw_image_view(ui, state)
-    }
-
-    pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
-        image_viewer::draw_input_only_view(ui, state)
     }
 
     pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {

@@ -285,16 +285,8 @@ impl eframe::App for QualetizeApp {
                 // Main
                 if self.state.input_path.is_none() {
                     UI::draw_main_content(ui, &self.state);
-                } else if self.state.tile_size_warning {
-                    // 警告がある場合は常に警告表示（プレビューより優先）
-                    UI::draw_input_only_view(ui, &mut self.state);
-                } else if self.state.preview_ready {
-                    UI::draw_image_view(ui, &mut self.state);
-                } else if self.state.input_image.texture.is_some() {
-                    // Show input image only while processing
-                    UI::draw_input_only_view(ui, &mut self.state);
                 } else {
-                    UI::draw_main_content(ui, &self.state);
+                    UI::draw_image_view(ui, &mut self.state);
                 }
 
                 // Footer

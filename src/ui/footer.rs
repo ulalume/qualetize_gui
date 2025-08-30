@@ -1,4 +1,5 @@
 use crate::types::{AppState, ExportFormat};
+use crate::ui::colors;
 use egui::{Color32, Vec2};
 use rfd::FileDialog;
 use std::path::Path;
@@ -63,25 +64,23 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
 
 fn apply_export_button_style(ui: &mut egui::Ui) {
     ui.style_mut().spacing.button_padding = egui::vec2(10.0, 4.0);
-    let color1 = Color32::from_rgb(240, 100, 156);
-    let color2 = Color32::from_rgb(131, 100, 144);
     let style = &mut ui.style_mut();
 
     // style.spacing.button_padding = egui::vec2(10.0, 4.0);
 
     // Inactive state
     style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
-    style.visuals.widgets.inactive.weak_bg_fill = color1;
+    style.visuals.widgets.inactive.weak_bg_fill = colors::COLOR_TINT;
 
     // Hovered state
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, color2);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, colors::COLOR_TINT_ACTIVE);
     style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
-    style.visuals.widgets.hovered.weak_bg_fill = color1;
+    style.visuals.widgets.hovered.weak_bg_fill = colors::COLOR_TINT;
 
     // Active state
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, color2);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, colors::COLOR_TINT_ACTIVE);
     style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
-    style.visuals.widgets.active.weak_bg_fill = color2;
+    style.visuals.widgets.active.weak_bg_fill = colors::COLOR_TINT;
 }
 
 fn show_file_dialog(state: &AppState) {
