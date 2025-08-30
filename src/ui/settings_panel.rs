@@ -316,6 +316,16 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 
     ui.heading("Color Correction");
 
+    // Define ranges to avoid duplication
+    const BRIGHTNESS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
+    const CONTRAST_RANGE: std::ops::RangeInclusive<f32> = 0.0..=2.0;
+    const SATURATION_RANGE: std::ops::RangeInclusive<f32> = 0.0..=2.0;
+    const HUE_SHIFT_RANGE: std::ops::RangeInclusive<f32> = -180.0..=180.0;
+    const SHADOWS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
+    const HIGHLIGHTS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
+    const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.1..=3.0;
+    const GAMMA_DISPLAY_RANGE: std::ops::RangeInclusive<f32> = -100.0..=100.0;
+
     egui::Grid::new("color_correction_grid")
         .num_columns(3)
         .spacing([4.0, 6.0])
@@ -332,14 +342,32 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.brightness, -1.0..=1.0)
+                    egui::Slider::new(&mut state.color_correction.highlights, HIGHLIGHTS_RANGE)
                         .show_value(false),
                 )
                 .changed()
             {
                 settings_changed = true;
             }
-            ui.label(format_percentage(state.color_correction.brightness));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.highlights)
+                        .range(HIGHLIGHTS_RANGE)
+                        .speed(0.01)
+                        .custom_formatter(|n, _| format_percentage(n as f32))
+                        .custom_parser(|s| {
+                            // Try to parse as percentage first
+                            if let Some(s) = s.strip_suffix('%') {
+                                s.parse::<f64>().map(|v| v / 100.0).ok()
+                            } else {
+                                s.parse::<f64>().ok()
+                            }
+                        }),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
 
             // Contrast
@@ -349,14 +377,24 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.contrast, 0.0..=2.0)
+                    egui::Slider::new(&mut state.color_correction.saturation, SATURATION_RANGE)
                         .show_value(false),
                 )
                 .changed()
             {
                 settings_changed = true;
             }
-            ui.label(format!("{:.2}", state.color_correction.contrast));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.saturation)
+                        .range(SATURATION_RANGE)
+                        .speed(0.01)
+                        .fixed_decimals(2),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
 
             // Saturation
@@ -366,14 +404,24 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.saturation, 0.0..=2.0)
+                    egui::Slider::new(&mut state.color_correction.contrast, CONTRAST_RANGE)
                         .show_value(false),
                 )
                 .changed()
             {
                 settings_changed = true;
             }
-            ui.label(format!("{:.2}", state.color_correction.saturation));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.contrast)
+                        .range(CONTRAST_RANGE)
+                        .speed(0.01)
+                        .fixed_decimals(2),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
 
             // Hue Shift
@@ -383,14 +431,25 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.hue_shift, -180.0..=180.0)
+                    egui::Slider::new(&mut state.color_correction.hue_shift, HUE_SHIFT_RANGE)
                         .show_value(false),
                 )
                 .changed()
             {
                 settings_changed = true;
             }
-            ui.label(format!("{:.0}°", state.color_correction.hue_shift));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.hue_shift)
+                        .range(HUE_SHIFT_RANGE)
+                        .speed(1.0)
+                        .suffix("°")
+                        .fixed_decimals(0),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
 
             // Shadows
@@ -400,14 +459,32 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.shadows, -1.0..=1.0)
+                    egui::Slider::new(&mut state.color_correction.brightness, BRIGHTNESS_RANGE)
                         .show_value(false),
                 )
                 .changed()
             {
                 settings_changed = true;
             }
-            ui.label(format_percentage(state.color_correction.shadows));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.brightness)
+                        .range(BRIGHTNESS_RANGE)
+                        .speed(0.01)
+                        .custom_formatter(|n, _| format_percentage(n as f32))
+                        .custom_parser(|s| {
+                            // Try to parse as percentage first
+                            if let Some(s) = s.strip_suffix('%') {
+                                s.parse::<f64>().map(|v| v / 100.0).ok()
+                            } else {
+                                s.parse::<f64>().ok()
+                            }
+                        }),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
 
             // Highlights
@@ -417,14 +494,32 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.highlights, -1.0..=1.0)
+                    egui::Slider::new(&mut state.color_correction.shadows, SHADOWS_RANGE)
                         .show_value(false),
                 )
                 .changed()
             {
                 settings_changed = true;
             }
-            ui.label(format_percentage(state.color_correction.highlights));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.shadows)
+                        .range(SHADOWS_RANGE)
+                        .speed(0.01)
+                        .custom_formatter(|n, _| format_percentage(n as f32))
+                        .custom_parser(|s| {
+                            // Try to parse as percentage first
+                            if let Some(s) = s.strip_suffix('%') {
+                                s.parse::<f64>().map(|v| v / 100.0).ok()
+                            } else {
+                                s.parse::<f64>().ok()
+                            }
+                        }),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
 
             // Gamma (special handling)
@@ -435,14 +530,25 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut gamma_display, -100.0..=100.0).show_value(false),
+                    egui::Slider::new(&mut gamma_display, GAMMA_DISPLAY_RANGE).show_value(false),
                 )
                 .changed()
             {
                 state.color_correction.gamma = display_value_to_gamma(gamma_display);
                 settings_changed = true;
             }
-            ui.label(format_gamma(state.color_correction.gamma));
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.color_correction.gamma)
+                        .range(GAMMA_RANGE)
+                        .speed(0.01)
+                        .custom_formatter(|n, _| format_gamma(n as f32))
+                        .custom_parser(|s| s.parse::<f64>().ok()),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
             ui.end_row();
         });
 
