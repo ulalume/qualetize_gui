@@ -2,6 +2,7 @@ use crate::image_processing::ImageProcessor;
 use crate::types::AppState;
 use crate::ui::UI;
 use eframe::egui;
+use egui::Margin;
 
 pub struct QualetizeApp {
     state: AppState,
@@ -221,10 +222,27 @@ impl QualetizeApp {
             || self.state.last_settings_change_time.is_some()
             || self.state.tile_size_warning // 警告状態の変更時も再描画
     }
+
+    fn prepare_settings_change(&mut self) {
+        self.state.settings_changed = true;
+        self.state.last_settings_change_time = Some(std::time::Instant::now());
+
+        // タイルサイズの互換性をチェック
+        self.check_tile_size_compatibility();
+
+        // 進行中の処理があれば即座にキャンセル
+        if self.image_processor.is_processing() || self.state.preview_processing {
+            self.image_processor.cancel_current_processing();
+            self.state.preview_processing = false;
+            self.state.result_message =
+                "Previous processing cancelled, will update soon...".to_string();
+        }
+    }
 }
 
 impl eframe::App for QualetizeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let mut settings_changed = false;
         // Handle drag and drop first
         self.handle_dropped_files(ctx);
 
@@ -237,87 +255,57 @@ impl eframe::App for QualetizeApp {
         // Handle settings changes after checking completion
         self.handle_settings_changes();
 
-        // サイドパネル（設定）
+        // Save preferences
+        self.state.check_and_save_preferences();
+
+        // Top（Menu）
+        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+            egui::Frame::NONE
+                .inner_margin(Margin::symmetric(0, 4))
+                .show(ui, |ui| {
+                    settings_changed |= UI::draw_header(ui, &mut self.state);
+                });
+        });
+
+        // Side（Settings）
         egui::SidePanel::left("settings_panel")
             .default_width(320.0)
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    let settings_changed = UI::draw_settings_panel(ui, &mut self.state);
-                    if settings_changed {
-                        self.state.settings_changed = true;
-                        self.state.last_settings_change_time = Some(std::time::Instant::now());
-
-                        // タイルサイズの互換性をチェック
-                        self.check_tile_size_compatibility();
-
-                        // 進行中の処理があれば即座にキャンセル
-                        if self.image_processor.is_processing() || self.state.preview_processing {
-                            self.image_processor.cancel_current_processing();
-                            self.state.preview_processing = false;
-                            self.state.result_message =
-                                "Previous processing cancelled, will update soon...".to_string();
-                        }
-                    }
+                    settings_changed |= UI::draw_settings_panel(ui, &mut self.state);
                 });
             });
 
-        // メインパネル（画像表示）
-        egui::CentralPanel::default().show(ctx, |ui| {
-            // Main content area
-            let available_rect = ui.available_rect_before_wrap();
-            let header_height = 30.0;
-            let footer_height = 30.0;
-
-            // Calculate layout rectangles
-            let header_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(available_rect.min.x, available_rect.min.y / 2.0),
-                egui::Vec2::new(available_rect.width(), header_height),
-            );
-            let content_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(available_rect.min.x, available_rect.min.y + header_height),
-                egui::Vec2::new(
-                    available_rect.width(),
-                    available_rect.height() - header_height - footer_height,
-                ),
-            );
-            let footer_rect = egui::Rect::from_min_size(
-                egui::Pos2::new(
-                    available_rect.min.x,
-                    available_rect.max.y - footer_height + available_rect.min.y / 2.0,
-                ),
-                egui::Vec2::new(available_rect.width(), footer_height),
-            );
-
-            // Header
-            if self.state.input_image.texture.is_some() {
-                ui.scope_builder(egui::UiBuilder::new().max_rect(header_rect), |ui| {
-                    UI::draw_header(ui, &mut self.state);
-                });
-            }
-            // Main content
-            ui.scope_builder(egui::UiBuilder::new().max_rect(content_rect), |ui| {
+        // Main（Images）
+        egui::CentralPanel::default()
+            .frame(
+                egui::Frame::default()
+                    .inner_margin(0.0)
+                    .fill(ctx.style().visuals.window_fill()),
+            )
+            .show(ctx, |ui| {
+                // Main
                 if self.state.input_path.is_none() {
                     UI::draw_main_content(ui, &self.state);
-                } else if self.state.tile_size_warning {
-                    // 警告がある場合は常に警告表示（プレビューより優先）
-                    UI::draw_input_only_view(ui, &mut self.state);
-                } else if self.state.preview_ready {
-                    UI::draw_image_view(ui, &mut self.state);
-                } else if self.state.input_image.texture.is_some() {
-                    // Show input image only while processing
-                    UI::draw_input_only_view(ui, &mut self.state);
                 } else {
-                    UI::draw_main_content(ui, &self.state);
+                    UI::draw_image_view(ui, &mut self.state);
+                }
+
+                // Footer
+                if self.state.input_image.texture.is_some() {
+                    egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
+                        egui::Frame::NONE
+                            .inner_margin(Margin::symmetric(0, 4))
+                            .show(ui, |ui| {
+                                UI::draw_footer(ui, &mut self.state);
+                            });
+                    });
                 }
             });
-            // Footer
-            if self.state.input_image.texture.is_some() {
-                ui.scope_builder(egui::UiBuilder::new().max_rect(footer_rect), |ui| {
-                    UI::draw_footer(ui, &mut self.state);
-                });
-            }
-        });
+        if settings_changed {
+            self.prepare_settings_change();
+        }
 
         // 再描画が必要かチェック
         if self.should_repaint() {
