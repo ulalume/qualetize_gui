@@ -1,17 +1,18 @@
 use crate::types::AppState;
 use egui::{Color32, Pos2, Rect, Vec2};
 
+const HORIZONTAL_MARGIN: f32 = 4.0;
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
-    let available_size = ui.available_size();
+    let mut available_size = ui.available_size();
 
-    let zoom = if state.show_original_image {
-        state.zoom
-    } else {
-        state.zoom / 2.0
-    };
+    let zoom = state.zoom;
     let pan_offset = state.pan_offset;
     let mut zoom_changed = false;
     let mut pan_changed = egui::Vec2::ZERO;
+
+    if state.show_original_image {
+        available_size.x -= HORIZONTAL_MARGIN;
+    }
 
     let split_x = if state.show_original_image {
         available_size.x / 2.0
@@ -20,7 +21,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     };
 
     ui.horizontal(|ui| {
-        ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
+        ui.style_mut().spacing.item_spacing = egui::vec2(HORIZONTAL_MARGIN, 0.0);
         // Left panel - Original image
         if state.show_original_image {
             draw_image_panel_readonly(
@@ -61,30 +62,30 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
         let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
         if scroll_delta != 0.0 {
             let zoom_factor = 1.0 + scroll_delta * 0.001;
-            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 10.0);
+            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
         }
     }
 }
 
 pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
-    let available_size = ui.available_size();
+    let mut available_size = ui.available_size();
+    if state.show_original_image {
+        available_size.x -= HORIZONTAL_MARGIN;
+    }
+
     let split_x = if state.show_original_image {
         available_size.x / 2.0
     } else {
         available_size.x
     };
 
-    let zoom = if state.show_original_image {
-        state.zoom
-    } else {
-        state.zoom / 2.0
-    };
+    let zoom = state.zoom;
     let pan_offset = state.pan_offset;
     let mut zoom_changed = false;
     let mut pan_changed = egui::Vec2::ZERO;
 
     ui.horizontal(|ui| {
-        ui.style_mut().spacing.item_spacing = egui::vec2(0.0, 0.0);
+        ui.style_mut().spacing.item_spacing = egui::vec2(HORIZONTAL_MARGIN, 0.0);
         // Left panel - Orignal image
         if state.show_original_image {
             draw_image_panel_readonly(
@@ -115,7 +116,7 @@ pub fn draw_input_only_view(ui: &mut egui::Ui, state: &mut AppState) {
         let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
         if scroll_delta != 0.0 {
             let zoom_factor = 1.0 + scroll_delta * 0.001;
-            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 10.0);
+            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
         }
     }
 }
@@ -244,15 +245,8 @@ fn calculate_image_rect(
     zoom: f32,
     pan_offset: Vec2,
 ) -> Rect {
-    // Scale to fit while maintaining aspect ratio
-    let scale_x = available_rect.width() / original_size.x;
-    let scale_y = available_rect.height() / original_size.y;
-    let base_scale = scale_x.min(scale_y);
-    let scale = base_scale * zoom;
-
-    let display_size = original_size * scale;
+    let display_size = original_size * zoom;
     let view_center = available_rect.center() + pan_offset;
-
     Rect::from_center_size(view_center, display_size)
 }
 
