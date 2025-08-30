@@ -110,14 +110,47 @@ fn draw_image_panel(
             let (response, painter) =
                 ui.allocate_painter(Vec2::new(width, height), egui::Sense::click_and_drag());
 
+            let canvas = response.rect;
+
             // Draw background
-            painter.rect_filled(response.rect, 0.0, Color32::from_gray(64));
+            painter.rect_filled(canvas, 0.0, Color32::from_gray(64));
+
+            // Draw pixel centers:
+            const MAGNIFICATION_PIXEL_SIZE: f32 = 24.0;
+            let canvas_min_x = canvas.min.x % MAGNIFICATION_PIXEL_SIZE;
+            let pixel_radius = 1.25;
+            let pixel_color = Color32::from_gray(100);
+            for yi in 0.. {
+                let y = (yi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
+                if y > canvas.height() / 2.0 {
+                    break;
+                }
+                for xi in 0.. {
+                    let x = (xi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
+                    if x > canvas.width() / 2.0 {
+                        break;
+                    }
+                    for offset in [
+                        egui::vec2(x, y),
+                        egui::vec2(x, -y),
+                        egui::vec2(-x, y),
+                        egui::vec2(-x, -y),
+                    ] {
+                        painter.circle_filled(
+                            canvas.center()
+                                + offset
+                                + egui::vec2(-canvas_min_x + MAGNIFICATION_PIXEL_SIZE / 2.0, 0.0),
+                            pixel_radius,
+                            pixel_color,
+                        );
+                    }
+                }
+            }
 
             if let Some(texture) = image_data.texture.as_ref() {
                 let original_size = image_data.size;
 
-                let image_rect =
-                    calculate_image_rect(&response.rect, original_size, zoom, pan_offset);
+                let image_rect = calculate_image_rect(&canvas, original_size, zoom, pan_offset);
 
                 painter.image(
                     texture.id(),
@@ -128,12 +161,12 @@ fn draw_image_panel(
 
                 // Draw palettes overlay for output image
                 if !image_data.palettes.is_empty() && state.show_palettes {
-                    draw_palettes_overlay(&painter, &response.rect, &image_data.palettes);
+                    draw_palettes_overlay(&painter, &canvas, &image_data.palettes);
                 }
             }
 
             if has_spinner {
-                let center = response.rect.center();
+                let center = canvas.center();
                 let radius = 16.0;
                 let num_lines = 12;
                 let time = ui.ctx().input(|i| i.time) as f32;
