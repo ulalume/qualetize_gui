@@ -1,4 +1,5 @@
 use egui::{TextureHandle, Vec2};
+use std::path::PathBuf;
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ColorSpace {
@@ -202,6 +203,55 @@ impl Default for ExportFormat {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct UserPreferences {
+    pub show_advanced: bool,
+    pub show_original_image: bool,
+    pub show_palettes: bool,
+    pub selected_export_format: ExportFormat,
+}
+
+impl Default for UserPreferences {
+    fn default() -> Self {
+        Self {
+            show_advanced: false,
+            show_original_image: true,
+            show_palettes: true,
+            selected_export_format: ExportFormat::default(),
+        }
+    }
+}
+
+impl UserPreferences {
+    pub fn config_path() -> PathBuf {
+        if let Some(config_dir) = dirs::config_dir() {
+            config_dir.join("QualetizeGUI").join("preferences.json")
+        } else {
+            PathBuf::from("preferences.json")
+        }
+    }
+
+    pub fn load() -> Self {
+        let path = Self::config_path();
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(prefs) = serde_json::from_str(&content) {
+                return prefs;
+            }
+        }
+        Self::default()
+    }
+
+    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let path = Self::config_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let content = serde_json::to_string_pretty(self)?;
+        std::fs::write(&path, content)?;
+        Ok(())
+    }
+}
+
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
@@ -293,7 +343,8 @@ pub struct AppState {
 
     // UI状態
     pub show_advanced: bool,
-    pub preview_ready: bool,
+    pub show_original_image: bool,
+    pub show_palettes: bool,
     pub selected_export_format: ExportFormat,
 
     // 画像表示制御
@@ -305,10 +356,7 @@ pub struct AppState {
     pub color_correction: ColorCorrection,
 
     // 処理状態
-    // pub processing: bool,
-    // display options
-    pub show_original_image: bool,
-    pub show_palettes: bool,
+    pub preview_ready: bool,
     pub preview_processing: bool,
     pub result_message: String,
     pub settings_changed: bool,
@@ -320,10 +368,14 @@ pub struct AppState {
     // デバウンス機能
     pub last_settings_change_time: Option<std::time::Instant>,
     pub debounce_delay: std::time::Duration,
+
+    // ユーザー設定
+    pub preferences: UserPreferences,
 }
 
 impl Default for AppState {
     fn default() -> Self {
+        let preferences = UserPreferences::load();
         Self {
             input_path: None,
             output_path: None,
@@ -331,9 +383,10 @@ impl Default for AppState {
             input_image: ImageData::default(),
             output_image: ImageData::default(),
 
-            show_advanced: false,
-            preview_ready: false,
-            selected_export_format: ExportFormat::default(),
+            show_advanced: preferences.show_advanced,
+            show_original_image: preferences.show_original_image,
+            show_palettes: preferences.show_palettes,
+            selected_export_format: preferences.selected_export_format.clone(),
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
@@ -341,9 +394,7 @@ impl Default for AppState {
             settings: QualetizeSettings::default(),
             color_correction: ColorCorrection::default(),
 
-            // processing: false,
-            show_original_image: true, // Default to single-panel view
-            show_palettes: true,
+            preview_ready: false,
             preview_processing: false,
             result_message: String::new(),
             settings_changed: false,
@@ -355,6 +406,26 @@ impl Default for AppState {
             // デバウンス機能 - 100msの遅延（応答性向上）
             last_settings_change_time: None,
             debounce_delay: std::time::Duration::from_millis(100),
+
+            preferences,
+        }
+    }
+}
+
+impl AppState {
+    pub fn check_and_save_preferences(&mut self) {
+        if self.show_advanced != self.preferences.show_advanced
+            || self.show_original_image != self.preferences.show_original_image
+            || self.show_palettes != self.preferences.show_palettes
+            || self.selected_export_format != self.preferences.selected_export_format
+        {
+            self.preferences.show_advanced = self.show_advanced;
+            self.preferences.show_original_image = self.show_original_image;
+            self.preferences.show_palettes = self.show_palettes;
+            self.preferences.selected_export_format = self.selected_export_format.clone();
+            if let Err(e) = self.preferences.save() {
+                eprintln!("Failed to save preferences: {}", e);
+            }
         }
     }
 }

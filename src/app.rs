@@ -255,6 +255,9 @@ impl eframe::App for QualetizeApp {
         // Handle settings changes after checking completion
         self.handle_settings_changes();
 
+        // Save preferences
+        self.state.check_and_save_preferences();
+
         // Top（Menu）
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             egui::Frame::NONE
