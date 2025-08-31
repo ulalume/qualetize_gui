@@ -3,6 +3,7 @@ pub mod color_space;
 pub mod dither;
 pub mod export;
 pub mod image;
+pub mod preferences;
 pub mod settings;
 
 // Re-export all public types for convenience

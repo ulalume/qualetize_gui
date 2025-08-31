@@ -1,9 +1,9 @@
 use egui::Vec2;
-use std::path::PathBuf;
 
 use super::{
     export::ExportFormat,
     image::{ColorCorrection, ImageData},
+    preferences::UserPreferences,
     settings::QualetizeSettings,
 };
 
@@ -13,6 +13,7 @@ pub struct AppState {
     pub output_path: Option<String>,
     pub output_name: String,
     pub input_image: ImageData,
+    pub color_corrected_image: ImageData,
     pub output_image: ImageData,
 
     // UI状態
@@ -44,7 +45,10 @@ pub struct AppState {
     pub debounce_delay: std::time::Duration,
 
     // ユーザー設定
-    preferences: UserPreferences,
+    pub preferences: UserPreferences,
+
+    // Color correction tracking
+    pub last_color_correction: ColorCorrection,
 }
 
 impl Default for AppState {
@@ -55,6 +59,7 @@ impl Default for AppState {
             output_path: None,
             output_name: String::new(),
             input_image: ImageData::default(),
+            color_corrected_image: ImageData::default(),
             output_image: ImageData::default(),
 
             show_advanced: preferences.show_advanced,
@@ -82,6 +87,7 @@ impl Default for AppState {
             debounce_delay: std::time::Duration::from_millis(100),
 
             preferences,
+            last_color_correction: ColorCorrection::default(),
         }
     }
 }
@@ -102,53 +108,35 @@ impl AppState {
             }
         }
     }
-}
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-struct UserPreferences {
-    pub show_advanced: bool,
-    pub show_original_image: bool,
-    pub show_palettes: bool,
-    pub selected_export_format: ExportFormat,
-}
-
-impl Default for UserPreferences {
-    fn default() -> Self {
-        Self {
-            show_advanced: false,
-            show_original_image: true,
-            show_palettes: true,
-            selected_export_format: ExportFormat::default(),
+    /// Check if color corrected image needs to be regenerated
+    pub fn needs_color_correction_update(&self) -> bool {
+        // If no color corrected image exists, it needs to be generated
+        if self.color_corrected_image.texture.is_none() {
+            return true;
         }
-    }
-}
 
-impl UserPreferences {
-    pub fn config_path() -> PathBuf {
-        if let Some(config_dir) = dirs::config_dir() {
-            config_dir.join("QualetizeGUI").join("preferences.json")
-        } else {
-            PathBuf::from("preferences.json")
+        // If input image changed, color corrected image needs update
+        if self.input_image.size != self.color_corrected_image.size {
+            return true;
         }
+
+        // Could add more sophisticated checking here (e.g., timestamp comparison)
+        false
     }
 
-    pub fn load() -> Self {
-        let path = Self::config_path();
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(prefs) = serde_json::from_str(&content) {
-                return prefs;
-            }
-        }
-        Self::default()
+    /// Clear color corrected image when input changes
+    pub fn invalidate_color_corrected_image(&mut self) {
+        self.color_corrected_image = ImageData::default();
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = Self::config_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, content)?;
-        Ok(())
+    /// Check if color correction settings have changed
+    pub fn color_correction_changed(&self) -> bool {
+        self.color_correction != self.last_color_correction
+    }
+
+    /// Update the tracked color correction settings
+    pub fn update_color_correction_tracking(&mut self) {
+        self.last_color_correction = self.color_correction.clone();
     }
 }

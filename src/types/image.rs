@@ -1,10 +1,11 @@
-use egui::{TextureHandle, Vec2};
+use egui::{Color32, TextureHandle, Vec2};
 
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
     pub size: Vec2,
-    pub palettes: Vec<Vec<egui::Color32>>, // パレット情報を追加
+    pub palettes: Vec<Vec<egui::Color32>>,
+    pub pixels: Vec<u8>,
 }
 
 impl Default for ImageData {
@@ -13,6 +14,22 @@ impl Default for ImageData {
             texture: None,
             size: Vec2::ZERO,
             palettes: Vec::new(),
+            pixels: Vec::new(),
+        }
+    }
+}
+
+impl ImageData {
+    /// Get the color of the top-left pixel (0, 0)
+    pub fn get_top_left_pixel_color(&self) -> Option<Color32> {
+        if self.pixels.len() >= 4 && self.size.x > 0.0 && self.size.y > 0.0 {
+            let r = self.pixels[0];
+            let g = self.pixels[1];
+            let b = self.pixels[2];
+            let _a = self.pixels[3]; // Alpha not used for RGB color
+            Some(Color32::from_rgb(r, g, b))
+        } else {
+            None
         }
     }
 }

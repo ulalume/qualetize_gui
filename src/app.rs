@@ -56,6 +56,10 @@ impl QualetizeApp {
                 self.state.input_image = image_data;
                 self.state.result_message = "Image loaded, generating preview...".to_string();
 
+                // Invalidate caches when new image is loaded
+                self.image_processor.invalidate_color_corrected_cache();
+                self.state.invalidate_color_corrected_image();
+
                 // Set default output path and name
                 self.set_default_output_settings(&path);
 
@@ -109,19 +113,28 @@ impl QualetizeApp {
     }
 
     fn handle_settings_changes(&mut self) {
+        // Check for color correction changes
+        let color_correction_changed = self.state.color_correction_changed();
+
         // 設定が変更された場合は常にタイルサイズをチェック
         if self.state.settings_changed {
             self.check_tile_size_compatibility();
         }
 
         // デバウンス機能：設定変更から一定時間経過後にプレビュー生成を開始
-        if self.state.settings_changed && self.state.input_path.is_some() {
+        // Color correction changes also trigger preview generation
+        if (self.state.settings_changed || color_correction_changed)
+            && self.state.input_path.is_some()
+        {
             if let Some(last_change_time) = self.state.last_settings_change_time {
                 let elapsed = last_change_time.elapsed();
                 if elapsed >= self.state.debounce_delay {
                     // 進行中の処理があってもキャンセルして新しい処理を開始
                     self.start_preview_generation();
                 }
+            } else if color_correction_changed {
+                // If only color correction changed, start immediately
+                self.start_preview_generation();
             }
         }
     }
@@ -193,6 +206,38 @@ impl QualetizeApp {
                 self.state.settings_changed = false;
                 self.state.last_settings_change_time = None; // リセット
                 self.state.result_message = "Generating preview...".to_string();
+
+                // Update tracking
+                self.state.update_color_correction_tracking();
+            }
+        }
+    }
+
+    fn update_color_corrected_image(&mut self, ctx: &egui::Context) {
+        if let Some(input_path) = self.state.input_path.clone() {
+            // Check if color correction changed
+            if self.state.color_correction_changed() {
+                log::debug!("Color correction changed, invalidating cache");
+                self.image_processor.invalidate_color_corrected_cache();
+                self.state.invalidate_color_corrected_image();
+            }
+
+            // Generate color corrected image if needed
+            if self.state.needs_color_correction_update() {
+                match self.image_processor.get_or_generate_color_corrected_image(
+                    &input_path,
+                    &self.state.color_correction,
+                    ctx,
+                ) {
+                    Ok(corrected_image) => {
+                        self.state.color_corrected_image = corrected_image;
+                        log::debug!("Color corrected image updated successfully");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to generate color corrected image: {}", e);
+                        self.state.result_message = format!("Color correction failed: {}", e);
+                    }
+                }
             }
         }
     }
@@ -250,6 +295,9 @@ impl eframe::App for QualetizeApp {
 
         // Check preview completion
         self.check_preview_completion(ctx);
+
+        // Update color corrected image if needed
+        self.update_color_corrected_image(ctx);
 
         // Handle settings changes after checking completion
         self.handle_settings_changes();

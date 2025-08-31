@@ -8,22 +8,28 @@ struct Vec4f {
     f32: [f32; 4],
 }
 
+struct ColorCorrectedCache {
+    image_data: ImageData,
+    input_path: String,
+    color_correction: ColorCorrection,
+}
+
 #[repr(C)]
 struct QualetizePlan {
     tile_width: u16,
     tile_height: u16,
-    n_palette_colours: u16,
+    n_palette_colors: u16,
     n_tile_palettes: u16,
-    colourspace: u8,
-    first_colour_is_transparent: u8,
+    colorspace: u8,
+    first_color_is_transparent: u8,
     premultiplied_alpha: u8,
     dither_type: u8,
     dither_level: f32,
     split_ratio: f32,
     n_tile_cluster_passes: u32,
-    n_colour_cluster_passes: u32,
-    colour_depth: Vec4f,
-    transparent_colour: BGRA8,
+    n_color_cluster_passes: u32,
+    color_depth: Vec4f,
+    transparent_color: BGRA8,
 }
 
 unsafe extern "C" {
@@ -54,8 +60,9 @@ pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
     preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
     cancel_sender: Option<mpsc::Sender<()>>,
-    current_generation_id: u64,                       // 現在の処理世代ID
-    active_threads: Vec<std::thread::JoinHandle<()>>, // アクティブなスレッドのリスト
+    current_generation_id: u64,                         // 現在の処理世代ID
+    active_threads: Vec<std::thread::JoinHandle<()>>,   // アクティブなスレッドのリスト
+    color_corrected_cache: Option<ColorCorrectedCache>, // Color corrected image cache
 }
 
 impl Default for ImageProcessor {
@@ -66,6 +73,7 @@ impl Default for ImageProcessor {
             cancel_sender: None,
             current_generation_id: 0,
             active_threads: Vec::new(),
+            color_corrected_cache: None,
         }
     }
 }
@@ -103,6 +111,70 @@ impl ImageProcessor {
         }
     }
 
+    pub fn get_or_generate_color_corrected_image(
+        &mut self,
+        input_path: &str,
+        color_correction: &ColorCorrection,
+        ctx: &Context,
+    ) -> Result<ImageData, String> {
+        // Check if we have a valid cache
+        if let Some(ref cache) = self.color_corrected_cache {
+            if cache.input_path == input_path && cache.color_correction == *color_correction {
+                log::debug!("Using cached color corrected image");
+                return Ok(cache.image_data.clone());
+            }
+        }
+
+        log::debug!("Generating new color corrected image");
+        let corrected_image =
+            Self::generate_color_corrected_image(input_path, color_correction, ctx)?;
+
+        // Update cache
+        self.color_corrected_cache = Some(ColorCorrectedCache {
+            image_data: corrected_image.clone(),
+            input_path: input_path.to_string(),
+            color_correction: color_correction.clone(),
+        });
+
+        Ok(corrected_image)
+    }
+
+    pub fn invalidate_color_corrected_cache(&mut self) {
+        log::debug!("Invalidating color corrected cache");
+        self.color_corrected_cache = None;
+    }
+
+    pub fn generate_color_corrected_image(
+        input_path: &str,
+        color_correction: &ColorCorrection,
+        ctx: &Context,
+    ) -> Result<ImageData, String> {
+        let img = image::open(input_path).map_err(|e| format!("Image loading error: {}", e))?;
+        let mut rgba_img = img.to_rgba8();
+
+        // Apply color corrections if any are active
+        if ColorProcessor::has_corrections(color_correction) {
+            rgba_img = ColorProcessor::apply_corrections(&rgba_img, color_correction);
+        }
+
+        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
+        let pixels = rgba_img.into_raw();
+
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let texture = ctx.load_texture(
+            "color_corrected",
+            color_image,
+            egui::TextureOptions::NEAREST,
+        );
+
+        Ok(ImageData {
+            texture: Some(texture),
+            size: egui::Vec2::new(size[0] as f32, size[1] as f32),
+            palettes: Vec::new(),
+            pixels,
+        })
+    }
+
     pub fn load_image_from_path(path: &str, ctx: &Context) -> Result<ImageData, String> {
         let img = image::open(path).map_err(|e| format!("Image loading error: {}", e))?;
         let rgba_img = img.to_rgba8();
@@ -116,6 +188,7 @@ impl ImageProcessor {
             texture: Some(texture),
             size: egui::Vec2::new(size[0] as f32, size[1] as f32),
             palettes: Vec::new(), // 入力画像にはパレット情報なし
+            pixels,
         })
     }
 
@@ -125,6 +198,8 @@ impl ImageProcessor {
         settings: QualetizeSettings,
         color_correction: ColorCorrection,
     ) {
+        // Pre-generate color corrected image to improve responsiveness
+        // Note: Color corrected image pre-generation should be handled by the caller
         // Cancel any existing processing
         self.cancel_current_processing();
 
@@ -236,19 +311,19 @@ impl ImageProcessor {
         } = result;
 
         // インデックスカラーデータをRGBA画像に変換
-        let mut rgba_pixels = Vec::with_capacity((width * height * 4) as usize);
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
         for &pixel_index in &image_data {
             let palette_index = pixel_index as usize;
             if palette_index < palette_data.len() {
                 let color = &palette_data[palette_index];
-                rgba_pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+                pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
             } else {
-                rgba_pixels.extend_from_slice(&[0, 0, 0, 255]);
+                pixels.extend_from_slice(&[0, 0, 0, 255]);
             }
         }
 
         let size = [width as usize, height as usize];
-        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_pixels);
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
         let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
         // パレット情報を直接変換
@@ -258,6 +333,7 @@ impl ImageProcessor {
             texture: Some(texture),
             size: egui::Vec2::new(width as f32, height as f32),
             palettes,
+            pixels,
         })
     }
 
@@ -301,20 +377,20 @@ impl ImageProcessor {
         Ok(QualetizePlan {
             tile_width: settings.tile_width,
             tile_height: settings.tile_height,
-            n_palette_colours: settings.n_colors,
+            n_palette_colors: settings.n_colors,
             n_tile_palettes: settings.n_palettes,
-            colourspace: settings.color_space.to_id(),
-            first_colour_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
+            colorspace: settings.color_space.to_id(),
+            first_color_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
             premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
             dither_type: settings.dither_mode.to_id(),
             dither_level: settings.dither_level,
             split_ratio: settings.split_ratio,
             n_tile_cluster_passes: settings.tile_passes,
-            n_colour_cluster_passes: settings.color_passes,
-            colour_depth: Vec4f {
+            n_color_cluster_passes: settings.color_passes,
+            color_depth: Vec4f {
                 f32: [rgba_depth[0], rgba_depth[1], rgba_depth[2], rgba_depth[3]],
             },
-            transparent_colour: settings.clear_color.to_bgra8(),
+            transparent_color: settings.clear_color.to_bgra8(),
         })
     }
 
@@ -337,15 +413,21 @@ impl ImageProcessor {
             return Err("Processing cancelled".to_string());
         }
 
-        // Load and process image
-        let img = image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
-        let mut rgba_img = img.to_rgba8();
-
-        // Apply color corrections if any are active
-        if ColorProcessor::has_corrections(&color_correction) {
-            log::debug!("Applying color corrections: {:?}", color_correction);
-            rgba_img = ColorProcessor::apply_corrections(&rgba_img, &color_correction);
-        }
+        // Use optimized loading - try to use color corrected image if available
+        let rgba_img = if ColorProcessor::has_corrections(&color_correction) {
+            log::debug!("Loading image with color corrections");
+            // For background processing, we need to load and apply corrections here
+            // since we don't have access to the cached image in the thread
+            let img =
+                image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
+            let rgba_img = img.to_rgba8();
+            ColorProcessor::apply_corrections(&rgba_img, &color_correction)
+        } else {
+            log::debug!("Loading image without color corrections");
+            let img =
+                image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
+            img.to_rgba8()
+        };
 
         let width = rgba_img.width();
         let height = rgba_img.height();
@@ -493,7 +575,7 @@ impl ImageProcessor {
         export_format: crate::types::ExportFormat,
     ) -> Result<(), String> {
         // Load and process image
-        let img = image::open(&input_path).map_err(|e| format!("Image loading error: {}", e))?;
+        let img = image::open(input_path).map_err(|e| format!("Image loading error: {}", e))?;
         let mut rgba_img = img.to_rgba8();
 
         // Apply color corrections if any are active

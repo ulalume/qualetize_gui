@@ -69,11 +69,11 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ui.label("*");
 
         ui.label("Colors:")
-            .on_hover_text("Set number of colours per palette\nNote that this value times the number of palettes must be less than or equal to 256.");
+            .on_hover_text("Set number of colors per palette\nNote that this value times the number of palettes must be less than or equal to 256.");
 
         if ui
             .add(egui::DragValue::new(&mut state.settings.n_colors).range(1..=max_colors))
-            .on_hover_text("Number of colours per palette")
+            .on_hover_text("Number of colors per palette")
             .changed()
         {
             settings_changed = true;
@@ -87,7 +87,7 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.horizontal(|ui| {
         ui.label("RGBA Depth:")
-            .on_hover_text("Set RGBA bit depth\nRGBA = 8888 is standard for BMP (24-bit colour + 8-bit alpha)\nFor retro targets, RGBA = 5551 is common");
+            .on_hover_text("Set RGBA bit depth\nRGBA = 8888 is standard for BMP (24-bit color + 8-bit alpha)\nFor retro targets, RGBA = 5551 is common");
         if ui
             .text_edit_singleline(&mut state.settings.rgba_depth)
             .on_hover_text("RGBA bit depth (e.g., 8888, 5551, 3331)")
@@ -156,7 +156,7 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
             if ui
                 .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
-                .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colours by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colours in the palette will also be pre-multiplied.")
+                .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.")
                 .changed()
             {
                 settings_changed = true;
@@ -184,7 +184,7 @@ fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             }
         })
         .response
-        .on_hover_text("Set colourspace\nDifferent colourspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.");
+        .on_hover_text("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.");
 
     settings_changed
 }
@@ -207,7 +207,7 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             }
         })
         .response
-        .on_hover_text("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colours per palette is very small,\nat the expense of added \"noise\".");
+        .on_hover_text("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".");
 
     ui.horizontal(|ui| {
         ui.label("Dither Level:")
@@ -233,7 +233,7 @@ fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.heading("Transparency");
     if ui
         .checkbox(&mut state.settings.col0_is_clear, "First Color is Transparent")
-        .on_hover_text("First colour of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-colour input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.")
+        .on_hover_text("First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.")
         .changed()
     {
         settings_changed = true;
@@ -249,8 +249,8 @@ fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::RGB(_, _, _));
 
                 if ui
-                    .checkbox(&mut has_clear_color, "Set Colour of Transparent Pixels")
-                    .on_hover_text("Note that as long as the RGB values match the clear colour,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
+                    .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
+                    .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
                     .changed()
                 {
                     if has_clear_color {
@@ -307,7 +307,7 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
             ui.horizontal(|ui| {
                 ui.label("Color Passes:")
-                    .on_hover_text("Set colour cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colours together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-colour palettes, set to ~4; for 16-colour palettes, set to 32-64)");
+                    .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
                 if ui
                     .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
                     .on_hover_text("Number of color passes (0 to 100)")
@@ -319,7 +319,7 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
             ui.horizontal(|ui| {
                 ui.label("Split Ratio:")
-                    .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colours;\nRatio = 1 - 2^(1-k/16).");
+                    .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colors;\nRatio = 1 - 2^(1-k/16).");
                 if ui
                     .add(egui::DragValue::new(&mut state.settings.split_ratio).range(-1.0..=1.0))
                     .on_hover_text("Split Ratio (-1.0 to 1.0)")
