@@ -593,10 +593,10 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 
         let presets = [
             ("🔄 Reset", ColorProcessor::reset_corrections()),
-            ("✨ Vibrant", ColorProcessor::preset_vibrant()),
-            ("🌅 Warm", ColorProcessor::preset_retro_warm()),
-            ("❄ Cool", ColorProcessor::preset_retro_cool()),
-            ("🌚 Dark", ColorProcessor::preset_dark()),
+            ("Vibrant", ColorProcessor::preset_vibrant()),
+            ("Warm", ColorProcessor::preset_retro_warm()),
+            ("Cool", ColorProcessor::preset_retro_cool()),
+            ("Dark", ColorProcessor::preset_dark()),
         ];
 
         for (label, preset) in presets {

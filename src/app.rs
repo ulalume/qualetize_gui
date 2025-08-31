@@ -316,7 +316,7 @@ impl eframe::App for QualetizeApp {
 
         // Side（Settings）
         egui::SidePanel::left("settings_panel")
-            .default_width(320.0)
+            .default_width(260.0)
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
