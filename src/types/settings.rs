@@ -1,6 +1,73 @@
 use super::color_space::ColorSpace;
 use super::dither::DitherMode;
 
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct BGRA8 {
+    pub b: u8,
+    pub g: u8,
+    pub r: u8,
+    pub a: u8,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ClearColor {
+    None,
+    RGB(u8, u8, u8),
+}
+
+impl Default for ClearColor {
+    fn default() -> Self {
+        ClearColor::None
+    }
+}
+
+impl ClearColor {
+    pub fn to_bgra8(&self) -> BGRA8 {
+        match self {
+            ClearColor::None => BGRA8 {
+                b: 0,
+                g: 0,
+                r: 0,
+                a: 0,
+            },
+            ClearColor::RGB(r, g, b) => BGRA8 {
+                b: *b,
+                g: *g,
+                r: *r,
+                a: 0xFF,
+            },
+        }
+    }
+
+    // pub fn to_string(&self) -> String {
+    //     match self {
+    //         ClearColor::None => "none".to_string(),
+    //         ClearColor::RGB(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
+    //     }
+    // }
+
+    // pub fn from_string(s: &str) -> Self {
+    //     if s.trim().to_lowercase() == "none" {
+    //         return ClearColor::None;
+    //     }
+
+    //     if let Some(hex) = s.strip_prefix('#') {
+    //         if hex.len() == 6 {
+    //             if let (Ok(r), Ok(g), Ok(b)) = (
+    //                 u8::from_str_radix(&hex[0..2], 16),
+    //                 u8::from_str_radix(&hex[2..4], 16),
+    //                 u8::from_str_radix(&hex[4..6], 16),
+    //             ) {
+    //                 return ClearColor::RGB(r, g, b);
+    //             }
+    //         }
+    //     }
+
+    //     ClearColor::None
+    // }
+}
+
 #[derive(Clone, Debug)]
 pub struct QualetizeSettings {
     pub tile_width: u16,
@@ -16,7 +83,7 @@ pub struct QualetizeSettings {
     pub color_passes: u32,
     pub split_ratio: f32,
     pub col0_is_clear: bool,
-    pub clear_color: String,
+    pub clear_color: ClearColor,
 }
 
 impl Default for QualetizeSettings {
@@ -35,7 +102,7 @@ impl Default for QualetizeSettings {
             color_passes: 100,
             split_ratio: -1.0,
             col0_is_clear: false,
-            clear_color: "none".to_string(),
+            clear_color: ClearColor::default(),
         }
     }
 }

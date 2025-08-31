@@ -1,20 +1,11 @@
 use crate::color_correction::ColorProcessor;
-use crate::types::{ColorCorrection, ImageData, QualetizeSettings};
+use crate::types::{BGRA8, ColorCorrection, ImageData, QualetizeSettings};
 use egui::{ColorImage, Context};
 use std::sync::mpsc;
 
 #[repr(C)]
 struct Vec4f {
     f32: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-struct BGRA8 {
-    b: u8,
-    g: u8,
-    r: u8,
-    a: u8,
 }
 
 #[repr(C)]
@@ -109,31 +100,6 @@ impl ImageProcessor {
             '7' => 127.0,
             '8' => 255.0,
             _ => 255.0,
-        }
-    }
-
-    fn parse_clear_color(clear_color: &str) -> BGRA8 {
-        if clear_color == "none" {
-            BGRA8 {
-                b: 0,
-                g: 0,
-                r: 0,
-                a: 0,
-            }
-        } else if let Ok(color_val) = u32::from_str_radix(clear_color.trim_start_matches("#"), 16) {
-            BGRA8 {
-                b: (color_val & 0xFF) as u8,
-                g: ((color_val >> 8) & 0xFF) as u8,
-                r: ((color_val >> 16) & 0xFF) as u8,
-                a: 0xFF as u8,
-            }
-        } else {
-            BGRA8 {
-                b: 0,
-                g: 0,
-                r: 0,
-                a: 0,
-            }
         }
     }
 
@@ -331,7 +297,6 @@ impl ImageProcessor {
         _color_correction: &ColorCorrection,
     ) -> Result<QualetizePlan, String> {
         let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
-        let clear_color = Self::parse_clear_color(&settings.clear_color);
 
         Ok(QualetizePlan {
             tile_width: settings.tile_width,
@@ -349,7 +314,7 @@ impl ImageProcessor {
             colour_depth: Vec4f {
                 f32: [rgba_depth[0], rgba_depth[1], rgba_depth[2], rgba_depth[3]],
             },
-            transparent_colour: clear_color,
+            transparent_colour: settings.clear_color.to_bgra8(),
         })
     }
 

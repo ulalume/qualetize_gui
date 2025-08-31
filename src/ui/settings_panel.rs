@@ -1,7 +1,7 @@
 use crate::color_correction::{
     ColorProcessor, display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
-use crate::types::{AppState, ColorSpace, DitherMode};
+use crate::types::{AppState, ClearColor, ColorSpace, DitherMode};
 use egui::{Color32, Frame, Margin};
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -246,16 +246,38 @@ fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             .inner_margin(Margin::same(4))
             .outer_margin(Margin::same(4))
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label("Clear Color:")
-                        .on_hover_text("Set colour of transparent pixels.\nNote that as long as the RGB values match the clear colour,\nthen the pixel will be made fully transparent, regardless of any alpha information.\nCan be 'none', or a '#RRGGBB' hex triad.");
-                    if ui
-                        .text_edit_singleline(&mut state.settings.clear_color)
-                        .changed()
-                    {
-                        settings_changed = true;
+                let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::RGB(_, _, _));
+
+                if ui
+                    .checkbox(&mut has_clear_color, "Set Colour of Transparent Pixels")
+                    .on_hover_text("Note that as long as the RGB values match the clear colour,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
+                    .changed()
+                {
+                    if has_clear_color {
+                        state.settings.clear_color = ClearColor::RGB(255, 0, 255); // Default magenta
+                    } else {
+                        state.settings.clear_color = ClearColor::None;
                     }
-                });
+                    settings_changed = true;
+                }
+
+                if has_clear_color {
+                    if let ClearColor::RGB(ref mut r, ref mut g, ref mut b) = state.settings.clear_color {
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0); // Indent the color picker
+
+                            let mut color_array = [*r, *g, *b];
+                            if ui.color_edit_button_srgb(&mut color_array).changed() {
+                                *r = color_array[0];
+                                *g = color_array[1];
+                                *b = color_array[2];
+                                settings_changed = true;
+                            }
+
+                            ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
+                        });
+                    }
+                }
             });
     }
 
