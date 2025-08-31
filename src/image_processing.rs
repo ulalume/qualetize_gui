@@ -120,13 +120,12 @@ impl ImageProcessor {
                 r: 0,
                 a: 0,
             }
-        } else if let Ok(color_val) = u32::from_str_radix(clear_color.trim_start_matches("0x"), 16)
-        {
+        } else if let Ok(color_val) = u32::from_str_radix(clear_color.trim_start_matches("#"), 16) {
             BGRA8 {
                 b: (color_val & 0xFF) as u8,
                 g: ((color_val >> 8) & 0xFF) as u8,
                 r: ((color_val >> 16) & 0xFF) as u8,
-                a: ((color_val >> 24) & 0xFF) as u8,
+                a: 0xFF as u8,
             }
         } else {
             BGRA8 {
