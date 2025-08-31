@@ -276,6 +276,18 @@ fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
                             ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
                         });
+                        // Top-left pixel color button
+                        ui.horizontal(|ui| {
+                            ui.add_space(20.0); // Same indent as color picker
+                            if ui.button("Use Top-Left Pixel Color").clicked() {
+                                if let Some(color) = state.color_corrected_image.get_top_left_pixel_color() {
+                                    *r = color.r();
+                                    *g = color.g();
+                                    *b = color.b();
+                                    settings_changed = true;
+                                }
+                            }
+                        });
                     }
                 }
             });
