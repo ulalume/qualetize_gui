@@ -19,6 +19,7 @@ pub struct AppState {
     // UI状態
     pub show_advanced: bool,
     pub show_original_image: bool,
+    pub show_color_corrected_image: bool,
     pub show_palettes: bool,
     pub selected_export_format: ExportFormat,
 
@@ -64,6 +65,7 @@ impl Default for AppState {
 
             show_advanced: preferences.show_advanced,
             show_original_image: preferences.show_original_image,
+            show_color_corrected_image: preferences.show_color_corrected_image.unwrap_or(false),
             show_palettes: preferences.show_palettes,
             selected_export_format: preferences.selected_export_format.clone(),
 
@@ -98,11 +100,14 @@ impl AppState {
             || self.show_original_image != self.preferences.show_original_image
             || self.show_palettes != self.preferences.show_palettes
             || self.selected_export_format != self.preferences.selected_export_format
+            || self.show_color_corrected_image
+                != self.preferences.show_color_corrected_image.unwrap_or(false)
         {
             self.preferences.show_advanced = self.show_advanced;
             self.preferences.show_original_image = self.show_original_image;
             self.preferences.show_palettes = self.show_palettes;
             self.preferences.selected_export_format = self.selected_export_format.clone();
+            self.preferences.show_color_corrected_image = Some(self.show_color_corrected_image);
             if let Err(e) = self.preferences.save() {
                 eprintln!("Failed to save preferences: {}", e);
             }

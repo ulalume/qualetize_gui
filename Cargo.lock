@@ -2689,6 +2689,7 @@ dependencies = [
  "image",
  "log",
  "png",
+ "regex",
  "rfd",
  "serde",
  "serde_json",

@@ -14,6 +14,11 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             // Display options
             ui.checkbox(&mut state.show_palettes, "Palettes");
             ui.separator();
+            ui.checkbox(
+                &mut state.show_color_corrected_image,
+                "Color Corrected Image",
+            );
+            ui.separator();
             ui.checkbox(&mut state.show_original_image, "Original Image");
             ui.separator();
             ui.checkbox(&mut state.show_advanced, "Advanced Settings");

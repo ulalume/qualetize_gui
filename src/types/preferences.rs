@@ -6,6 +6,7 @@ use super::export::ExportFormat;
 pub struct UserPreferences {
     pub show_advanced: bool,
     pub show_original_image: bool,
+    pub show_color_corrected_image: Option<bool>,
     pub show_palettes: bool,
     pub selected_export_format: ExportFormat,
 }
@@ -15,6 +16,7 @@ impl Default for UserPreferences {
         Self {
             show_advanced: false,
             show_original_image: true,
+            show_color_corrected_image: Some(false),
             show_palettes: true,
             selected_export_format: ExportFormat::default(),
         }

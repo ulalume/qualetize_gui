@@ -101,7 +101,7 @@ impl QualetizeApp {
 
     fn handle_file_selection(&mut self, ctx: &egui::Context) {
         // Check if a new file was selected via dialog but not yet loaded
-        if let Some(path) = &self.state.input_path.clone() {
+        if let Some(path) = &self.state.input_path {
             // Only load if we don't have an existing image or if it's a new path
             let should_load = self.state.input_image.texture.is_none()
                 || self.state.result_message == "File selected, loading...";
@@ -224,6 +224,7 @@ impl QualetizeApp {
 
             // Generate color corrected image if needed
             if self.state.needs_color_correction_update() {
+                println!("update_color_corrected_image");
                 match self.image_processor.get_or_generate_color_corrected_image(
                     &input_path,
                     &self.state.color_correction,
@@ -232,6 +233,7 @@ impl QualetizeApp {
                     Ok(corrected_image) => {
                         self.state.color_corrected_image = corrected_image;
                         log::debug!("Color corrected image updated successfully");
+                        println!("updated");
                     }
                     Err(e) => {
                         log::error!("Failed to generate color corrected image: {}", e);

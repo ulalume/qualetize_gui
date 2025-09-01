@@ -11,11 +11,6 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         draw_view_controls(ui, state);
 
-        if state.show_original_image && width > 780.0 {
-            ui.separator();
-            ui.label("💡 Left: Original | Right: Processed");
-        }
-
         if width > 560.0 {
             ui.separator();
             ui.label("🖱 Drag to pan, scroll to zoom");

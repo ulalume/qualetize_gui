@@ -1,41 +1,60 @@
 use crate::types::AppState;
-use egui::{Color32, Pos2, Rect, Vec2};
+use egui::{Align2, Color32, FontId, Pos2, Rect, Vec2};
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
     const HORIZONTAL_MARGIN: f32 = 4.0;
     let mut available_size = ui.available_size();
-    available_size.y -= 32.0; // footer size
+    available_size.y -= 34.0; // footer size
 
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;
     let mut pan_changed = egui::Vec2::ZERO;
 
-    if state.show_original_image {
-        available_size.x -= HORIZONTAL_MARGIN;
-    }
-
-    let split_x = if state.show_original_image {
-        available_size.x / 2.0
+    let split_x = if state.show_original_image || state.show_color_corrected_image {
+        (available_size.x - HORIZONTAL_MARGIN) / 2.0
     } else {
         available_size.x
+    };
+    let split_y = if state.show_original_image && state.show_color_corrected_image {
+        (available_size.y - HORIZONTAL_MARGIN) / 2.0
+    } else {
+        available_size.y
     };
 
     ui.horizontal(|ui| {
         ui.style_mut().spacing.item_spacing = egui::vec2(HORIZONTAL_MARGIN, 0.0);
         // Left panel - Original image
-        if state.show_original_image {
-            draw_image_panel(
-                ui,
-                split_x,
-                available_size.y,
-                &state.input_image,
-                zoom,
-                pan_offset,
-                &mut pan_changed,
-                &state,
-                false,
-            );
-        }
+        ui.vertical(|ui| {
+            ui.style_mut().spacing.item_spacing = egui::vec2(0.0, HORIZONTAL_MARGIN);
+            if state.show_original_image {
+                draw_image_panel(
+                    ui,
+                    split_x,
+                    split_y,
+                    &state.input_image,
+                    zoom,
+                    pan_offset,
+                    &mut pan_changed,
+                    &state,
+                    false,
+                    "Original",
+                );
+            }
+            if state.show_color_corrected_image {
+                draw_image_panel(
+                    ui,
+                    split_x,
+                    split_y,
+                    &state.color_corrected_image,
+                    zoom,
+                    pan_offset,
+                    &mut pan_changed,
+                    &state,
+                    false,
+                    "Color Corrected",
+                );
+            }
+        });
 
         // Right panel
         if state.tile_size_warning || !state.preview_ready {
@@ -53,6 +72,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
                 &mut pan_changed,
                 &state,
                 state.preview_processing,
+                "Qualetized",
             );
         }
     });
@@ -103,6 +123,7 @@ fn draw_image_panel(
     pan_changed: &mut Vec2,
     state: &AppState,
     has_spinner: bool,
+    title: &str,
 ) {
     ui.allocate_ui_with_layout(
         Vec2::new(width, height),
@@ -114,37 +135,38 @@ fn draw_image_panel(
             let canvas = response.rect;
 
             // Draw background
-            painter.rect_filled(canvas, 0.0, Color32::from_gray(64));
+            let base_color = Color32::from_gray(64);
+            painter.rect_filled(canvas, 0.0, base_color);
 
             // Draw pixel centers:
             const MAGNIFICATION_PIXEL_SIZE: f32 = 24.0;
             let canvas_min_x = canvas.min.x % MAGNIFICATION_PIXEL_SIZE;
+            let canvas_min_y = canvas.min.y % MAGNIFICATION_PIXEL_SIZE;
             let pixel_radius = 1.25;
-            let pixel_color = Color32::from_gray(100);
+            let pixel_color = Color32::from_rgba_unmultiplied(
+                (base_color.r() as f32 * 1.5) as u8,
+                (base_color.g() as f32 * 1.5) as u8,
+                (base_color.b() as f32 * 1.5) as u8,
+                base_color.a(), // alphaはそのまま
+            );
             for yi in 0.. {
                 let y = (yi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
-                if y > canvas.height() / 2.0 {
+                if y > canvas.height() + MAGNIFICATION_PIXEL_SIZE {
                     break;
                 }
                 for xi in 0.. {
                     let x = (xi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
-                    if x > canvas.width() / 2.0 {
+                    if x > canvas.width() + MAGNIFICATION_PIXEL_SIZE {
                         break;
                     }
-                    for offset in [
-                        egui::vec2(x, y),
-                        egui::vec2(x, -y),
-                        egui::vec2(-x, y),
-                        egui::vec2(-x, -y),
-                    ] {
-                        painter.circle_filled(
-                            canvas.center()
-                                + offset
-                                + egui::vec2(-canvas_min_x + MAGNIFICATION_PIXEL_SIZE / 2.0, 0.0),
-                            pixel_radius,
-                            pixel_color,
-                        );
-                    }
+                    painter.circle_filled(
+                        canvas.center()
+                            + egui::vec2(x, y)
+                            + egui::vec2(-canvas_min_x, -canvas_min_y)
+                            + egui::vec2(-canvas.width() / 2.0, -canvas.height() / 2.0),
+                        pixel_radius,
+                        pixel_color,
+                    );
                 }
             }
 
@@ -164,6 +186,35 @@ fn draw_image_panel(
                 if !image_data.palettes.is_empty() && state.show_palettes {
                     draw_palettes_overlay(&painter, &canvas, &image_data.palettes);
                 }
+            }
+
+            // Draw title
+            if !title.is_empty() {
+                let visuals = &ui.ctx().style().visuals;
+                let window_color = visuals.window_fill();
+                let bg_color = Color32::from_rgba_unmultiplied(
+                    window_color.r(),
+                    window_color.g(),
+                    window_color.b(),
+                    178,
+                );
+                let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
+
+                let galley = ui
+                    .fonts(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
+
+                let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
+                let rect = Align2::LEFT_TOP.align_size_within_rect(
+                    galley.size() + egui::vec2(4.0, 2.0),
+                    Rect::from_min_size(
+                        pos - egui::vec2(2.0, 1.0),
+                        galley.size() + egui::vec2(4.0, 2.0),
+                    ),
+                );
+                painter.rect_filled(rect, 0.0, bg_color);
+
+                // その上に文字を描画
+                painter.galley(pos, galley, text_color);
             }
 
             if has_spinner {

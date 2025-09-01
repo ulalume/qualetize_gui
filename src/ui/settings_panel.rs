@@ -3,6 +3,7 @@ use crate::color_correction::{
 };
 use crate::types::{AppState, ClearColor, ColorSpace, DitherMode};
 use egui::{Color32, Frame, Margin};
+use regex::Regex;
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
@@ -88,12 +89,36 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.horizontal(|ui| {
         ui.label("RGBA Depth:")
             .on_hover_text("Set RGBA bit depth\nRGBA = 8888 is standard for BMP (24-bit color + 8-bit alpha)\nFor retro targets, RGBA = 5551 is common");
-        if ui
-            .text_edit_singleline(&mut state.settings.rgba_depth)
-            .on_hover_text("RGBA bit depth (e.g., 8888, 5551, 3331)")
-            .changed()
-        {
-            settings_changed = true;
+
+        // Validate RGBA depth format before drawing
+        let is_valid = validate_rgba_depth(&state.settings.rgba_depth);
+        let is_empty = state.settings.rgba_depth.is_empty();
+
+        // Style the text input based on validation with fixed width
+        let mut response = ui.add_sized(
+            [60.0, ui.spacing().interact_size.y],
+            egui::TextEdit::singleline(&mut state.settings.rgba_depth)
+        );
+
+        // Apply visual feedback for invalid input
+        if !is_valid && !is_empty {
+            response = response.highlight();
+            ui.painter().rect_stroke(
+                response.rect,
+                2.0,
+                egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
+                egui::StrokeKind::Outside
+            );
+        }
+
+        response = response.on_hover_text("RGBA bit depth (e.g., 8888, 5551, 3331)\nR: 1-8, G: 1-8, B: 1-8, A: 1-8");
+
+        settings_changed |=  response.changed();
+
+        // Show validation feedback with detailed error messages
+        if let Some(error) = get_rgba_depth_error(&state.settings.rgba_depth) {
+            ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
+                .on_hover_text(format!("{}\nExamples: 8888, 5551, 3331", error));
         }
     });
 
@@ -305,6 +330,7 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .inner_margin(Margin::same(4))
         .show(ui, |ui| {
             ui.heading("Clustering");
+             ui.horizontal(|ui| {
             ui.horizontal(|ui| {
                 ui.label("Tile Passes:")
                     .on_hover_text("Set tile cluster passes (0 = default)");
@@ -328,6 +354,7 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     settings_changed = true;
                 }
             });
+             });
 
             ui.horizontal(|ui| {
                 ui.label("Split Ratio:")
@@ -645,4 +672,51 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
         ui.label(format!("Preview processing: {}", state.preview_processing));
         ui.label(format!("Settings changed: {}", state.settings_changed));
     });
+}
+
+fn validate_rgba_depth(rgba_str: &str) -> bool {
+    if rgba_str.is_empty() {
+        return false;
+    }
+
+    // Regex to match exactly 4 digits, each from 1-8
+    let re = Regex::new(r"^[1-8]{4}$").unwrap();
+    re.is_match(rgba_str)
+}
+
+fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
+    if rgba_str.is_empty() {
+        return Some("RGBA depth cannot be empty".to_string());
+    }
+
+    if rgba_str.len() != 4 {
+        return Some(format!("Expected 4 digits, got {}", rgba_str.len()));
+    }
+
+    for (i, ch) in rgba_str.chars().enumerate() {
+        if !ch.is_ascii_digit() {
+            let component = match i {
+                0 => "R",
+                1 => "G",
+                2 => "B",
+                3 => "A",
+                _ => "?",
+            };
+            return Some(format!("{} component '{}' is not a digit", component, ch));
+        }
+
+        let digit = ch.to_digit(10).unwrap();
+        if digit < 1 || digit > 8 {
+            let component = match i {
+                0 => "R",
+                1 => "G",
+                2 => "B",
+                3 => "A",
+                _ => "?",
+            };
+            return Some(format!("{} component {} must be 1-8", component, digit));
+        }
+    }
+
+    None
 }
