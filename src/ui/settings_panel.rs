@@ -665,7 +665,7 @@ fn validate_rgba_depth(rgba_str: &str) -> bool {
 
 fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
     if rgba_str.is_empty() {
-        return Some("RGBA depth cannot be empty".to_string());
+        return Some("RGBA depth is required".to_string());
     }
 
     if rgba_str.len() != 4 {
