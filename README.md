@@ -1,7 +1,5 @@
 # Qualetize GUI
 
-🇯🇵 日本語版 README は[こちら](./README.ja.md)をご覧ください。
-
 ![Screenshot](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/assets/screenshot.png)
 
 **Qualetize GUI** is an unofficial GUI frontend for [Qualetize (by Aikku93)](https://github.com/Aikku93/qualetize/).
@@ -10,7 +8,7 @@ The default parameters are configured for the Sega Genesis.
 
 ## Installation
 
-### App Download (Windows/macOS)
+### App Download (Windows/ macOS/ Linux)
 Download the latest app from [GitHub Releases](https://github.com/ulalume/qualetize_gui/releases/latest).
 
 ### Cargo Installation
@@ -31,6 +29,19 @@ qualetize_gui
 - Instant preview updates when parameters are changed
 - Color adjustment tools
 - Display palettes
+- Save and load custom settings presets
+
+## Settings Management
+
+You can save and load your custom settings combinations:
+
+### Settings File Format
+Settings files use JSON format (`.qset` extension) containing:
+- Qualetize parameters (tile size, palettes, dithering, etc.)
+- Color correction values (brightness, contrast, gamma, etc.)
+- Version information for compatibility
+
+Example settings file structure can be found in `examples/genesis.qset`.
 
 ## Licence
 

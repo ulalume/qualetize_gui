@@ -1,6 +1,7 @@
 use crate::image_processing::ImageProcessor;
+use crate::settings_manager::SettingsBundle;
 use crate::types::AppState;
-use crate::types::app_state::AppearanceMode;
+use crate::types::app_state::{AppearanceMode, SettingsRequest};
 use crate::ui::UI;
 use eframe::egui;
 use egui::Margin;
@@ -40,6 +41,7 @@ impl QualetizeApp {
         self.state.preview_ready = false;
         self.state.preview_processing = false;
         self.state.output_image = Default::default();
+        self.state.color_corrected_image = Default::default();
         self.state.zoom = 1.0;
         self.state.pan_offset = egui::Vec2::ZERO;
         self.state.result_message = "Loading image...".to_string();
@@ -362,6 +364,65 @@ impl QualetizeApp {
             }
         }
     }
+
+    fn handle_settings_requests(&mut self) {
+        if let Some(settings_request) = self.state.pending_settings_request.take() {
+            match settings_request {
+                SettingsRequest::Save { path } => {
+                    let settings_bundle = SettingsBundle::new(
+                        self.state.settings.clone(),
+                        self.state.color_correction.clone(),
+                    );
+
+                    match settings_bundle.save_to_file(&path) {
+                        Ok(()) => {
+                            self.state.result_message = format!("Settings saved to: {}", path);
+                            log::info!("Settings saved successfully to: {}", path);
+                        }
+                        Err(e) => {
+                            self.state.result_message = format!("Failed to save settings: {}", e);
+                            log::error!("Failed to save settings: {}", e);
+                        }
+                    }
+                }
+                SettingsRequest::Load { path } => {
+                    match SettingsBundle::load_from_file(&path) {
+                        Ok(settings_bundle) => {
+                            // // Cancel any existing processing
+                            if self.image_processor.is_processing() {
+                                self.image_processor.cancel_current_processing();
+                                self.image_processor = ImageProcessor::new();
+                            }
+                            // Reset state first
+                            self.state.preview_ready = false;
+                            self.state.preview_processing = false;
+                            self.state.result_message = "Loading image...".to_string();
+                            self.state.last_settings_change_time = Some(std::time::Instant::now());
+
+                            // Apply loaded settings
+                            self.state.settings = settings_bundle.qualetize_settings;
+                            self.state.color_correction = settings_bundle.color_correction;
+                            self.state.settings_changed = true;
+
+                            // Invalidate caches when settings change
+                            self.image_processor.invalidate_color_corrected_cache();
+                            self.state.invalidate_color_corrected_image();
+
+                            // Update tracking
+                            self.state.update_color_correction_tracking();
+
+                            self.state.result_message = format!("Settings loaded from: {}", path);
+                            log::info!("Settings loaded successfully from: {}", path);
+                        }
+                        Err(e) => {
+                            self.state.result_message = format!("Failed to load settings: {}", e);
+                            log::error!("Failed to load settings: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl Drop for QualetizeApp {
@@ -384,6 +445,9 @@ impl eframe::App for QualetizeApp {
 
         // Handle file selection from dialog
         self.handle_file_selection(ctx);
+
+        // Handle settings save/load requests
+        self.handle_settings_requests();
 
         // Check preview completion
         self.check_preview_completion(ctx);

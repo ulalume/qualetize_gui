@@ -1,0 +1,28 @@
+{
+  "qualetize_settings": {
+    "tile_width": 8,
+    "tile_height": 8,
+    "n_palettes": 1,
+    "n_colors": 16,
+    "rgba_depth": "3331",
+    "premul_alpha": false,
+    "color_space": "RgbLinear",
+    "dither_mode": "Floyd",
+    "dither_level": 0.5,
+    "tile_passes": 1000,
+    "color_passes": 100,
+    "split_ratio": -1.0,
+    "col0_is_clear": false,
+    "clear_color": "None"
+  },
+  "color_correction": {
+    "brightness": 0.0,
+    "contrast": 1.0,
+    "gamma": 1.0,
+    "saturation": 1.0,
+    "hue_shift": 0.0,
+    "shadows": 0.0,
+    "highlights": 0.0
+  },
+  "version": "0.3.0"
+}

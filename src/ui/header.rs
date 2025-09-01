@@ -1,6 +1,7 @@
+use crate::settings_manager::SettingsBundle;
 use crate::types::{
     AppState, ColorCorrectionPreset, ExportFormat, QualetizePreset,
-    app_state::{AppearanceMode, ExportRequest},
+    app_state::{AppearanceMode, ExportRequest, SettingsRequest},
 };
 use rfd::FileDialog;
 use std::path::Path;
@@ -39,7 +40,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
             ui.menu_button("Export Image", |ui| {
                 ui.add_enabled_ui(state.color_corrected_image.texture.is_some(), |ui| {
-                    if ui.button("Color Correction PNG").clicked() {
+                    if ui.button("Color Corrected PNG").clicked() {
                         request_export(state, ExportFormat::Png, Some("color_corrected"));
                         ui.close();
                     }
@@ -59,11 +60,13 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.menu_button("Settings", |ui| {
-                if ui.button("Save Settings...").clicked() {
-                    //
-                }
                 if ui.button("Load Settings...").clicked() {
-                    //
+                    ui.close();
+                    request_settings_load(state);
+                }
+                if ui.button("Save Settings...").clicked() {
+                    ui.close();
+                    request_settings_save(state);
                 }
             });
         });
@@ -277,6 +280,51 @@ pub fn request_export(state: &mut AppState, format: ExportFormat, suffix: Option
             };
             state.pending_export_request = Some(export_request);
         }
+    }
+}
+
+pub fn request_settings_save(state: &mut AppState) {
+    // Ensure proper resource cleanup by scoping the dialog and result
+    let save_result = {
+        let mut dialog = FileDialog::new()
+            .add_filter(
+                "QualetizeGUI Settings",
+                &[SettingsBundle::get_settings_file_extension()],
+            )
+            .set_file_name("qualetize_settings.qset");
+
+        if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
+            dialog = dialog.set_directory(&settings_dir);
+        }
+
+        dialog.save_file()
+    }; // dialog is dropped here
+
+    // Process result after dialog is cleaned up
+    if let Some(output_path) = save_result {
+        state.pending_settings_request = Some(SettingsRequest::Save {
+            path: output_path.display().to_string(),
+        });
+    }
+}
+
+pub fn request_settings_load(state: &mut AppState) {
+    let load_result = {
+        let mut dialog = FileDialog::new().add_filter(
+            "QualetizeGUI Settings",
+            &[SettingsBundle::get_settings_file_extension()],
+        );
+
+        if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
+            dialog = dialog.set_directory(&settings_dir);
+        }
+
+        dialog.pick_file()
+    };
+    if let Some(input_path) = load_result {
+        state.pending_settings_request = Some(SettingsRequest::Load {
+            path: input_path.display().to_string(),
+        });
     }
 }
 

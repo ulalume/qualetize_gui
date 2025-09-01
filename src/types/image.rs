@@ -1,5 +1,6 @@
 use super::BGRA8;
 use egui::{Color32, TextureHandle};
+use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct ImageData {
@@ -41,7 +42,7 @@ impl ImageData {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ColorCorrection {
     pub brightness: f32, // -1.0 to 1.0
     pub contrast: f32,   // 0.0 to 2.0

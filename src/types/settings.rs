@@ -1,5 +1,6 @@
 use super::color_space::ColorSpace;
 use super::dither::DitherMode;
+use serde::{Deserialize, Serialize};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -10,7 +11,7 @@ pub struct BGRA8 {
     pub a: u8,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ClearColor {
     None,
     RGB(u8, u8, u8),
@@ -68,7 +69,7 @@ impl ClearColor {
     // }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct QualetizeSettings {
     pub tile_width: u16,
     pub tile_height: u16,

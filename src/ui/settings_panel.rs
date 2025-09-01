@@ -418,7 +418,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.saturation, SATURATION_RANGE)
+                    egui::Slider::new(&mut state.color_correction.contrast, CONTRAST_RANGE)
                         .show_value(false),
                 )
                 .changed()
@@ -427,8 +427,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             }
             if ui
                 .add(
-                    egui::DragValue::new(&mut state.color_correction.saturation)
-                        .range(SATURATION_RANGE)
+                    egui::DragValue::new(&mut state.color_correction.contrast)
+                        .range(CONTRAST_RANGE)
                         .speed(0.01)
                         .fixed_decimals(2),
                 )
@@ -445,7 +445,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.contrast, CONTRAST_RANGE)
+                    egui::Slider::new(&mut state.color_correction.saturation, SATURATION_RANGE)
                         .show_value(false),
                 )
                 .changed()
@@ -454,8 +454,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             }
             if ui
                 .add(
-                    egui::DragValue::new(&mut state.color_correction.contrast)
-                        .range(CONTRAST_RANGE)
+                    egui::DragValue::new(&mut state.color_correction.saturation)
+                        .range(SATURATION_RANGE)
                         .speed(0.01)
                         .fixed_decimals(2),
                 )

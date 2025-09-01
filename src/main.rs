@@ -2,6 +2,7 @@
 mod app;
 mod color_processor;
 mod image_processing;
+mod settings_manager;
 mod types;
 mod ui;
 

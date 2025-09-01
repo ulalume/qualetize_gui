@@ -25,6 +25,13 @@ pub enum ExportRequest {
         format: ExportFormat,
     },
 }
+
+// Settings save/load request types
+#[derive(Debug, Clone)]
+pub enum SettingsRequest {
+    Save { path: String },
+    Load { path: String },
+}
 impl Default for AppearanceMode {
     fn default() -> Self {
         AppearanceMode::System
@@ -81,6 +88,9 @@ pub struct AppState {
 
     // Export requests
     pub pending_export_request: Option<ExportRequest>,
+
+    // Settings save/load requests
+    pub pending_settings_request: Option<SettingsRequest>,
 }
 
 impl Default for AppState {
@@ -132,6 +142,8 @@ impl Default for AppState {
             last_color_correction: ColorCorrection::default(),
 
             pending_export_request: None,
+
+            pending_settings_request: None,
         }
     }
 }
