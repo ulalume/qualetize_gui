@@ -11,5 +11,5 @@ pub use app_state::AppState;
 pub use color_space::ColorSpace;
 pub use dither::DitherMode;
 pub use export::ExportFormat;
-pub use image::{ColorCorrection, ImageData};
-pub use settings::{BGRA8, ClearColor, QualetizeSettings};
+pub use image::{ColorCorrection, ColorCorrectionPreset, ImageData};
+pub use settings::{BGRA8, ClearColor, QualetizePreset, QualetizeSettings};

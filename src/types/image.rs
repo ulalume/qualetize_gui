@@ -45,6 +45,46 @@ pub struct ColorCorrection {
     pub highlights: f32, // -1.0 to 1.0
 }
 
+pub enum ColorCorrectionPreset {
+    None,
+    Vibrant,
+    Warm,
+    Cool,
+    Dark,
+}
+
+impl ColorCorrectionPreset {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            ColorCorrectionPreset::None => "None",
+            ColorCorrectionPreset::Vibrant => "Vibrant",
+            ColorCorrectionPreset::Warm => "Warm",
+            ColorCorrectionPreset::Cool => "Cool",
+            ColorCorrectionPreset::Dark => "Dark",
+        }
+    }
+
+    pub fn all() -> &'static [ColorCorrectionPreset] {
+        &[
+            ColorCorrectionPreset::None,
+            ColorCorrectionPreset::Vibrant,
+            ColorCorrectionPreset::Warm,
+            ColorCorrectionPreset::Cool,
+            ColorCorrectionPreset::Dark,
+        ]
+    }
+
+    pub fn color_correction(&self) -> ColorCorrection {
+        match self {
+            ColorCorrectionPreset::None => ColorCorrection::default(),
+            ColorCorrectionPreset::Vibrant => ColorCorrection::preset_vibrant(),
+            ColorCorrectionPreset::Warm => ColorCorrection::preset_retro_warm(),
+            ColorCorrectionPreset::Cool => ColorCorrection::preset_retro_cool(),
+            ColorCorrectionPreset::Dark => ColorCorrection::preset_dark(),
+        }
+    }
+}
+
 impl Default for ColorCorrection {
     fn default() -> Self {
         Self {

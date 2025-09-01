@@ -24,7 +24,7 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_view_controls(ui: &mut egui::Ui, state: &mut AppState) {
-    if ui.button("🔄 Reset View").clicked() {
+    if ui.button("🔄 Reset Zoom").clicked() {
         state.zoom = 1.0;
         state.pan_offset = Vec2::ZERO;
     }

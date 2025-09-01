@@ -1,5 +1,6 @@
 use crate::image_processing::ImageProcessor;
 use crate::types::AppState;
+use crate::types::app_state::AppearanceMode;
 use crate::ui::UI;
 use eframe::egui;
 use egui::Margin;
@@ -284,11 +285,32 @@ impl QualetizeApp {
                 "Previous processing cancelled, will update soon...".to_string();
         }
     }
+
+    fn apply_theme(&self, ctx: &egui::Context) {
+        match self.state.appearance_mode {
+            AppearanceMode::Dark => ctx.set_visuals(egui::Visuals::dark()),
+            AppearanceMode::Light => ctx.set_visuals(egui::Visuals::light()),
+            AppearanceMode::System => {
+                if let Some(theme) = ctx.system_theme() {
+                    match theme {
+                        egui::Theme::Dark => ctx.set_visuals(egui::Visuals::dark()),
+                        egui::Theme::Light => ctx.set_visuals(egui::Visuals::light()),
+                    }
+                } else {
+                    ctx.set_visuals(egui::Visuals::dark());
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for QualetizeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut settings_changed = false;
+
+        // apply thme
+        self.apply_theme(ctx);
+
         // Handle drag and drop first
         self.handle_dropped_files(ctx);
 

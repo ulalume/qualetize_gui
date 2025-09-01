@@ -1,14 +1,32 @@
+use super::export::ExportFormat;
+use crate::types::app_state::AppearanceMode;
+use egui::Color32;
 use std::path::PathBuf;
 
-use super::export::ExportFormat;
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct SerdeColor32(u8, u8, u8, u8);
 
+impl From<Color32> for SerdeColor32 {
+    fn from(c: Color32) -> Self {
+        Self(c.r(), c.g(), c.b(), c.a())
+    }
+}
+impl From<SerdeColor32> for Color32 {
+    fn from(c: SerdeColor32) -> Self {
+        Color32::from_rgba_unmultiplied(c.0, c.1, c.2, c.3)
+    }
+}
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct UserPreferences {
     pub show_advanced: bool,
     pub show_original_image: bool,
     pub show_color_corrected_image: Option<bool>,
     pub show_palettes: bool,
+    pub show_debug_info: Option<bool>,
     pub selected_export_format: ExportFormat,
+
+    pub appearance_mode: Option<AppearanceMode>,
+    pub background_color: Option<SerdeColor32>,
 }
 
 impl Default for UserPreferences {
@@ -18,7 +36,10 @@ impl Default for UserPreferences {
             show_original_image: true,
             show_color_corrected_image: Some(false),
             show_palettes: true,
+            show_debug_info: Some(false),
             selected_export_format: ExportFormat::default(),
+            appearance_mode: Some(AppearanceMode::default()),
+            background_color: None,
         }
     }
 }

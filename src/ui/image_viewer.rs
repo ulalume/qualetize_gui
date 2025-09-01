@@ -135,7 +135,7 @@ fn draw_image_panel(
             let canvas = response.rect;
 
             // Draw background
-            let base_color = Color32::from_gray(64);
+            let base_color = state.background_color.unwrap_or(Color32::from_gray(64));
             painter.rect_filled(canvas, 0.0, base_color);
 
             // Draw pixel centers:

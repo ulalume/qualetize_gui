@@ -34,11 +34,11 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     // Color correction settings
     settings_changed |= draw_color_correction_settings(ui, state);
 
-    ui.separator();
-
-    // Status display
-    draw_status_section(ui, state);
-
+    if state.show_debug_info {
+        // Debug information display
+        ui.separator();
+        draw_status_section(ui, state);
+    }
     settings_changed
 }
 
@@ -312,42 +312,41 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
     ui.strong("Clustering");
     ui.horizontal(|ui| {
-          ui.horizontal(|ui| {
-              ui.label("Tile Passes:")
-                  .on_hover_text("Set tile cluster passes (0 = default)");
-              if ui
-                  .add(egui::DragValue::new(&mut state.settings.tile_passes).range(0..=1000))
-                  .on_hover_text("Number of tile clustering passes (0 to 1000)")
-                  .changed()
-              {
-                  settings_changed = true;
-              }
-          });
-
-          ui.horizontal(|ui| {
-              ui.label("Color Passes:")
-                  .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
-              if ui
-                  .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
-                  .on_hover_text("Number of color passes (0 to 100)")
-                  .changed()
-              {
-                  settings_changed = true;
-              }
-          });
-        });
-
-    ui.horizontal(|ui| {
-            ui.label("Split Ratio:")
-                .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colors;\nRatio = 1 - 2^(1-k/16).");
+        ui.horizontal(|ui| {
+            ui.label("Tile Passes:")
+                .on_hover_text("Set tile cluster passes (0 = default)");
             if ui
-                .add(egui::DragValue::new(&mut state.settings.split_ratio).range(-1.0..=1.0))
-                .on_hover_text("Split Ratio (-1.0 to 1.0)")
+                .add(egui::DragValue::new(&mut state.settings.tile_passes).range(0..=1000))
+                .on_hover_text("Number of tile clustering passes (0 to 1000)")
                 .changed()
             {
                 settings_changed = true;
             }
         });
+        ui.horizontal(|ui| {
+            ui.label("Color Passes:")
+                .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
+            if ui
+                .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
+                .on_hover_text("Number of color passes (0 to 100)")
+                .changed()
+            {
+                settings_changed = true;
+            }
+        });
+    });
+
+    ui.horizontal(|ui| {
+        ui.label("Split Ratio:")
+            .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colors;\nRatio = 1 - 2^(1-k/16).");
+        if ui
+            .add(egui::DragValue::new(&mut state.settings.split_ratio).range(-1.0..=1.0))
+            .on_hover_text("Split Ratio (-1.0 to 1.0)")
+            .changed()
+        {
+            settings_changed = true;
+        }
+    });
 
     settings_changed
 }
@@ -622,7 +621,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 }
 
 fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
-    ui.heading("Status");
+    ui.heading("Debug Info");
     ui.add_space(4.0);
     if state.preview_processing {
         ui.label("🔄 Generating preview...");
@@ -631,7 +630,7 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
         if elapsed < state.debounce_delay {
             let remaining = state.debounce_delay - elapsed;
             ui.label(format!(
-                "⏱️ Preview will update in {:.1}s...",
+                "⏱ Preview will update in {:.1}s...",
                 remaining.as_secs_f32()
             ));
         }
@@ -640,20 +639,18 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     }
 
     // Debug information
-    ui.collapsing("🔍 Debug Info", |ui| {
-        ui.label(format!("Input path: {:?}", state.input_path.is_some()));
-        ui.label(format!(
-            "Input texture: {:?}",
-            state.input_image.texture.is_some()
-        ));
-        ui.label(format!(
-            "Output texture: {:?}",
-            state.output_image.texture.is_some()
-        ));
-        ui.label(format!("Preview ready: {}", state.preview_ready));
-        ui.label(format!("Preview processing: {}", state.preview_processing));
-        ui.label(format!("Settings changed: {}", state.settings_changed));
-    });
+    ui.label(format!("Input path: {:?}", state.input_path.is_some()));
+    ui.label(format!(
+        "Input texture: {:?}",
+        state.input_image.texture.is_some()
+    ));
+    ui.label(format!(
+        "Output texture: {:?}",
+        state.output_image.texture.is_some()
+    ));
+    ui.label(format!("Preview ready: {}", state.preview_ready));
+    ui.label(format!("Preview processing: {}", state.preview_processing));
+    ui.label(format!("Settings changed: {}", state.settings_changed));
 }
 
 fn validate_rgba_depth(rgba_str: &str) -> bool {

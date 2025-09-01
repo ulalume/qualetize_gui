@@ -98,15 +98,36 @@ impl Default for QualetizePreset {
     }
 }
 
-impl QualetizeSettings {
-    pub fn preset(mode: QualetizePreset) -> Self {
-        match mode {
-            QualetizePreset::Genesis => Self::genesis(),
-            QualetizePreset::GenesisFullPals => Self::genesis_full_palettes(),
-            QualetizePreset::GbaNds => Self::gba_nds(),
-            QualetizePreset::GbaNdsFullPals => Self::gba_nds_full_palettes(),
+impl QualetizePreset {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            QualetizePreset::Genesis => "Genesis",
+            QualetizePreset::GenesisFullPals => "Genesis (Full Palettes)",
+            QualetizePreset::GbaNds => "GBA/ NDS",
+            QualetizePreset::GbaNdsFullPals => "GBA/ NDS (Full palettes)",
         }
     }
+
+    pub fn all() -> &'static [QualetizePreset] {
+        &[
+            QualetizePreset::Genesis,
+            QualetizePreset::GenesisFullPals,
+            QualetizePreset::GbaNds,
+            QualetizePreset::GbaNdsFullPals,
+        ]
+    }
+
+    pub fn qualetize_settings(&self) -> QualetizeSettings {
+        match self {
+            QualetizePreset::Genesis => QualetizeSettings::genesis(),
+            QualetizePreset::GenesisFullPals => QualetizeSettings::genesis_full_palettes(),
+            QualetizePreset::GbaNds => QualetizeSettings::gba_nds(),
+            QualetizePreset::GbaNdsFullPals => QualetizeSettings::gba_nds_full_palettes(),
+        }
+    }
+}
+
+impl QualetizeSettings {
     pub fn gba_nds() -> Self {
         Self {
             tile_width: 8,
