@@ -13,6 +13,18 @@ pub enum AppearanceMode {
     Light,
     Dark,
 }
+
+// Export request types
+#[derive(Debug, Clone)]
+pub enum ExportRequest {
+    ColorCorrectedPng {
+        output_path: String,
+    },
+    QualetizedIndexed {
+        output_path: String,
+        format: ExportFormat,
+    },
+}
 impl Default for AppearanceMode {
     fn default() -> Self {
         AppearanceMode::System
@@ -26,8 +38,6 @@ pub struct AppState {
 
     // ファイル管理
     pub input_path: Option<String>,
-    pub output_path: Option<String>,
-    pub output_name: String,
     pub input_image: ImageData,
     pub color_corrected_image: ImageData,
     pub output_image: ImageData,
@@ -68,6 +78,9 @@ pub struct AppState {
 
     // Color correction tracking
     pub last_color_correction: ColorCorrection,
+
+    // Export requests
+    pub pending_export_request: Option<ExportRequest>,
 }
 
 impl Default for AppState {
@@ -84,8 +97,6 @@ impl Default for AppState {
             },
 
             input_path: None,
-            output_path: None,
-            output_name: String::new(),
             input_image: ImageData::default(),
             color_corrected_image: ImageData::default(),
             output_image: ImageData::default(),
@@ -119,6 +130,8 @@ impl Default for AppState {
 
             preferences,
             last_color_correction: ColorCorrection::default(),
+
+            pending_export_request: None,
         }
     }
 }
@@ -180,7 +193,9 @@ impl AppState {
         }
 
         // If input image changed, color corrected image needs update
-        if self.input_image.size != self.color_corrected_image.size {
+        if self.input_image.width != self.color_corrected_image.width
+            || self.input_image.height != self.color_corrected_image.height
+        {
             return true;
         }
 

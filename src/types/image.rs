@@ -1,10 +1,14 @@
-use egui::{Color32, TextureHandle, Vec2};
+use super::BGRA8;
+use egui::{Color32, TextureHandle};
 
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: Option<TextureHandle>,
-    pub size: Vec2,
+    pub width: u32,
+    pub height: u32,
     pub palettes: Vec<Vec<egui::Color32>>,
+    pub palettes_raw: Vec<BGRA8>,
+    pub indexed: Option<Vec<u8>>,
     pub pixels: Vec<u8>,
 }
 
@@ -12,8 +16,11 @@ impl Default for ImageData {
     fn default() -> Self {
         Self {
             texture: None,
-            size: Vec2::ZERO,
+            width: 0,
+            height: 0,
             palettes: Vec::new(),
+            palettes_raw: Vec::new(),
+            indexed: None,
             pixels: Vec::new(),
         }
     }
@@ -22,7 +29,7 @@ impl Default for ImageData {
 impl ImageData {
     /// Get the color of the top-left pixel (0, 0)
     pub fn get_top_left_pixel_color(&self) -> Option<Color32> {
-        if self.pixels.len() >= 4 && self.size.x > 0.0 && self.size.y > 0.0 {
+        if self.pixels.len() >= 4 && self.width > 0 && self.height > 0 {
             let r = self.pixels[0];
             let g = self.pixels[1];
             let b = self.pixels[2];

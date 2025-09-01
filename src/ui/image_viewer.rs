@@ -171,7 +171,7 @@ fn draw_image_panel(
             }
 
             if let Some(texture) = image_data.texture.as_ref() {
-                let original_size = image_data.size;
+                let original_size = egui::vec2(image_data.width as f32, image_data.height as f32);
 
                 let image_rect = calculate_image_rect(&canvas, original_size, zoom, pan_offset);
 

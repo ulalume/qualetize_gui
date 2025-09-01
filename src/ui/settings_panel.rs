@@ -110,7 +110,7 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Qualetize Basic");
+    ui.heading("Qualetize");
     ui.add_space(4.0);
 
     ui.horizontal(|ui| {

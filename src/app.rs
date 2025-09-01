@@ -61,9 +61,6 @@ impl QualetizeApp {
                 self.image_processor.invalidate_color_corrected_cache();
                 self.state.invalidate_color_corrected_image();
 
-                // Set default output path and name
-                self.set_default_output_settings(&path);
-
                 // Check tile size compatibility
                 self.check_tile_size_compatibility();
 
@@ -74,29 +71,7 @@ impl QualetizeApp {
                 self.state.result_message = format!("Image loading error: {}", e);
                 self.state.input_path = None;
                 self.state.input_image = Default::default();
-                self.state.output_path = None;
-                self.state.output_name = String::new();
             }
-        }
-    }
-
-    fn set_default_output_settings(&mut self, input_path: &str) {
-        use std::path::Path;
-
-        let path = Path::new(input_path);
-
-        // Set output path to the same directory as input
-        if let Some(parent) = path.parent() {
-            self.state.output_path = Some(parent.to_string_lossy().to_string());
-        } else {
-            self.state.output_path = Some(".".to_string());
-        }
-
-        // Set output name to [input_name]_qualetized
-        if let Some(stem) = path.file_stem() {
-            self.state.output_name = format!("{}_qualetized.bmp", stem.to_string_lossy());
-        } else {
-            self.state.output_name = "output_qualetized.bmp".to_string();
         }
     }
 
@@ -113,7 +88,7 @@ impl QualetizeApp {
         }
     }
 
-    fn handle_settings_changes(&mut self) {
+    fn handle_settings_changes(&mut self, ctx: &egui::Context) {
         // Check for color correction changes
         let color_correction_changed = self.state.color_correction_changed();
 
@@ -131,11 +106,11 @@ impl QualetizeApp {
                 let elapsed = last_change_time.elapsed();
                 if elapsed >= self.state.debounce_delay {
                     // 進行中の処理があってもキャンセルして新しい処理を開始
-                    self.start_preview_generation();
+                    self.start_preview_generation(ctx);
                 }
             } else if color_correction_changed {
                 // If only color correction changed, start immediately
-                self.start_preview_generation();
+                self.start_preview_generation(ctx);
             }
         }
     }
@@ -147,8 +122,8 @@ impl QualetizeApp {
             return true;
         }
 
-        let image_width = self.state.input_image.size.x as u16;
-        let image_height = self.state.input_image.size.y as u16;
+        let image_width = self.state.input_image.width as u16;
+        let image_height = self.state.input_image.height as u16;
         let tile_width = self.state.settings.tile_width;
         let tile_height = self.state.settings.tile_height;
 
@@ -185,7 +160,7 @@ impl QualetizeApp {
         }
     }
 
-    fn start_preview_generation(&mut self) {
+    fn start_preview_generation(&mut self, ctx: &egui::Context) {
         // タイルサイズの互換性をチェック
         if !self.check_tile_size_compatibility() {
             self.state.preview_processing = false;
@@ -202,6 +177,7 @@ impl QualetizeApp {
                     input_path,
                     self.state.settings.clone(),
                     self.state.color_correction.clone(),
+                    ctx,
                 );
                 self.state.preview_processing = true;
                 self.state.settings_changed = false;
@@ -233,6 +209,7 @@ impl QualetizeApp {
                 ) {
                     Ok(corrected_image) => {
                         self.state.color_corrected_image = corrected_image;
+
                         log::debug!("Color corrected image updated successfully");
                         println!("updated");
                     }
@@ -302,6 +279,91 @@ impl QualetizeApp {
             }
         }
     }
+
+    fn handle_export_requests(&mut self) {
+        if let Some(export_request) = self.state.pending_export_request.take() {
+            match export_request {
+                crate::types::app_state::ExportRequest::ColorCorrectedPng { output_path } => {
+                    // Use ImageData pixels directly
+                    if !self.state.color_corrected_image.pixels.is_empty() {
+                        let rgba_data = self.state.color_corrected_image.pixels.clone();
+                        let width = self.state.color_corrected_image.width.clone();
+                        let height = self.state.color_corrected_image.height.clone();
+                        std::thread::spawn(move || {
+                            match ImageProcessor::save_rgba_image(
+                                &output_path,
+                                &rgba_data,
+                                width,
+                                height,
+                                crate::types::ExportFormat::Png,
+                            ) {
+                                Ok(()) => {
+                                    log::info!(
+                                        "Color corrected PNG export completed successfully (from memory)"
+                                    );
+                                }
+                                Err(e) => {
+                                    log::error!("Color corrected PNG export failed: {}", e);
+                                }
+                            }
+                        });
+                    } else {
+                        log::error!("No color corrected image data available in memory");
+                    }
+                }
+                crate::types::app_state::ExportRequest::QualetizedIndexed {
+                    output_path,
+                    format,
+                } => {
+                    let Some(indexed_data) = self.state.output_image.indexed.clone() else {
+                        log::error!("Qualetized export failed: indexed is None");
+                        return;
+                    };
+                    match format {
+                        crate::types::ExportFormat::Png => {
+                            log::error!("Qualetized export failed: Unexpected format");
+                        }
+                        crate::types::ExportFormat::Bmp => {
+                            match ImageProcessor::save_indexed_bmp(
+                                &output_path,
+                                &indexed_data,
+                                &self.state.output_image.palettes_raw,
+                                self.state.output_image.width,
+                                self.state.output_image.height,
+                            ) {
+                                Ok(()) => {
+                                    log::info!(
+                                        "Qualetized indexed BMP export completed successfully"
+                                    );
+                                }
+                                Err(e) => {
+                                    log::error!("Qualetized indexed export failed: {}", e);
+                                }
+                            }
+                        }
+                        crate::types::ExportFormat::PngIndexed => {
+                            match ImageProcessor::save_indexed_png(
+                                &output_path,
+                                &indexed_data,
+                                &self.state.output_image.palettes_raw,
+                                self.state.output_image.width,
+                                self.state.output_image.height,
+                            ) {
+                                Ok(()) => {
+                                    log::info!(
+                                        "Qualetized indexed PNG export completed successfully"
+                                    );
+                                }
+                                Err(e) => {
+                                    log::error!("Qualetized indexed export failed: {}", e);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 impl eframe::App for QualetizeApp {
@@ -324,7 +386,10 @@ impl eframe::App for QualetizeApp {
         self.update_color_corrected_image(ctx);
 
         // Handle settings changes after checking completion
-        self.handle_settings_changes();
+        self.handle_settings_changes(ctx);
+
+        // Handle export requests
+        self.handle_export_requests();
 
         // Save preferences
         self.state.check_and_save_preferences();

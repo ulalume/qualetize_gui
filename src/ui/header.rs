@@ -1,7 +1,9 @@
 use crate::types::{
-    AppState, ColorCorrectionPreset, ExportFormat, QualetizePreset, app_state::AppearanceMode,
+    AppState, ColorCorrectionPreset, ExportFormat, QualetizePreset,
+    app_state::{AppearanceMode, ExportRequest},
 };
 use rfd::FileDialog;
+use std::path::Path;
 
 pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
@@ -18,23 +20,11 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     state.input_path = Some(path_str.clone());
                     state.preview_ready = false;
                     state.preview_processing = false;
+                    state.color_corrected_image = Default::default();
                     state.output_image = Default::default();
                     state.zoom = 1.0;
                     state.pan_offset = egui::Vec2::ZERO;
                     state.result_message = "File selected, loading...".to_string();
-
-                    // Set default output settings
-                    if let Some(parent) = path.parent() {
-                        state.output_path = Some(parent.to_string_lossy().to_string());
-                    } else {
-                        state.output_path = Some(".".to_string());
-                    }
-
-                    if let Some(stem) = path.file_stem() {
-                        state.output_name = format!("{}_qualetized.bmp", stem.to_string_lossy());
-                    } else {
-                        state.output_name = "output_qualetized.bmp".to_string();
-                    }
 
                     settings_changed = true;
                 }
@@ -43,18 +33,19 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.menu_button("Export Image", |ui| {
-                ui.add_enabled_ui(state.preview_ready, |ui| {
+                ui.add_enabled_ui(state.color_corrected_image.texture.is_some(), |ui| {
                     if ui.button("Color Correction PNG").clicked() {
-                        // export
+                        request_export(state, ExportFormat::Png, Some("color_corrected"));
                         ui.close();
                     }
-                    if ui.button("Color Correction BMP").clicked() {
+                });
+                ui.add_enabled_ui(state.preview_ready, |ui| {
+                    if ui.button("Qualetized Indexed PNG").clicked() {
+                        request_export(state, ExportFormat::PngIndexed, Some("qualetized"));
                         ui.close();
                     }
-                    if ui.button("Qualetized PNG").clicked() {
-                        ui.close();
-                    }
-                    if ui.button("Qualetized BMP").clicked() {
+                    if ui.button("Qualetized Indexed BMP").clicked() {
+                        request_export(state, ExportFormat::Bmp, Some("qualetized"));
                         ui.close();
                     }
                 });
@@ -63,8 +54,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.menu_button("Settings", |ui| {
-                ui.button("Save Settings...");
-                ui.button("Load Settings...");
+                if ui.button("Save Settings...").clicked() {
+                    //
+                }
+                if ui.button("Load Settings...").clicked() {
+                    //
+                }
             });
         });
 
@@ -89,31 +84,8 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 }
             });
             ui.separator();
-            ui.menu_button("Zoom", |ui| {
-                if ui.button("Zoom 1x").clicked() {
-                    state.zoom = 1.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-                if ui.button("Zoom 2x").clicked() {
-                    state.zoom = 2.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-                if ui.button("Zoom 4x").clicked() {
-                    state.zoom = 4.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-                if ui.button("Zoom 8x").clicked() {
-                    state.zoom = 8.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-            });
-            ui.separator();
             ui.menu_button("Export Format", |ui| {
-                for format in ExportFormat::all() {
+                for format in ExportFormat::indexed_list() {
                     if ui
                         .selectable_value(
                             &mut state.selected_export_format,
@@ -144,6 +116,31 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.checkbox(&mut state.show_palettes, "Palettes");
+
+            ui.separator();
+
+            ui.menu_button("Zoom", |ui| {
+                if ui.button("Zoom 1x").clicked() {
+                    state.zoom = 1.0;
+                    state.pan_offset = egui::Vec2::ZERO;
+                    ui.close();
+                }
+                if ui.button("Zoom 2x").clicked() {
+                    state.zoom = 2.0;
+                    state.pan_offset = egui::Vec2::ZERO;
+                    ui.close();
+                }
+                if ui.button("Zoom 4x").clicked() {
+                    state.zoom = 4.0;
+                    state.pan_offset = egui::Vec2::ZERO;
+                    ui.close();
+                }
+                if ui.button("Zoom 8x").clicked() {
+                    state.zoom = 8.0;
+                    state.pan_offset = egui::Vec2::ZERO;
+                    ui.close();
+                }
+            });
 
             ui.separator();
 
@@ -229,4 +226,57 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     }
 
     settings_changed
+}
+
+pub fn request_export(state: &mut AppState, format: ExportFormat, suffix: Option<&str>) {
+    if let Some(input_path) = state.input_path.clone() {
+        let default_path = get_export_path(input_path, &format, suffix);
+
+        let mut dialog = FileDialog::new().add_filter(
+            &format!("{} files", format.display_name()),
+            &[format.extension()],
+        );
+
+        if let Some(filename) = default_path.file_name() {
+            dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
+        }
+        if let Some(parent) = default_path.parent() {
+            dialog = dialog.set_directory(parent);
+        }
+
+        match format {
+            ExportFormat::Png => {
+                if let Some(output_path) = dialog.save_file() {
+                    state.pending_export_request = Some(ExportRequest::ColorCorrectedPng {
+                        output_path: output_path.display().to_string(),
+                    });
+                }
+            }
+            _ => {
+                if let Some(output_path) = dialog.save_file() {
+                    state.pending_export_request = Some(ExportRequest::QualetizedIndexed {
+                        output_path: output_path.display().to_string(),
+                        format,
+                    });
+                }
+            }
+        }
+    }
+}
+
+fn get_export_path(
+    input_path: String,
+    format: &ExportFormat,
+    suffix: Option<&str>,
+) -> std::path::PathBuf {
+    let path = Path::new(&input_path);
+
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let stem = path.file_stem().unwrap_or(std::ffi::OsStr::new("output"));
+    let new_name = if let Some(suffix) = suffix {
+        format!("{}_{}", stem.to_string_lossy(), suffix)
+    } else {
+        stem.to_string_lossy().to_string()
+    };
+    parent.join(new_name).with_extension(format.extension())
 }
