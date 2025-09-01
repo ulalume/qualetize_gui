@@ -12,10 +12,16 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         // --- File menu ---
         ui.menu_button("File", |ui| {
             if ui.button("Open Image...").clicked() {
-                if let Some(path) = FileDialog::new()
-                    .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
-                    .pick_file()
-                {
+                ui.close();
+
+                // Ensure proper resource cleanup by scoping the dialog
+                let selected_path = {
+                    let dialog = FileDialog::new()
+                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
+                    dialog.pick_file()
+                }; // dialog is dropped here
+
+                if let Some(path) = selected_path {
                     let path_str = path.display().to_string();
                     state.input_path = Some(path_str.clone());
                     state.preview_ready = false;
@@ -28,7 +34,6 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
                     settings_changed = true;
                 }
-                ui.close();
             }
             ui.separator();
 
@@ -101,51 +106,61 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         });
 
         // --- View menu ---
-        ui.menu_button("View", |ui| {
-            ui.checkbox(&mut state.show_advanced, "Advanced Settings");
-            ui.checkbox(&mut state.show_debug_info, "Debug Info");
+        egui::containers::menu::MenuButton::new("View")
+            .config(
+                egui::containers::menu::MenuConfig::new()
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
+            )
+            .ui(ui, |ui| {
+                ui.checkbox(&mut state.show_advanced, "Advanced Settings");
+                ui.checkbox(&mut state.show_debug_info, "Debug Info");
 
-            ui.separator();
+                ui.separator();
 
-            ui.checkbox(&mut state.show_original_image, "Original Image");
-            ui.checkbox(
-                &mut state.show_color_corrected_image,
-                "Color Corrected Image",
-            );
+                ui.checkbox(&mut state.show_original_image, "Original Image");
+                ui.checkbox(
+                    &mut state.show_color_corrected_image,
+                    "Color Corrected Image",
+                );
 
-            ui.separator();
+                ui.separator();
 
-            ui.checkbox(&mut state.show_palettes, "Palettes");
+                ui.checkbox(&mut state.show_palettes, "Palettes");
 
-            ui.separator();
+                ui.separator();
 
-            ui.menu_button("Zoom", |ui| {
-                if ui.button("Zoom 1x").clicked() {
-                    state.zoom = 1.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-                if ui.button("Zoom 2x").clicked() {
-                    state.zoom = 2.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-                if ui.button("Zoom 4x").clicked() {
-                    state.zoom = 4.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-                    ui.close();
-                }
-                if ui.button("Zoom 8x").clicked() {
-                    state.zoom = 8.0;
-                    state.pan_offset = egui::Vec2::ZERO;
+                ui.menu_button("Zoom", |ui| {
+                    if ui.button("Zoom 1x").clicked() {
+                        state.zoom = 1.0;
+                        state.pan_offset = egui::Vec2::ZERO;
+                        ui.close();
+                    }
+                    if ui.button("Zoom 2x").clicked() {
+                        state.zoom = 2.0;
+                        state.pan_offset = egui::Vec2::ZERO;
+                        ui.close();
+                    }
+                    if ui.button("Zoom 4x").clicked() {
+                        state.zoom = 4.0;
+                        state.pan_offset = egui::Vec2::ZERO;
+                        ui.close();
+                    }
+                    if ui.button("Zoom 8x").clicked() {
+                        state.zoom = 8.0;
+                        state.pan_offset = egui::Vec2::ZERO;
+                        ui.close();
+                    }
+                });
+
+                ui.separator();
+
+                if ui
+                    .checkbox(&mut state.show_appearance_dialog, "Appearance")
+                    .clicked()
+                {
                     ui.close();
                 }
             });
-
-            ui.separator();
-
-            ui.checkbox(&mut state.show_appearance_dialog, "Appearance");
-        });
     });
 
     let mut show_dialog = state.show_appearance_dialog;
@@ -232,34 +247,35 @@ pub fn request_export(state: &mut AppState, format: ExportFormat, suffix: Option
     if let Some(input_path) = state.input_path.clone() {
         let default_path = get_export_path(input_path, &format, suffix);
 
-        let mut dialog = FileDialog::new().add_filter(
-            &format!("{} files", format.display_name()),
-            &[format.extension()],
-        );
+        // Ensure proper resource cleanup by scoping the dialog and result
+        let export_result = {
+            let mut dialog = FileDialog::new().add_filter(
+                &format!("{} files", format.display_name()),
+                &[format.extension()],
+            );
 
-        if let Some(filename) = default_path.file_name() {
-            dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
-        }
-        if let Some(parent) = default_path.parent() {
-            dialog = dialog.set_directory(parent);
-        }
+            if let Some(filename) = default_path.file_name() {
+                dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
+            }
+            if let Some(parent) = default_path.parent() {
+                dialog = dialog.set_directory(parent);
+            }
 
-        match format {
-            ExportFormat::Png => {
-                if let Some(output_path) = dialog.save_file() {
-                    state.pending_export_request = Some(ExportRequest::ColorCorrectedPng {
-                        output_path: output_path.display().to_string(),
-                    });
-                }
-            }
-            _ => {
-                if let Some(output_path) = dialog.save_file() {
-                    state.pending_export_request = Some(ExportRequest::QualetizedIndexed {
-                        output_path: output_path.display().to_string(),
-                        format,
-                    });
-                }
-            }
+            dialog.save_file()
+        }; // dialog is dropped here
+
+        // Process result after dialog is cleaned up
+        if let Some(output_path) = export_result {
+            let export_request = match format {
+                ExportFormat::Png => ExportRequest::ColorCorrectedPng {
+                    output_path: output_path.display().to_string(),
+                },
+                _ => ExportRequest::QualetizedIndexed {
+                    output_path: output_path.display().to_string(),
+                    format,
+                },
+            };
+            state.pending_export_request = Some(export_request);
         }
     }
 }

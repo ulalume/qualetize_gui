@@ -364,6 +364,14 @@ impl QualetizeApp {
     }
 }
 
+impl Drop for QualetizeApp {
+    fn drop(&mut self) {
+        // Cancel any ongoing processing
+        self.image_processor.cancel_current_processing();
+        log::debug!("QualetizeApp dropped, resources cleaned up");
+    }
+}
+
 impl eframe::App for QualetizeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let mut settings_changed = false;
