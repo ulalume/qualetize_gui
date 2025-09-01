@@ -184,7 +184,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             });
             ui.separator();
 
-            ui.strong("Image Background Color");
+            ui.strong("Canvas Background Color");
             ui.horizontal(|ui| {
                 // Use selectable_value for Default/Custom selection
                 let mut use_default = state.background_color.is_none();
