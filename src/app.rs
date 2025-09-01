@@ -201,7 +201,6 @@ impl QualetizeApp {
 
             // Generate color corrected image if needed
             if self.state.needs_color_correction_update() {
-                println!("update_color_corrected_image");
                 match self.image_processor.get_or_generate_color_corrected_image(
                     &input_path,
                     &self.state.color_correction,
@@ -209,9 +208,8 @@ impl QualetizeApp {
                 ) {
                     Ok(corrected_image) => {
                         self.state.color_corrected_image = corrected_image;
-
+                        self.state.update_color_correction_tracking();
                         log::debug!("Color corrected image updated successfully");
-                        println!("updated");
                     }
                     Err(e) => {
                         log::error!("Failed to generate color corrected image: {}", e);

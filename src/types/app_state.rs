@@ -177,8 +177,6 @@ impl AppState {
                 None
             };
 
-            println!("Background color: {:?}", self.preferences.background_color);
-            println!("Appearance mode: {:?}", self.preferences.appearance_mode);
             if let Err(e) = self.preferences.save() {
                 eprintln!("Failed to save preferences: {}", e);
             }
