@@ -150,14 +150,16 @@ impl Default for AppState {
 
 impl AppState {
     fn same_color(&self) -> bool {
-        if let Some(pref_back_color) = self.preferences.background_color.clone()
-            && let Some(back_color) = self.background_color
-        {
-            pref_back_color == SerdeColor32::from(back_color)
-        } else if self.preferences.background_color.is_none() && self.background_color.is_none() {
-            true
-        } else {
-            false
+        match (self.preferences.background_color.clone(), self.background_color) {
+            (Some(pref_color), Some(back_color)) => {
+                pref_color == SerdeColor32::from(back_color)
+            },
+            (None, None) => {
+                true
+            },
+            _ => {
+                false
+            }
         }
     }
     pub fn check_and_save_preferences(&mut self) {
