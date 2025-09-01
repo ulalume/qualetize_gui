@@ -559,37 +559,6 @@ impl ImageProcessor {
         Ok(())
     }
 
-    fn generate_bgra_data_for_export(
-        input_path: &str,
-        color_correction: &ColorCorrection,
-    ) -> Result<(Vec<BGRA8>, u32, u32), String> {
-        // Load and process image
-        let img = image::open(input_path).map_err(|e| format!("Image loading error: {}", e))?;
-        let mut rgba_img = img.to_rgba8();
-
-        // Apply color corrections if any are active
-        if ColorProcessor::has_corrections(color_correction) {
-            rgba_img = ColorProcessor::apply_corrections(&rgba_img, color_correction);
-        }
-
-        let width = rgba_img.width();
-        let height = rgba_img.height();
-        let input_data = rgba_img.into_raw();
-
-        // Convert RGBA to BGRA for qualetize
-        let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
-        for chunk in input_data.chunks_exact(4) {
-            bgra_data.push(BGRA8 {
-                b: chunk[2],
-                g: chunk[1],
-                r: chunk[0],
-                a: chunk[3],
-            });
-        }
-
-        Ok((bgra_data, width, height))
-    }
-
     pub fn perform_qualetize_processing(
         bgra_data: Vec<BGRA8>,
         width: u32,
