@@ -86,6 +86,79 @@ pub struct QualetizeSettings {
     pub clear_color: ClearColor,
 }
 
+pub enum QualetizePreset {
+    Genesis,
+    GenesisFullPals,
+    GbaNds,
+    GbaNdsFullPals,
+}
+impl Default for QualetizePreset {
+    fn default() -> Self {
+        QualetizePreset::Genesis
+    }
+}
+
+impl QualetizeSettings {
+    pub fn preset(mode: QualetizePreset) -> Self {
+        match mode {
+            QualetizePreset::Genesis => Self::genesis(),
+            QualetizePreset::GenesisFullPals => Self::genesis_full_palettes(),
+            QualetizePreset::GbaNds => Self::gba_nds(),
+            QualetizePreset::GbaNdsFullPals => Self::gba_nds_full_palettes(),
+        }
+    }
+    pub fn gba_nds() -> Self {
+        Self {
+            tile_width: 8,
+            tile_height: 8,
+            n_palettes: 1,
+            n_colors: 16,
+            rgba_depth: "5551".to_string(),
+            premul_alpha: false,
+            color_space: ColorSpace::YcbcrPsy,
+            dither_mode: DitherMode::Floyd,
+            dither_level: 0.5,
+            tile_passes: 1000,
+            color_passes: 100,
+            split_ratio: -1.0,
+            col0_is_clear: false,
+            clear_color: ClearColor::default(),
+        }
+    }
+    pub fn gba_nds_full_palettes() -> Self {
+        Self {
+            n_palettes: 16,
+            col0_is_clear: true,
+            ..Self::gba_nds()
+        }
+    }
+    pub fn genesis() -> Self {
+        Self {
+            tile_width: 8,
+            tile_height: 8,
+            n_palettes: 1,
+            n_colors: 16,
+            rgba_depth: "3331".to_string(),
+            premul_alpha: false,
+            color_space: ColorSpace::default(),
+            dither_mode: DitherMode::default(),
+            dither_level: 0.5,
+            tile_passes: 1000,
+            color_passes: 100,
+            split_ratio: -1.0,
+            col0_is_clear: false,
+            clear_color: ClearColor::default(),
+        }
+    }
+    pub fn genesis_full_palettes() -> Self {
+        Self {
+            n_palettes: 4,
+            col0_is_clear: true,
+            ..Self::genesis()
+        }
+    }
+}
+
 impl Default for QualetizeSettings {
     fn default() -> Self {
         Self {

@@ -1,6 +1,6 @@
 #![windows_subsystem = "windows"]
 mod app;
-mod color_correction;
+mod color_processor;
 mod image_processing;
 mod types;
 mod ui;

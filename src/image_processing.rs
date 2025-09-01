@@ -1,4 +1,4 @@
-use crate::color_correction::ColorProcessor;
+use crate::color_processor::ColorProcessor;
 use crate::types::{BGRA8, ColorCorrection, ImageData, QualetizeSettings};
 use egui::{ColorImage, Context};
 use std::sync::mpsc;

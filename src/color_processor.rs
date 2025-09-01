@@ -135,53 +135,10 @@ impl ColorProcessor {
         (r_prime + m, g_prime + m, b_prime + m)
     }
 
-    // Reset all corrections to default values
-    pub fn reset_corrections() -> ColorCorrection {
-        ColorCorrection::default()
-    }
-
     // Check if corrections are at default (no changes)
     pub fn has_corrections(corrections: &ColorCorrection) -> bool {
         let default = ColorCorrection::default();
         corrections != &default
-    }
-
-    pub fn preset_dark() -> ColorCorrection {
-        ColorCorrection {
-            contrast: 1.75,
-            gamma: 0.28,
-            saturation: 0.30,
-            hue_shift: 100.0,
-            ..ColorCorrection::default()
-        }
-    }
-
-    pub fn preset_vibrant() -> ColorCorrection {
-        ColorCorrection {
-            saturation: 1.3,
-            contrast: 1.1,
-            ..ColorCorrection::default()
-        }
-    }
-
-    pub fn preset_retro_warm() -> ColorCorrection {
-        ColorCorrection {
-            hue_shift: 10.0,
-            saturation: 1.2,
-            brightness: 0.05,
-            highlights: -0.1,
-            ..ColorCorrection::default()
-        }
-    }
-
-    pub fn preset_retro_cool() -> ColorCorrection {
-        ColorCorrection {
-            hue_shift: -15.0,
-            saturation: 0.9,
-            shadows: 0.1,
-            highlights: -0.05,
-            ..ColorCorrection::default()
-        }
     }
 }
 

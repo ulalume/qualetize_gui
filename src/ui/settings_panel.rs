@@ -1,8 +1,8 @@
-use crate::color_correction::{
-    ColorProcessor, display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
+use crate::color_processor::{
+    display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
-use crate::types::{AppState, ClearColor, ColorSpace, DitherMode};
-use egui::{Color32, Frame, Margin};
+use crate::types::{AppState, ClearColor, ColorCorrection, ColorSpace, DitherMode};
+use egui::Color32;
 use regex::Regex;
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -10,6 +10,8 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     // Basic settings
     settings_changed |= draw_basic_settings(ui, state);
+
+    settings_changed |= draw_transparency_settings(ui, state);
 
     ui.separator();
 
@@ -23,14 +25,9 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.separator();
 
-    // Transparency settings
-    settings_changed |= draw_transparency_settings(ui, state);
-
-    ui.separator();
-
     // Advanced clustering settings (if enabled)
     if state.show_advanced {
-        settings_changed |= draw_clustering_settings(ui, state);
+        settings_changed |= draw_advanced_settings(ui, state);
         ui.separator();
     }
 
@@ -45,10 +42,76 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed
 }
 
+fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+
+    ui.heading("Qualetize Advanced");
+    ui.add_space(4.0);
+
+    settings_changed |= draw_tile_settings(ui, state);
+
+    ui.separator();
+
+    let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::RGB(_, _, _));
+    if ui
+        .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
+        .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
+        .changed()
+    {
+        if has_clear_color {
+            state.settings.clear_color = ClearColor::RGB(255, 0, 255); // Default magenta
+        } else {
+            state.settings.clear_color = ClearColor::None;
+        }
+        settings_changed = true;
+    }
+
+    if has_clear_color {
+        if let ClearColor::RGB(ref mut r, ref mut g, ref mut b) = state.settings.clear_color {
+            ui.horizontal(|ui| {
+                ui.add_space(16.0); // Indent the color picker
+
+                let mut color_array = [*r, *g, *b];
+                if ui.color_edit_button_srgb(&mut color_array).changed() {
+                    *r = color_array[0];
+                    *g = color_array[1];
+                    *b = color_array[2];
+                    settings_changed = true;
+                }
+                if ui.button("Use Top-Left Pixel Color").clicked() {
+                    if let Some(color) = state.color_corrected_image.get_top_left_pixel_color() {
+                        *r = color.r();
+                        *g = color.g();
+                        *b = color.b();
+                        settings_changed = true;
+                    }
+                }
+                ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
+            });
+        }
+    }
+
+    ui.separator();
+
+    settings_changed |= draw_clustering_settings(ui, state);
+
+    ui.separator();
+    if ui
+        .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
+        .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.")
+        .changed()
+    {
+        settings_changed = true;
+    }
+
+    settings_changed
+}
+
 fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Basic");
+    ui.heading("Qualetize Basic");
+    ui.add_space(4.0);
 
     ui.horizontal(|ui| {
         ui.label("Palettes:")
@@ -122,71 +185,51 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         }
     });
 
-    // Advanced tile settings
-    if state.show_advanced {
-        settings_changed |= draw_tile_settings(ui, state);
-    }
-
     settings_changed
 }
 
 fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 48))
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 80)))
-        .inner_margin(Margin::same(4))
-        .outer_margin(Margin::same(4))
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label("Tile Width:")
-                    .on_hover_text("Set tile width for processing");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.tile_width).range(1..=64))
-                    .on_hover_text("Width of processing tiles")
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-                ui.label("Height:")
-                    .on_hover_text("Set tile height for processing");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.tile_height).range(1..=64))
-                    .on_hover_text("Height of processing tiles")
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
+    ui.horizontal(|ui| {
+        ui.label("Tile Width:")
+            .on_hover_text("Set tile width for processing");
+        if ui
+            .add(egui::DragValue::new(&mut state.settings.tile_width).range(1..=64))
+            .on_hover_text("Width of processing tiles")
+            .changed()
+        {
+            settings_changed = true;
+        }
+        ui.label("Height:")
+            .on_hover_text("Set tile height for processing");
+        if ui
+            .add(egui::DragValue::new(&mut state.settings.tile_height).range(1..=64))
+            .on_hover_text("Height of processing tiles")
+            .changed()
+        {
+            settings_changed = true;
+        }
+    });
 
-            ui.horizontal(|ui| {
-                ui.label("Quick presets:");
-                if ui.small_button("8x8").clicked() {
-                    state.settings.tile_width = 8;
-                    state.settings.tile_height = 8;
-                    settings_changed = true;
-                }
-                if ui.small_button("16x16").clicked() {
-                    state.settings.tile_width = 16;
-                    state.settings.tile_height = 16;
-                    settings_changed = true;
-                }
-                if ui.small_button("32x32").clicked() {
-                    state.settings.tile_width = 32;
-                    state.settings.tile_height = 32;
-                    settings_changed = true;
-                }
-            });
-
-            if ui
-                .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
-                .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.")
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
+    ui.horizontal(|ui| {
+        ui.label("Quick presets:");
+        if ui.small_button("8x8").clicked() {
+            state.settings.tile_width = 8;
+            state.settings.tile_height = 8;
+            settings_changed = true;
+        }
+        if ui.small_button("16x16").clicked() {
+            state.settings.tile_width = 16;
+            state.settings.tile_height = 16;
+            settings_changed = true;
+        }
+        if ui.small_button("32x32").clicked() {
+            state.settings.tile_width = 32;
+            state.settings.tile_height = 32;
+            settings_changed = true;
+        }
+    });
 
     settings_changed
 }
@@ -194,8 +237,8 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Color Space");
-    egui::ComboBox::from_label("Color Space")
+    ui.strong("Color Space");
+    egui::ComboBox::from_id_salt("color_space")
         .selected_text(state.settings.color_space.display_name())
         .show_ui(ui, |ui| {
             for color_space in ColorSpace::all() {
@@ -217,8 +260,8 @@ fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Dithering");
-    egui::ComboBox::from_label("Dithering Mode")
+    ui.strong("Dithering");
+    egui::ComboBox::from_id_salt("dithering_mode")
         .selected_text(state.settings.dither_mode.display_name())
         .show_ui(ui, |ui| {
             for dither_mode in DitherMode::all() {
@@ -255,7 +298,6 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Transparency");
     if ui
         .checkbox(&mut state.settings.col0_is_clear, "First Color is Transparent")
         .on_hover_text("First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.")
@@ -263,110 +305,48 @@ fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     {
         settings_changed = true;
     }
-
-    if state.show_advanced {
-        Frame::NONE
-            .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 48))
-            .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 80)))
-            .inner_margin(Margin::same(4))
-            .outer_margin(Margin::same(4))
-            .show(ui, |ui| {
-                let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::RGB(_, _, _));
-
-                if ui
-                    .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
-                    .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
-                    .changed()
-                {
-                    if has_clear_color {
-                        state.settings.clear_color = ClearColor::RGB(255, 0, 255); // Default magenta
-                    } else {
-                        state.settings.clear_color = ClearColor::None;
-                    }
-                    settings_changed = true;
-                }
-
-                if has_clear_color {
-                    if let ClearColor::RGB(ref mut r, ref mut g, ref mut b) = state.settings.clear_color {
-                        ui.horizontal(|ui| {
-                            ui.add_space(20.0); // Indent the color picker
-
-                            let mut color_array = [*r, *g, *b];
-                            if ui.color_edit_button_srgb(&mut color_array).changed() {
-                                *r = color_array[0];
-                                *g = color_array[1];
-                                *b = color_array[2];
-                                settings_changed = true;
-                            }
-
-                            ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
-                        });
-                        // Top-left pixel color button
-                        ui.horizontal(|ui| {
-                            ui.add_space(20.0); // Same indent as color picker
-                            if ui.button("Use Top-Left Pixel Color").clicked() {
-                                if let Some(color) = state.color_corrected_image.get_top_left_pixel_color() {
-                                    *r = color.r();
-                                    *g = color.g();
-                                    *b = color.b();
-                                    settings_changed = true;
-                                }
-                            }
-                        });
-                    }
-                }
-            });
-    }
-
     settings_changed
 }
 
 fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
+    ui.strong("Clustering");
+    ui.horizontal(|ui| {
+          ui.horizontal(|ui| {
+              ui.label("Tile Passes:")
+                  .on_hover_text("Set tile cluster passes (0 = default)");
+              if ui
+                  .add(egui::DragValue::new(&mut state.settings.tile_passes).range(0..=1000))
+                  .on_hover_text("Number of tile clustering passes (0 to 1000)")
+                  .changed()
+              {
+                  settings_changed = true;
+              }
+          });
 
-    Frame::NONE
-        .fill(Color32::from_rgba_unmultiplied(0, 0, 0, 48))
-        .stroke(egui::Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 0, 0, 80)))
-        .inner_margin(Margin::same(4))
-        .show(ui, |ui| {
-            ui.heading("Clustering");
-             ui.horizontal(|ui| {
-            ui.horizontal(|ui| {
-                ui.label("Tile Passes:")
-                    .on_hover_text("Set tile cluster passes (0 = default)");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.tile_passes).range(0..=1000))
-                    .on_hover_text("Number of tile clustering passes (0 to 1000)")
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
+          ui.horizontal(|ui| {
+              ui.label("Color Passes:")
+                  .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
+              if ui
+                  .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
+                  .on_hover_text("Number of color passes (0 to 100)")
+                  .changed()
+              {
+                  settings_changed = true;
+              }
+          });
+        });
 
-            ui.horizontal(|ui| {
-                ui.label("Color Passes:")
-                    .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
-                    .on_hover_text("Number of color passes (0 to 100)")
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
-             });
-
-            ui.horizontal(|ui| {
-                ui.label("Split Ratio:")
-                    .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colors;\nRatio = 1 - 2^(1-k/16).");
-                if ui
-                    .add(egui::DragValue::new(&mut state.settings.split_ratio).range(-1.0..=1.0))
-                    .on_hover_text("Split Ratio (-1.0 to 1.0)")
-                    .changed()
-                {
-                    settings_changed = true;
-                }
-            });
+    ui.horizontal(|ui| {
+            ui.label("Split Ratio:")
+                .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colors;\nRatio = 1 - 2^(1-k/16).");
+            if ui
+                .add(egui::DragValue::new(&mut state.settings.split_ratio).range(-1.0..=1.0))
+                .on_hover_text("Split Ratio (-1.0 to 1.0)")
+                .changed()
+            {
+                settings_changed = true;
+            }
         });
 
     settings_changed
@@ -376,6 +356,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
     let mut settings_changed = false;
 
     ui.heading("Color Correction");
+    ui.add_space(4.0);
 
     // Define ranges to avoid duplication
     const BRIGHTNESS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
@@ -619,11 +600,11 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
         let button_width = (ui.available_width() - (4.0 * 8.0)) / 5.0;
 
         let presets = [
-            ("🔄 Reset", ColorProcessor::reset_corrections()),
-            ("Vibrant", ColorProcessor::preset_vibrant()),
-            ("Warm", ColorProcessor::preset_retro_warm()),
-            ("Cool", ColorProcessor::preset_retro_cool()),
-            ("Dark", ColorProcessor::preset_dark()),
+            ("🔄 Reset", ColorCorrection::default()),
+            ("Vibrant", ColorCorrection::preset_vibrant()),
+            ("Warm", ColorCorrection::preset_retro_warm()),
+            ("Cool", ColorCorrection::preset_retro_cool()),
+            ("Dark", ColorCorrection::preset_dark()),
         ];
 
         for (label, preset) in presets {
@@ -642,6 +623,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 
 fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ui.heading("Status");
+    ui.add_space(4.0);
     if state.preview_processing {
         ui.label("🔄 Generating preview...");
     } else if let Some(last_change_time) = state.last_settings_change_time {
