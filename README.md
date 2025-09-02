@@ -45,4 +45,6 @@ Example settings file structure can be found in `examples/genesis.qset`.
 
 ## Licence
 
-MIT
+This project is licensed under MIT License.
+
+Third-party components are used under their respective licenses. See [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) for details.
