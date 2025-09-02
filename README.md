@@ -6,7 +6,7 @@
 
 **Qualetize GUI** is an unofficial GUI frontend for [Qualetize (by Aikku93)](https://github.com/Aikku93/qualetize/).
 It provides an intuitive interface for tile-based image conversion for retro consoles.
-The default parameters are configured for the Sega Genesis.
+This tool is designed for _Genesis_, _GBA/NDS_ graphics and can be adapted for custom formats.
 
 ![Screenshot](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/docs/screenshot.png)
 
@@ -40,7 +40,7 @@ qualetize_gui
 
 ## Settings Management
 
-You can save and load your custom settings combinations:
+You can save and load your custom settings combinations.
 
 ### Settings File Format
 
