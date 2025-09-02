@@ -1,18 +1,23 @@
 # Qualetize GUI
 
-![Screenshot](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/docs/screenshot.png)
+![Icon](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/docs/icon.png)
 
 **Qualetize GUI** is an unofficial GUI frontend for [Qualetize (by Aikku93)](https://github.com/Aikku93/qualetize/).
 It provides an intuitive interface for tile-based image conversion for retro consoles.
 The default parameters are configured for the Sega Genesis.
 
+![Screenshot](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/docs/screenshot.png)
+
 ## Installation
 
 ### App Download (Windows/ macOS/ Linux)
+
 Download the latest app from [GitHub Releases](https://github.com/ulalume/qualetize_gui/releases/latest).
 
 ### Cargo Installation
+
 You can also install using Cargo:
+
 ```sh
 cargo install --git https://github.com/ulalume/qualetize_gui
 qualetize_gui
@@ -36,7 +41,9 @@ qualetize_gui
 You can save and load your custom settings combinations:
 
 ### Settings File Format
+
 Settings files use JSON format (`.qset` extension) containing:
+
 - Qualetize parameters (tile size, palettes, dithering, etc.)
 - Color correction values (brightness, contrast, gamma, etc.)
 - Version information for compatibility
