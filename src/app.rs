@@ -21,7 +21,11 @@ impl Default for QualetizeApp {
 }
 
 impl QualetizeApp {
-    pub fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        let ctx = &cc.egui_ctx;
+
+        crate::ui::styles::init_styles(ctx);
+
         Self::default()
     }
 

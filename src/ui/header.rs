@@ -3,6 +3,7 @@ use crate::types::{
     AppState, ColorCorrectionPreset, ExportFormat, QualetizePreset,
     app_state::{AppearanceMode, ExportRequest, SettingsRequest},
 };
+use crate::ui::styles::UiMarginExt;
 use rfd::FileDialog;
 use std::path::Path;
 
@@ -115,11 +116,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
             )
             .ui(ui, |ui| {
+                ui.label(egui::widget_text::RichText::new("Settings").small());
                 ui.checkbox(&mut state.show_advanced, "Advanced Settings");
                 ui.checkbox(&mut state.show_debug_info, "Debug Info");
 
                 ui.separator();
-
+                ui.label(egui::widget_text::RichText::new("Canvas").small());
                 ui.checkbox(&mut state.show_original_image, "Original Image");
                 ui.checkbox(
                     &mut state.show_color_corrected_image,
@@ -172,7 +174,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .resizable(false)
         .collapsible(false)
         .show(ui.ctx(), |ui| {
-            ui.strong("Theme");
+            ui.subheading_with_margin("Theme");
             ui.horizontal(|ui| {
                 ui.selectable_value(
                     &mut state.appearance_mode,
@@ -184,7 +186,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             });
             ui.separator();
 
-            ui.strong("Canvas Background Color");
+            ui.subheading_with_margin("Canvas Background Color");
             ui.horizontal(|ui| {
                 // Use selectable_value for Default/Custom selection
                 let mut use_default = state.background_color.is_none();

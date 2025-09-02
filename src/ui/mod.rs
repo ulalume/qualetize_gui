@@ -1,8 +1,8 @@
-mod colors;
 mod footer;
 mod header;
 mod image_viewer;
 mod settings_panel;
+pub mod styles;
 
 use crate::types::AppState;
 
