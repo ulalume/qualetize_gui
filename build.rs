@@ -19,6 +19,7 @@ fn main() {
         .flag("-O3")
         .flag("-ffast-math")
         .flag("-funroll-loops")
+        .flag("-w")
         .warnings(false);
 
     let host = std::env::var("HOST").unwrap();
