@@ -1,6 +1,6 @@
 use super::header::request_export;
+use super::styles;
 use crate::types::{AppState, ExportFormat};
-use crate::ui::colors;
 use egui::{Color32, Vec2};
 
 pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -69,15 +69,15 @@ fn apply_export_button_style(ui: &mut egui::Ui) {
 
     // Inactive state
     style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
-    style.visuals.widgets.inactive.weak_bg_fill = colors::COLOR_TINT;
+    style.visuals.widgets.inactive.weak_bg_fill = styles::COLOR_TINT;
 
     // Hovered state
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, colors::COLOR_TINT_ACTIVE);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, styles::COLOR_TINT_ACTIVE);
     style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
-    style.visuals.widgets.hovered.weak_bg_fill = colors::COLOR_TINT;
+    style.visuals.widgets.hovered.weak_bg_fill = styles::COLOR_TINT;
 
     // Active state
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, colors::COLOR_TINT_ACTIVE);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, styles::COLOR_TINT_ACTIVE);
     style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
-    style.visuals.widgets.active.weak_bg_fill = colors::COLOR_TINT;
+    style.visuals.widgets.active.weak_bg_fill = styles::COLOR_TINT;
 }

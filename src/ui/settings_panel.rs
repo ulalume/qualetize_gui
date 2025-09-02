@@ -1,3 +1,4 @@
+use super::styles::UiMarginExt;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
@@ -110,8 +111,7 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Qualetize");
-    ui.add_space(4.0);
+    ui.heading_with_margin("Qualetize");
 
     ui.horizontal(|ui| {
         ui.label("Palettes:")
@@ -237,7 +237,7 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.strong("Color Space");
+    ui.subheading_with_margin("Color Space");
     egui::ComboBox::from_id_salt("color_space")
         .selected_text(state.settings.color_space.display_name())
         .show_ui(ui, |ui| {
@@ -260,7 +260,7 @@ fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.strong("Dithering");
+    ui.subheading_with_margin("Dithering");
     egui::ComboBox::from_id_salt("dithering_mode")
         .selected_text(state.settings.dither_mode.display_name())
         .show_ui(ui, |ui| {
@@ -310,7 +310,7 @@ fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
 fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-    ui.strong("Clustering");
+    ui.subheading_with_margin("Clustering");
     ui.horizontal(|ui| {
         ui.horizontal(|ui| {
             ui.label("Tile Passes:")
@@ -354,8 +354,7 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Color Correction");
-    ui.add_space(4.0);
+    ui.heading_with_margin("Color Correction");
 
     // Define ranges to avoid duplication
     const BRIGHTNESS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
@@ -621,7 +620,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 }
 
 fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
-    ui.heading("Debug Info");
+    ui.heading_with_margin("Debug Info");
     ui.add_space(4.0);
     if state.preview_processing {
         ui.label("🔄 Generating preview...");

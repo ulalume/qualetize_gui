@@ -1,3 +1,4 @@
+use super::styles::UiMarginExt;
 use crate::types::AppState;
 use egui::{Align2, Color32, FontId, Pos2, Rect, Vec2};
 
@@ -96,11 +97,11 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
 pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {
     if state.input_path.is_none() {
         ui.centered_and_justified(|ui| {
-            ui.heading("📁 Drop an image file here or use 'File > Open Image...'");
+            ui.heading_with_margin("📁 Drop an image file here or use 'File > Open Image...'");
         });
     } else if !state.preview_ready {
         ui.centered_and_justified(|ui| {
-            ui.heading("⏳ Processing...");
+            ui.heading_with_margin("⏳ Processing...");
         });
     }
 }
