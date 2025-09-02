@@ -1,6 +1,6 @@
 # Qualetize GUI
 
-![Screenshot](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/assets/screenshot.png)
+![Screenshot](https://raw.githubusercontent.com/ulalume/qualetize_gui/main/docs/screenshot.png)
 
 **Qualetize GUI** is an unofficial GUI frontend for [Qualetize (by Aikku93)](https://github.com/Aikku93/qualetize/).
 It provides an intuitive interface for tile-based image conversion for retro consoles.
