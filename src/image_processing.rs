@@ -1,60 +1,8 @@
-use crate::color_processor::ColorProcessor;
 use crate::types::image::ImageDataIndexed;
-use crate::types::{BGRA8, ColorCorrection, ImageData, QualetizeSettings};
+use crate::types::qualetize::{Qualetize, QualetizePlan, Vec4f};
+use crate::types::{BGRA8, ImageData, QualetizeSettings};
 use egui::{ColorImage, Context};
 use std::sync::mpsc;
-
-#[repr(C)]
-struct Vec4f {
-    f32: [f32; 4],
-}
-
-struct ColorCorrectedCache {
-    image_data: ImageData,
-    input_path: String,
-    color_correction: ColorCorrection,
-}
-
-// New cache for BGRA data
-#[derive(Clone)]
-struct BGRACache {
-    bgra_data: Vec<BGRA8>,
-    width: u32,
-    height: u32,
-    input_path: String,
-    color_correction: ColorCorrection,
-}
-
-#[repr(C)]
-struct QualetizePlan {
-    tile_width: u16,
-    tile_height: u16,
-    n_palette_colors: u16,
-    n_tile_palettes: u16,
-    colorspace: u8,
-    first_color_is_transparent: u8,
-    premultiplied_alpha: u8,
-    dither_type: u8,
-    dither_level: f32,
-    split_ratio: f32,
-    n_tile_cluster_passes: u32,
-    n_color_cluster_passes: u32,
-    color_depth: Vec4f,
-    transparent_color: BGRA8,
-}
-
-unsafe extern "C" {
-    fn Qualetize(
-        output_px_data: *mut u8,
-        output_palette: *mut BGRA8,
-        input_bitmap: *const BGRA8,
-        input_palette: *const BGRA8,
-        input_width: u32,
-        input_height: u32,
-        plan: *const QualetizePlan,
-        rmse: *mut Vec4f,
-    ) -> u8;
-}
 
 // Qualetizeの処理結果を格納する構造体
 #[derive(Debug)]
@@ -71,10 +19,8 @@ pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
     preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
     cancel_sender: Option<mpsc::Sender<()>>,
-    current_generation_id: u64,                         // 現在の処理世代ID
-    active_threads: Vec<std::thread::JoinHandle<()>>,   // アクティブなスレッドのリスト
-    color_corrected_cache: Option<ColorCorrectedCache>, // Color corrected image cache
-    bgra_cache: Option<BGRACache>,                      // BGRA data cache
+    current_generation_id: u64,
+    active_threads: Vec<std::thread::JoinHandle<()>>,
 }
 
 impl Default for ImageProcessor {
@@ -85,8 +31,6 @@ impl Default for ImageProcessor {
             cancel_sender: None,
             current_generation_id: 0,
             active_threads: Vec::new(),
-            color_corrected_cache: None,
-            bgra_cache: None,
         }
     }
 }
@@ -124,161 +68,16 @@ impl ImageProcessor {
         }
     }
 
-    pub fn get_or_generate_color_corrected_image(
+    pub fn start_qualetize(
         &mut self,
-        input_path: &str,
-        color_correction: &ColorCorrection,
-        ctx: &Context,
-    ) -> Result<ImageData, String> {
-        // Check if we have a valid cache
-        if let Some(ref cache) = self.color_corrected_cache {
-            if cache.input_path == input_path && cache.color_correction == *color_correction {
-                log::debug!("Using cached color corrected image");
-                return Ok(cache.image_data.clone());
-            }
-        }
-
-        log::debug!("Generating new color corrected image");
-        let corrected_image =
-            Self::generate_color_corrected_image(input_path, color_correction, ctx)?;
-
-        // Update cache
-        self.color_corrected_cache = Some(ColorCorrectedCache {
-            image_data: corrected_image.clone(),
-            input_path: input_path.to_string(),
-            color_correction: color_correction.clone(),
-        });
-
-        Ok(corrected_image)
-    }
-
-    pub fn invalidate_color_corrected_cache(&mut self) {
-        log::debug!("Invalidating color corrected cache");
-        self.color_corrected_cache = None;
-        self.bgra_cache = None;
-    }
-
-    pub fn get_or_generate_bgra_data(
-        &mut self,
-        input_path: &str,
-        color_correction: &ColorCorrection,
-        ctx: &Context,
-    ) -> Result<(Vec<BGRA8>, u32, u32), String> {
-        // Check if we have a valid BGRA cache
-        if let Some(ref cache) = self.bgra_cache {
-            if cache.input_path == input_path && cache.color_correction == *color_correction {
-                log::debug!("Using cached BGRA data");
-                return Ok((cache.bgra_data.clone(), cache.width, cache.height));
-            }
-        }
-
-        log::debug!("Generating new BGRA data");
-
-        // First get the color corrected image
-        let corrected_image =
-            self.get_or_generate_color_corrected_image(input_path, color_correction, ctx)?;
-
-        // Convert to BGRA
-        let width = corrected_image.width;
-        let height = corrected_image.height;
-
-        // We need to get the RGBA data from the ColorImage
-        // For now, reload the image and apply corrections (this could be optimized further)
-        let img = image::open(input_path).map_err(|e| format!("Image loading error: {}", e))?;
-        let mut rgba_img = img.to_rgba8();
-
-        // Apply color corrections if any are active
-        if ColorProcessor::has_corrections(color_correction) {
-            rgba_img = ColorProcessor::apply_corrections(&rgba_img, color_correction);
-        }
-
-        let input_data = rgba_img.into_raw();
-
-        // Convert RGBA to BGRA for qualetize
-        let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
-        for chunk in input_data.chunks_exact(4) {
-            bgra_data.push(BGRA8 {
-                b: chunk[2],
-                g: chunk[1],
-                r: chunk[0],
-                a: chunk[3],
-            });
-        }
-
-        // Update cache
-        self.bgra_cache = Some(BGRACache {
-            bgra_data: bgra_data.clone(),
-            width,
-            height,
-            input_path: input_path.to_string(),
-            color_correction: color_correction.clone(),
-        });
-
-        Ok((bgra_data, width, height))
-    }
-
-    pub fn generate_color_corrected_image(
-        input_path: &str,
-        color_correction: &ColorCorrection,
-        ctx: &Context,
-    ) -> Result<ImageData, String> {
-        let img = image::open(input_path).map_err(|e| format!("Image loading error: {}", e))?;
-        let mut rgba_img = img.to_rgba8();
-
-        // Apply color corrections if any are active
-        if ColorProcessor::has_corrections(color_correction) {
-            rgba_img = ColorProcessor::apply_corrections(&rgba_img, color_correction);
-        }
-
-        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let rgba_data = rgba_img.into_raw();
-
-        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
-        let texture = ctx.load_texture(
-            "color_corrected",
-            color_image,
-            egui::TextureOptions::NEAREST,
-        );
-
-        Ok(ImageData {
-            texture: texture,
-            width: size[0] as u32,
-            height: size[1] as u32,
-            rgba_data,
-            indexed: None,
-        })
-    }
-
-    pub fn load_image_from_path(path: &str, ctx: &Context) -> Result<ImageData, String> {
-        let img = image::open(path).map_err(|e| format!("Image loading error: {}", e))?;
-        let rgba_img = img.to_rgba8();
-        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let rgba_data = rgba_img.into_raw();
-
-        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
-        let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
-
-        Ok(ImageData {
-            texture: texture,
-            width: size[0] as u32,
-            height: size[1] as u32,
-            rgba_data,
-            indexed: None,
-        })
-    }
-
-    pub fn start_preview_generation(
-        &mut self,
-        input_path: String,
+        color_corrected_image: &ImageData,
         settings: QualetizeSettings,
-        color_correction: ColorCorrection,
-        ctx: &Context,
     ) {
         // Cancel any existing processing
         self.cancel_current_processing();
 
         // Pre-generate BGRA data to improve responsiveness and avoid redundancy
-        let bgra_result = self.get_or_generate_bgra_data(&input_path, &color_correction, ctx);
+        let bgra_result = self.generate_bgra_data(color_corrected_image);
         let (bgra_data, width, height) = match bgra_result {
             Ok(data) => data,
             Err(e) => {
@@ -300,18 +99,38 @@ impl ImageProcessor {
                 width,
                 height,
                 settings,
-                color_correction,
                 cancel_receiver,
                 generation_id,
             );
             let _ = result_sender.send(result);
         });
-
         self.preview_thread = Some(thread);
     }
 
+    pub fn generate_bgra_data(
+        &mut self,
+        color_corrected_image: &ImageData,
+    ) -> Result<(Vec<BGRA8>, u32, u32), String> {
+        // Convert to BGRA
+        let width = color_corrected_image.width;
+        let height = color_corrected_image.height;
+
+        let input_data = &color_corrected_image.rgba_data;
+
+        // Convert RGBA to BGRA for qualetize
+        let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
+        for chunk in input_data.chunks_exact(4) {
+            bgra_data.push(BGRA8 {
+                b: chunk[2],
+                g: chunk[1],
+                r: chunk[0],
+                a: chunk[3],
+            });
+        }
+        Ok((bgra_data, width, height))
+    }
+
     pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
-        // 完了した古いスレッドをクリーンアップ
         self.cleanup_finished_threads();
 
         if let Some(receiver) = &mut self.preview_receiver {
@@ -321,7 +140,6 @@ impl ImageProcessor {
 
                 return Some(match result {
                     Ok(qualetize_result) => {
-                        // 世代IDをチェックして、古い結果は無視
                         if qualetize_result.generation_id == self.current_generation_id {
                             log::debug!(
                                 "Accepting result from generation {}",
@@ -369,6 +187,7 @@ impl ImageProcessor {
         }
 
         // 現在の処理をクリア
+        self.preview_thread = None;
         self.preview_receiver = None;
         self.cancel_sender = None;
 
@@ -459,10 +278,7 @@ impl ImageProcessor {
         palettes
     }
 
-    fn create_qualetize_plan(
-        settings: &QualetizeSettings,
-        _color_correction: &ColorCorrection,
-    ) -> Result<QualetizePlan, String> {
+    fn create_qualetize_plan(settings: &QualetizeSettings) -> Result<QualetizePlan, String> {
         let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
 
         Ok(QualetizePlan {
@@ -490,7 +306,6 @@ impl ImageProcessor {
         width: u32,
         height: u32,
         settings: QualetizeSettings,
-        color_correction: ColorCorrection,
         cancel_receiver: mpsc::Receiver<()>,
         generation_id: u64,
     ) -> Result<QualetizeResult, String> {
@@ -499,20 +314,15 @@ impl ImageProcessor {
             generation_id
         );
 
-        // キャンセルチェック
+        // Check for cancellation
         if cancel_receiver.try_recv().is_ok() {
             log::info!("Processing cancelled for generation {}", generation_id);
             return Err("Processing cancelled".to_string());
         }
 
         // Use the common qualetize processing function
-        let mut qualetize_result = Self::perform_qualetize_processing(
-            bgra_data,
-            width,
-            height,
-            settings,
-            color_correction,
-        )?;
+        let mut qualetize_result =
+            Self::perform_qualetize_processing(bgra_data, width, height, settings)?;
 
         // Set the generation ID for preview tracking
         qualetize_result.generation_id = generation_id;
@@ -520,52 +330,14 @@ impl ImageProcessor {
         Ok(qualetize_result)
     }
 
-    pub fn save_rgba_image(
-        output_path: &str,
-        rgba_data: &[u8],
-        width: u32,
-        height: u32,
-        export_format: crate::types::ExportFormat,
-    ) -> Result<(), String> {
-        use image::{ImageBuffer, Rgba};
-
-        let img_buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, rgba_data.to_vec())
-            .ok_or_else(|| "Failed to create image buffer from RGBA data".to_string())?;
-
-        let dynamic_img = image::DynamicImage::ImageRgba8(img_buffer);
-
-        match export_format {
-            crate::types::ExportFormat::PngIndexed => {
-                return Err(
-                    "Indexed PNG format requires palette data, use ExportableImageData::Indexed"
-                        .to_string(),
-                );
-            }
-            crate::types::ExportFormat::Png => {
-                dynamic_img
-                    .save_with_format(output_path, image::ImageFormat::Png)
-                    .map_err(|e| format!("PNG save error: {}", e))?;
-            }
-            crate::types::ExportFormat::Bmp => {
-                dynamic_img
-                    .save_with_format(output_path, image::ImageFormat::Bmp)
-                    .map_err(|e| format!("BMP save error: {}", e))?;
-            }
-        }
-
-        log::info!("RGBA image exported successfully to: {}", output_path);
-        Ok(())
-    }
-
     pub fn perform_qualetize_processing(
         bgra_data: Vec<BGRA8>,
         width: u32,
         height: u32,
         settings: QualetizeSettings,
-        color_correction: ColorCorrection,
     ) -> Result<QualetizeResult, String> {
         // Create qualetize plan
-        let plan = Self::create_qualetize_plan(&settings, &color_correction)?;
+        let plan = Self::create_qualetize_plan(&settings)?;
 
         // Prepare output buffers
         let output_size = (width * height) as usize;
@@ -610,119 +382,5 @@ impl ImageProcessor {
             height,
             generation_id: 0, // Not needed for export
         })
-    }
-
-    pub fn save_indexed_png(
-        output_path: &str,
-        indexed_pixel_data: &[u8],
-        palette_data: &[BGRA8],
-        width: u32,
-        height: u32,
-    ) -> Result<(), String> {
-        use std::fs::File;
-        use std::io::BufWriter;
-
-        // Create PNG encoder
-        let file = File::create(output_path)
-            .map_err(|e| format!("Failed to create output file: {}", e))?;
-        let ref mut w = BufWriter::new(file);
-
-        let mut encoder = png::Encoder::new(w, width, height);
-        encoder.set_color(png::ColorType::Indexed);
-        encoder.set_depth(png::BitDepth::Eight);
-
-        // Convert palette to PNG format (RGB)
-        let png_palette: Vec<u8> = palette_data
-            .iter()
-            .take(256) // PNG indexed mode supports max 256 colors
-            .flat_map(|color| [color.r, color.g, color.b])
-            .collect();
-
-        // Create transparency array for alpha channel
-        let transparency: Vec<u8> = palette_data.iter().take(256).map(|color| color.a).collect();
-
-        encoder.set_palette(png_palette);
-        encoder.set_trns(transparency);
-
-        let mut writer = encoder
-            .write_header()
-            .map_err(|e| format!("Failed to write PNG header: {}", e))?;
-
-        writer
-            .write_image_data(indexed_pixel_data)
-            .map_err(|e| format!("Failed to write PNG image data: {}", e))?;
-
-        Ok(())
-    }
-    pub fn save_indexed_bmp(
-        output_path: &str,
-        indexed_pixel_data: &[u8],
-        palette_data: &[BGRA8],
-        width: u32,
-        height: u32,
-    ) -> Result<(), String> {
-        // Create 8-bit indexed BMP with palette (always 256 entries)
-        let palette_size = palette_data.len().min(256); // Max 256 colors for 8-bit
-        let row_size = ((width + 3) / 4) * 4; // 4-byte aligned for 8-bit data
-        let image_size = row_size * height;
-        let palette_bytes = 256 * 4; // Always 256 palette entries * 4 bytes each (BGRA)
-        let data_offset = 54 + palette_bytes; // Header + palette
-        let file_size = data_offset + image_size;
-
-        let mut bmp_data = Vec::with_capacity(file_size as usize);
-
-        // BMP File Header (14 bytes)
-        bmp_data.extend_from_slice(b"BM"); // Signature
-        bmp_data.extend_from_slice(&(file_size as u32).to_le_bytes()); // File size
-        bmp_data.extend_from_slice(&[0, 0, 0, 0]); // Reserved
-        bmp_data.extend_from_slice(&(data_offset as u32).to_le_bytes()); // Data offset
-
-        // BMP Info Header (40 bytes)
-        bmp_data.extend_from_slice(&40u32.to_le_bytes()); // Header size
-        bmp_data.extend_from_slice(&(width as i32).to_le_bytes()); // Width
-        bmp_data.extend_from_slice(&(height as i32).to_le_bytes()); // Height
-        bmp_data.extend_from_slice(&1u16.to_le_bytes()); // Planes
-        bmp_data.extend_from_slice(&8u16.to_le_bytes()); // Bits per pixel (8-bit indexed)
-        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Compression
-        bmp_data.extend_from_slice(&(image_size as u32).to_le_bytes()); // Image size
-        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // X pixels per meter
-        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Y pixels per meter
-        bmp_data.extend_from_slice(&256u32.to_le_bytes()); // Colors used (always 256 for 8-bit)
-        bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Important colors
-
-        // Color palette (BGRA format, 4 bytes per color)
-        for i in 0..palette_size {
-            let color = &palette_data[i];
-            bmp_data.push(color.b); // Blue
-            bmp_data.push(color.g); // Green
-            bmp_data.push(color.r); // Red
-            bmp_data.push(color.a); // Alpha (reserved in BMP, usually 0)
-        }
-
-        // Fill remaining palette entries if less than 256
-        for _ in palette_size..256 {
-            bmp_data.extend_from_slice(&[0, 0, 0, 0]);
-        }
-
-        // Image data (bottom-up, 8-bit indexed)
-        for y in (0..height).rev() {
-            for x in 0..width {
-                let pixel_idx = (y * width + x) as usize;
-                if pixel_idx < indexed_pixel_data.len() {
-                    bmp_data.push(indexed_pixel_data[pixel_idx]);
-                } else {
-                    bmp_data.push(0);
-                }
-            }
-            // Add padding if necessary
-            let padding = row_size - width;
-            for _ in 0..padding {
-                bmp_data.push(0);
-            }
-        }
-
-        std::fs::write(output_path, bmp_data).map_err(|e| format!("File write error: {}", e))?;
-
-        Ok(())
     }
 }

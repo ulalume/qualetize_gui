@@ -1,7 +1,9 @@
+use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
 use crate::image_processing::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::AppState;
-use crate::types::app_state::{AppStateRequest, AppearanceMode};
+use crate::types::ImageData;
+use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
 use crate::ui::UI;
 use eframe::egui;
 use egui::Margin;
@@ -49,13 +51,10 @@ impl QualetizeApp {
             self.image_processor = ImageProcessor::new();
         }
 
-        match ImageProcessor::load_image_from_path(&path, ctx) {
+        match ImageData::load(&path, ctx) {
             Ok(image_data) => {
                 self.state.input_path = Some(path.clone());
                 self.state.input_image = Some(image_data);
-
-                // Invalidate caches when new image is loaded
-                self.image_processor.invalidate_color_corrected_cache();
                 self.state.color_corrected_image = None;
 
                 // Check tile size compatibility
@@ -63,10 +62,6 @@ impl QualetizeApp {
 
                 self.state.zoom = 1.0;
                 self.state.pan_offset = egui::Vec2::ZERO;
-
-                // Trigger preview generation
-                self.state.settings_changed = true;
-                self.state.last_settings_change_time = Some(std::time::Instant::now());
             }
             Err(e) => {
                 log::error!("File load Error {}", e);
@@ -78,28 +73,19 @@ impl QualetizeApp {
     }
 
     fn handle_settings_changes(&mut self, ctx: &egui::Context) {
-        // Check for color correction changes
-        let color_correction_changed = self.state.color_correction_changed();
-
-        // 設定が変更された場合は常にタイルサイズをチェック
-        if self.state.settings_changed {
-            self.check_tile_size_compatibility();
+        if !self.check_tile_size_compatibility() || self.state.color_corrected_image.is_none() {
+            return;
         }
-
-        // デバウンス機能：設定変更から一定時間経過後にプレビュー生成を開始
-        // Color correction changes also trigger preview generation
-        if (self.state.settings_changed || color_correction_changed)
-            && self.state.input_path.is_some()
-        {
-            if let Some(last_change_time) = self.state.last_settings_change_time {
-                let elapsed = last_change_time.elapsed();
-                if elapsed >= self.state.debounce_delay {
-                    // 進行中の処理があってもキャンセルして新しい処理を開始
-                    self.start_preview_generation(ctx);
-                }
-            } else if color_correction_changed {
-                // If only color correction changed, start immediately
-                self.start_preview_generation(ctx);
+        // Debounce functionality: start preview generation after a certain delay from settings change
+        if let Some(request) = &self.state.request_update_qualetized_image {
+            let elapsed = request.time.elapsed();
+            ctx.request_repaint();
+            println!(
+                "elapsed: {:?}, debounce_delay: {:?}",
+                elapsed, self.state.debounce_delay
+            );
+            if elapsed >= self.state.debounce_delay {
+                self.start_preview_generation();
             }
         }
     }
@@ -139,57 +125,23 @@ impl QualetizeApp {
         }
     }
 
-    fn start_preview_generation(&mut self, ctx: &egui::Context) {
-        // タイルサイズの互換性をチェック
-        if !self.check_tile_size_compatibility() {
-            self.state.settings_changed = false;
-            self.state.last_settings_change_time = None;
-            return;
-        }
-
-        if let Some(input_path) = self.state.input_path.clone() {
+    fn start_preview_generation(&mut self) {
+        if let Some(color_corrected_image) = &self.state.color_corrected_image {
             if !self.image_processor.is_processing() {
-                self.image_processor.start_preview_generation(
-                    input_path,
-                    self.state.settings.clone(),
-                    self.state.color_correction.clone(),
-                    ctx,
-                );
-                self.state.settings_changed = false;
-                self.state.last_settings_change_time = None; // リセット
-
-                // Update tracking
-                self.state.update_color_correction_tracking();
+                self.state.request_update_qualetized_image = None;
+                self.image_processor
+                    .start_qualetize(color_corrected_image, self.state.settings.clone());
             }
         }
     }
 
     fn update_color_corrected_image(&mut self, ctx: &egui::Context) {
-        if let Some(input_path) = self.state.input_path.clone() {
-            // Check if color correction changed
-            if self.state.color_correction_changed() {
-                log::debug!("Color correction changed, invalidating cache");
-                self.image_processor.invalidate_color_corrected_cache();
-                self.state.color_corrected_image = None;
-            }
-
-            // Generate color corrected image if needed
-            if self.state.needs_color_correction_update() {
-                match self.image_processor.get_or_generate_color_corrected_image(
-                    &input_path,
-                    &self.state.color_correction,
-                    ctx,
-                ) {
-                    Ok(corrected_image) => {
-                        self.state.color_corrected_image = Some(corrected_image);
-                        self.state.update_color_correction_tracking();
-                        log::debug!("Color corrected image updated successfully");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to generate color corrected image: {}", e);
-                    }
-                }
-            }
+        if self.state.color_correction_changed() {
+            self.apply_color_correct_image(ctx);
+            self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                time: std::time::Instant::now(),
+            });
+            self.state.update_color_correction_tracking();
         }
     }
 
@@ -206,26 +158,6 @@ impl QualetizeApp {
             }
         }
     }
-
-    fn should_repaint(&self) -> bool {
-        self.state.settings_changed
-            || self.state.last_settings_change_time.is_some()
-            || self.state.tile_size_warning // 警告状態の変更時も再描画
-    }
-
-    fn prepare_settings_change(&mut self) {
-        self.state.settings_changed = true;
-        self.state.last_settings_change_time = Some(std::time::Instant::now());
-
-        // タイルサイズの互換性をチェック
-        self.check_tile_size_compatibility();
-
-        // 進行中の処理があれば即座にキャンセル
-        if self.image_processor.is_processing() {
-            self.image_processor.cancel_current_processing();
-        }
-    }
-
     fn apply_theme(&self, ctx: &egui::Context) {
         match self.state.preferences.appearance_mode {
             AppearanceMode::Dark => ctx.set_visuals(egui::Visuals::dark()),
@@ -243,11 +175,23 @@ impl QualetizeApp {
         }
     }
 
+    fn apply_color_correct_image(&mut self, ctx: &egui::Context) {
+        if let Some(image) = &self.state.input_image {
+            let color_corrected_image = image.color_corrected(&self.state.color_correction, ctx);
+            self.state.color_corrected_image = Some(color_corrected_image);
+        }
+    }
+
     fn handle_requests(&mut self, ctx: &egui::Context) {
         if let Some(app_state_request) = self.state.pending_app_state_request.take() {
             match app_state_request {
                 AppStateRequest::LoadImage { path } => {
                     self.load_image_file(path.clone(), ctx);
+                    self.apply_color_correct_image(ctx);
+                    self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                        time: std::time::Instant::now(),
+                    });
+                    self.state.update_color_correction_tracking();
                 }
                 AppStateRequest::ColorCorrectedPng { output_path } => {
                     // Use ImageData pixels directly
@@ -256,7 +200,7 @@ impl QualetizeApp {
                         let width = color_corrected_image.width.clone();
                         let height = color_corrected_image.height.clone();
                         std::thread::spawn(move || {
-                            match ImageProcessor::save_rgba_image(
+                            match save_rgba_image(
                                 &output_path,
                                 &rgba_data,
                                 width,
@@ -294,7 +238,7 @@ impl QualetizeApp {
                             log::error!("Qualetized export failed: Unexpected format");
                         }
                         crate::types::ExportFormat::Bmp => {
-                            match ImageProcessor::save_indexed_bmp(
+                            match save_indexed_bmp(
                                 &output_path,
                                 &indexed_data.indexed_pixels,
                                 &indexed_data.palettes,
@@ -312,7 +256,7 @@ impl QualetizeApp {
                             }
                         }
                         crate::types::ExportFormat::PngIndexed => {
-                            match ImageProcessor::save_indexed_png(
+                            match save_indexed_png(
                                 &output_path,
                                 &indexed_data.indexed_pixels,
                                 &indexed_data.palettes,
@@ -354,16 +298,15 @@ impl QualetizeApp {
                                 self.image_processor.cancel_current_processing();
                                 self.image_processor = ImageProcessor::new();
                             }
-                            // Reset state first
-                            self.state.last_settings_change_time = Some(std::time::Instant::now());
 
                             // Apply loaded settings
                             self.state.settings = settings_bundle.qualetize_settings;
                             self.state.color_correction = settings_bundle.color_correction;
-                            self.state.settings_changed = true;
+                            self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                                time: std::time::Instant::now(),
+                            });
 
                             // Invalidate caches when settings change
-                            self.image_processor.invalidate_color_corrected_cache();
                             self.state.color_corrected_image = None;
 
                             // Update tracking
@@ -391,9 +334,9 @@ impl Drop for QualetizeApp {
 
 impl eframe::App for QualetizeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut settings_changed = false;
+        let image_processing = self.image_processor.is_processing();
 
-        // apply thme
+        // apply theme
         self.apply_theme(ctx);
 
         // Handle drag and drop first
@@ -414,6 +357,7 @@ impl eframe::App for QualetizeApp {
         // Save preferences
         self.state.check_and_save_preferences();
 
+        let mut settings_changed = false;
         // Top（Menu）
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             egui::Frame::NONE
@@ -445,7 +389,7 @@ impl eframe::App for QualetizeApp {
                 if self.state.input_path.is_none() {
                     UI::draw_main_content(ui);
                 } else {
-                    UI::draw_image_view(ui, &mut self.state);
+                    UI::draw_image_view(ui, &mut self.state, image_processing);
                 }
 
                 // Footer
@@ -459,13 +403,12 @@ impl eframe::App for QualetizeApp {
                     });
                 }
             });
-        if settings_changed {
-            self.prepare_settings_change();
-        }
 
-        // 再描画が必要かチェック
-        if self.should_repaint() {
-            ctx.request_repaint();
+        if settings_changed {
+            println!("settings_changed: {}", settings_changed);
+            self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                time: std::time::Instant::now(),
+            });
         }
     }
 }

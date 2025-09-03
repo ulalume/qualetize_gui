@@ -1,5 +1,6 @@
 use super::BGRA8;
-use egui::{Color32, TextureHandle};
+use crate::color_processor::ColorProcessor;
+use egui::{Color32, ColorImage, TextureHandle};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
@@ -30,6 +31,54 @@ impl ImageData {
         } else {
             None
         }
+    }
+
+    pub fn color_corrected(
+        &self,
+        color_correction: &ColorCorrection,
+        ctx: &egui::Context,
+    ) -> ImageData {
+        let rgba_img = ColorProcessor::apply_pixels_correction(
+            &self.rgba_data,
+            self.width,
+            self.height,
+            color_correction,
+        );
+        let size = [self.width as usize, self.height as usize];
+        let rgba_data = rgba_img.into_raw();
+
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
+        let texture = ctx.load_texture(
+            "color_corrected",
+            color_image,
+            egui::TextureOptions::NEAREST,
+        );
+
+        ImageData {
+            texture: texture,
+            width: size[0] as u32,
+            height: size[1] as u32,
+            rgba_data,
+            indexed: None,
+        }
+    }
+
+    pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {
+        let img = image::open(path).map_err(|e| format!("Image loading error: {}", e))?;
+        let rgba_img = img.to_rgba8();
+        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
+        let rgba_data = rgba_img.into_raw();
+
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
+        let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
+
+        Ok(ImageData {
+            texture: texture,
+            width: size[0] as u32,
+            height: size[1] as u32,
+            rgba_data,
+            indexed: None,
+        })
     }
 }
 

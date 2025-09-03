@@ -3,6 +3,42 @@ use super::dither::DitherMode;
 use serde::{Deserialize, Serialize};
 
 #[repr(C)]
+pub struct Vec4f {
+    pub f32: [f32; 4],
+}
+
+#[repr(C)]
+pub struct QualetizePlan {
+    pub tile_width: u16,
+    pub tile_height: u16,
+    pub n_palette_colors: u16,
+    pub n_tile_palettes: u16,
+    pub colorspace: u8,
+    pub first_color_is_transparent: u8,
+    pub premultiplied_alpha: u8,
+    pub dither_type: u8,
+    pub dither_level: f32,
+    pub split_ratio: f32,
+    pub n_tile_cluster_passes: u32,
+    pub n_color_cluster_passes: u32,
+    pub color_depth: Vec4f,
+    pub transparent_color: BGRA8,
+}
+
+unsafe extern "C" {
+    pub fn Qualetize(
+        output_px_data: *mut u8,
+        output_palette: *mut BGRA8,
+        input_bitmap: *const BGRA8,
+        input_palette: *const BGRA8,
+        input_width: u32,
+        input_height: u32,
+        plan: *const QualetizePlan,
+        rmse: *mut Vec4f,
+    ) -> u8;
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct BGRA8 {
     pub b: u8,

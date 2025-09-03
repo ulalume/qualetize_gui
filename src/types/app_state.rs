@@ -4,7 +4,7 @@ use super::{
     export::ExportFormat,
     image::{ColorCorrection, ImageData},
     preferences::UserPreferences,
-    settings::QualetizeSettings,
+    qualetize::QualetizeSettings,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
@@ -41,6 +41,11 @@ pub enum AppStateRequest {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct QualetizeRequest {
+    pub time: std::time::Instant,
+}
+
 pub struct AppState {
     // Image management
     pub input_path: Option<String>,
@@ -52,22 +57,19 @@ pub struct AppState {
     pub zoom: f32,
     pub pan_offset: Vec2,
     pub preferences: UserPreferences,
-    pub last_preferences: UserPreferences,
+    last_preferences: UserPreferences,
 
     // Qualetize Settings
     pub settings: QualetizeSettings,
-    pub settings_changed: bool,
+    pub request_update_qualetized_image: Option<QualetizeRequest>,
+    pub debounce_delay: std::time::Duration,
 
     // Color Correction Settings
     pub color_correction: ColorCorrection,
-    pub last_color_correction: ColorCorrection,
+    last_color_correction: ColorCorrection,
 
     // warning
     pub tile_size_warning: bool,
-
-    // debounce
-    pub last_settings_change_time: Option<std::time::Instant>,
-    pub debounce_delay: std::time::Duration,
 
     // Export requests
     pub pending_app_state_request: Option<AppStateRequest>,
@@ -88,8 +90,7 @@ impl Default for AppState {
             last_preferences: preferences.clone(),
 
             settings: QualetizeSettings::default(),
-            settings_changed: false,
-            last_settings_change_time: None,
+            request_update_qualetized_image: None,
             debounce_delay: std::time::Duration::from_millis(100),
 
             last_color_correction: ColorCorrection::default(),
@@ -115,6 +116,7 @@ impl AppState {
             self.settings.tile_height,
         )
     }
+
     pub fn check_and_save_preferences(&mut self) {
         if self.preferences != self.last_preferences {
             self.last_preferences = self.preferences.clone();
@@ -122,11 +124,6 @@ impl AppState {
                 eprintln!("Failed to save preferences: {}", e);
             }
         }
-    }
-
-    /// Check if color corrected image needs to be regenerated
-    pub fn needs_color_correction_update(&self) -> bool {
-        self.color_corrected_image.is_none()
     }
 
     /// Check if color correction settings have changed

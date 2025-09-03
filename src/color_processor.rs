@@ -4,15 +4,22 @@ use image::{ImageBuffer, Rgba, RgbaImage};
 pub struct ColorProcessor;
 
 impl ColorProcessor {
-    pub fn apply_corrections(image: &RgbaImage, corrections: &ColorCorrection) -> RgbaImage {
-        let (width, height) = image.dimensions();
+    pub fn apply_pixels_correction(
+        pixels: &Vec<u8>,
+        width: u32,
+        height: u32,
+        corrections: &ColorCorrection,
+    ) -> RgbaImage {
         let mut output = ImageBuffer::new(width, height);
+        for i in (0..pixels.len()).step_by(4) {
+            let r = pixels[i];
+            let g = pixels[i + 1];
+            let b = pixels[i + 2];
+            let a = pixels[i + 3];
 
-        for (x, y, pixel) in image.enumerate_pixels() {
-            let corrected = Self::apply_pixel_corrections(pixel, corrections);
-            output.put_pixel(x, y, corrected);
+            let corrected = Self::apply_pixel_corrections(&Rgba([r, g, b, a]), corrections);
+            output.put_pixel(i as u32 / 4 % width, i as u32 / 4 / width, corrected);
         }
-
         output
     }
 
@@ -133,12 +140,6 @@ impl ColorProcessor {
         };
 
         (r_prime + m, g_prime + m, b_prime + m)
-    }
-
-    // Check if corrections are at default (no changes)
-    pub fn has_corrections(corrections: &ColorCorrection) -> bool {
-        let default = ColorCorrection::default();
-        corrections != &default
     }
 }
 

@@ -2,7 +2,7 @@ use super::styles::UiMarginExt;
 use crate::types::AppState;
 use egui::{Align2, Color32, FontId, Pos2, Rect, Vec2};
 
-pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
+pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {
     const HORIZONTAL_MARGIN: f32 = 4.0;
     let mut available_size = ui.available_size();
     available_size.y -= 34.0; // footer size
@@ -71,7 +71,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
                 pan_offset,
                 &mut pan_changed,
                 &state,
-                state.output_image.is_none() || state.color_corrected_image.is_none(),
+                image_processing,
                 "Qualetized",
             );
         } else {

@@ -623,8 +623,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ui.heading_with_margin("Debug Info");
     ui.add_space(4.0);
-    if let Some(last_change_time) = state.last_settings_change_time {
-        let elapsed = last_change_time.elapsed();
+    if let Some(request_qualetize) = &state.request_update_qualetized_image {
+        let elapsed = request_qualetize.time.elapsed();
         if elapsed < state.debounce_delay {
             let remaining = state.debounce_delay - elapsed;
             ui.label(format!(
@@ -641,7 +641,10 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
         state.color_corrected_image.is_some()
     ));
     ui.label(format!("Output Image: {:?}", state.output_image.is_some()));
-    ui.label(format!("Settings changed: {}", state.settings_changed));
+    ui.label(format!(
+        "Settings changed: {:?}",
+        state.request_update_qualetized_image,
+    ));
 }
 
 fn validate_rgba_depth(rgba_str: &str) -> bool {

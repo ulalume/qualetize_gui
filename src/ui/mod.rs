@@ -13,8 +13,8 @@ impl UI {
         settings_panel::draw_settings_panel(ui, state)
     }
 
-    pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState) {
-        image_viewer::draw_image_view(ui, state)
+    pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {
+        image_viewer::draw_image_view(ui, state, image_processing)
     }
 
     pub fn draw_main_content(ui: &mut egui::Ui) {
