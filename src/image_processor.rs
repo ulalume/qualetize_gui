@@ -4,7 +4,6 @@ use crate::types::{BGRA8, ImageData, QualetizeSettings};
 use egui::{ColorImage, Context};
 use std::sync::mpsc;
 
-// Qualetizeの処理結果を格納する構造体
 #[derive(Debug)]
 pub struct QualetizeResult {
     pub indexed_data: Vec<u8>,
@@ -12,7 +11,7 @@ pub struct QualetizeResult {
     pub settings: QualetizeSettings,
     pub width: u32,
     pub height: u32,
-    pub generation_id: u64, // 処理の世代ID
+    pub generation_id: u64,
 }
 
 pub struct ImageProcessor {
@@ -38,34 +37,6 @@ impl Default for ImageProcessor {
 impl ImageProcessor {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
-        if rgba_depth.len() == 4 {
-            let chars: Vec<char> = rgba_depth.chars().collect();
-            [
-                Self::char_to_depth(chars[0]),
-                Self::char_to_depth(chars[1]),
-                Self::char_to_depth(chars[2]),
-                Self::char_to_depth(chars[3]),
-            ]
-        } else {
-            [255.0, 255.0, 255.0, 255.0] // Default to 8-bit
-        }
-    }
-
-    fn char_to_depth(c: char) -> f32 {
-        match c {
-            '1' => 1.0,
-            '2' => 3.0,
-            '3' => 7.0,
-            '4' => 15.0,
-            '5' => 31.0,
-            '6' => 63.0,
-            '7' => 127.0,
-            '8' => 255.0,
-            _ => 255.0,
-        }
     }
 
     pub fn start_qualetize(
@@ -94,7 +65,7 @@ impl ImageProcessor {
         self.cancel_sender = Some(cancel_sender);
 
         let thread = std::thread::spawn(move || {
-            let result = Self::generate_preview_from_bgra(
+            let result = Self::generate_preview(
                 bgra_data,
                 width,
                 height,
@@ -215,7 +186,6 @@ impl ImageProcessor {
             generation_id: _,
         } = result;
 
-        // インデックスカラーデータをRGBA画像に変換
         let mut pixels = Vec::with_capacity((width * height * 4) as usize);
         for &pixel_index in &indexed_data {
             let palette_index = pixel_index as usize;
@@ -232,7 +202,7 @@ impl ImageProcessor {
         let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
         // パレット情報を直接変換
-        let palettes = Self::convert_palette_data(&palette_data, &settings);
+        let palettes_for_ui = Self::convert_palette_data(&palette_data, &settings);
 
         Ok(ImageData {
             texture: texture,
@@ -240,7 +210,7 @@ impl ImageProcessor {
             height: height,
             rgba_data: pixels,
             indexed: Some(ImageDataIndexed {
-                palettes_for_ui: palettes,
+                palettes_for_ui,
                 palettes: palette_data,
                 indexed_pixels: indexed_data,
             }),
@@ -254,7 +224,6 @@ impl ImageProcessor {
         let colors_per_palette = settings.n_colors as usize;
         let mut palettes = Vec::new();
 
-        // パレットデータをegui::Color32に変換し、設定に基づいて分割
         let egui_colors: Vec<egui::Color32> = palette_data
             .iter()
             .map(|bgra| egui::Color32::from_rgba_unmultiplied(bgra.r, bgra.g, bgra.b, bgra.a))
@@ -264,44 +233,15 @@ impl ImageProcessor {
             palettes.push(chunk.to_vec());
         }
 
-        // 設定されたパレット数まで調整
         while palettes.len() < settings.n_palettes as usize {
             palettes.push(vec![egui::Color32::BLACK; colors_per_palette]);
         }
         palettes.truncate(settings.n_palettes as usize);
 
-        log::debug!(
-            "Converted {} palettes with {} colors each",
-            palettes.len(),
-            colors_per_palette
-        );
         palettes
     }
 
-    fn create_qualetize_plan(settings: &QualetizeSettings) -> Result<QualetizePlan, String> {
-        let rgba_depth = Self::parse_rgba_depth(&settings.rgba_depth);
-
-        Ok(QualetizePlan {
-            tile_width: settings.tile_width,
-            tile_height: settings.tile_height,
-            n_palette_colors: settings.n_colors,
-            n_tile_palettes: settings.n_palettes,
-            colorspace: settings.color_space.to_id(),
-            first_color_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
-            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
-            dither_type: settings.dither_mode.to_id(),
-            dither_level: settings.dither_level,
-            split_ratio: settings.split_ratio,
-            n_tile_cluster_passes: settings.tile_passes,
-            n_color_cluster_passes: settings.color_passes,
-            color_depth: Vec4f {
-                f32: [rgba_depth[0], rgba_depth[1], rgba_depth[2], rgba_depth[3]],
-            },
-            transparent_color: settings.clear_color.to_bgra8(),
-        })
-    }
-
-    fn generate_preview_from_bgra(
+    fn generate_preview(
         bgra_data: Vec<BGRA8>,
         width: u32,
         height: u32,
@@ -337,7 +277,7 @@ impl ImageProcessor {
         settings: QualetizeSettings,
     ) -> Result<QualetizeResult, String> {
         // Create qualetize plan
-        let plan = Self::create_qualetize_plan(&settings)?;
+        let plan: QualetizePlan = settings.clone().into();
 
         // Prepare output buffers
         let output_size = (width * height) as usize;

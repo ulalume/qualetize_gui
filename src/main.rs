@@ -2,7 +2,7 @@
 mod app;
 mod color_processor;
 mod exporter;
-mod image_processing;
+mod image_processor;
 mod settings_manager;
 mod types;
 mod ui;

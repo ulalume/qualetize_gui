@@ -1,5 +1,5 @@
 use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
-use crate::image_processing::ImageProcessor;
+use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::AppState;
 use crate::types::ImageData;
@@ -72,22 +72,27 @@ impl QualetizeApp {
         }
     }
 
-    fn handle_settings_changes(&mut self, ctx: &egui::Context) {
-        if !self.check_tile_size_compatibility() || self.state.color_corrected_image.is_none() {
+    fn handle_settings_changes(&mut self) {
+        if !self.check_tile_size_compatibility() {
             return;
         }
-        // Debounce functionality: start preview generation after a certain delay from settings change
-        if let Some(request) = &self.state.request_update_qualetized_image {
-            let elapsed = request.time.elapsed();
-            ctx.request_repaint();
-            println!(
-                "elapsed: {:?}, debounce_delay: {:?}",
-                elapsed, self.state.debounce_delay
-            );
-            if elapsed >= self.state.debounce_delay {
-                self.start_preview_generation();
-            }
+        let Some(color_corrected_image) = &self.state.color_corrected_image else {
+            return;
+        };
+        // debounce functionality: start preview generation after a certain delay from settings change
+        let Some(request) = &self.state.request_update_qualetized_image else {
+            return;
+        };
+        if request.time.elapsed() < self.state.debounce_delay {
+            return;
         }
+        if self.image_processor.is_processing() {
+            return;
+        }
+
+        self.state.request_update_qualetized_image = None;
+        self.image_processor
+            .start_qualetize(&color_corrected_image, self.state.settings.clone());
     }
 
     fn check_tile_size_compatibility(&mut self) -> bool {
@@ -122,16 +127,6 @@ impl QualetizeApp {
             self.state.tile_size_warning = false;
             log::debug!("No warning - sizes are compatible");
             true
-        }
-    }
-
-    fn start_preview_generation(&mut self) {
-        if let Some(color_corrected_image) = &self.state.color_corrected_image {
-            if !self.image_processor.is_processing() {
-                self.state.request_update_qualetized_image = None;
-                self.image_processor
-                    .start_qualetize(color_corrected_image, self.state.settings.clone());
-            }
         }
     }
 
@@ -349,7 +344,7 @@ impl eframe::App for QualetizeApp {
         self.update_color_corrected_image(ctx);
 
         // Handle settings changes after checking completion
-        self.handle_settings_changes(ctx);
+        self.handle_settings_changes();
 
         // Handle export requests
         self.handle_requests(ctx);

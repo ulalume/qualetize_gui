@@ -76,33 +76,6 @@ impl ClearColor {
             },
         }
     }
-
-    // pub fn to_string(&self) -> String {
-    //     match self {
-    //         ClearColor::None => "none".to_string(),
-    //         ClearColor::RGB(r, g, b) => format!("#{:02X}{:02X}{:02X}", r, g, b),
-    //     }
-    // }
-
-    // pub fn from_string(s: &str) -> Self {
-    //     if s.trim().to_lowercase() == "none" {
-    //         return ClearColor::None;
-    //     }
-
-    //     if let Some(hex) = s.strip_prefix('#') {
-    //         if hex.len() == 6 {
-    //             if let (Ok(r), Ok(g), Ok(b)) = (
-    //                 u8::from_str_radix(&hex[0..2], 16),
-    //                 u8::from_str_radix(&hex[2..4], 16),
-    //                 u8::from_str_radix(&hex[4..6], 16),
-    //             ) {
-    //                 return ClearColor::RGB(r, g, b);
-    //             }
-    //         }
-    //     }
-
-    //     ClearColor::None
-    // }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -234,6 +207,58 @@ impl Default for QualetizeSettings {
             split_ratio: -1.0,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+        }
+    }
+}
+
+fn char_to_depth(c: char) -> f32 {
+    match c {
+        '1' => 1.0,
+        '2' => 3.0,
+        '3' => 7.0,
+        '4' => 15.0,
+        '5' => 31.0,
+        '6' => 63.0,
+        '7' => 127.0,
+        '8' => 255.0,
+        _ => 255.0,
+    }
+}
+fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
+    if rgba_depth.len() == 4 {
+        let chars: Vec<char> = rgba_depth.chars().collect();
+        [
+            char_to_depth(chars[0]),
+            char_to_depth(chars[1]),
+            char_to_depth(chars[2]),
+            char_to_depth(chars[3]),
+        ]
+    } else {
+        [255.0, 255.0, 255.0, 255.0] // Default to 8-bit
+    }
+}
+
+impl From<QualetizeSettings> for QualetizePlan {
+    fn from(settings: QualetizeSettings) -> Self {
+        let rgba_depth = parse_rgba_depth(&settings.rgba_depth);
+
+        QualetizePlan {
+            tile_width: settings.tile_width,
+            tile_height: settings.tile_height,
+            n_palette_colors: settings.n_colors,
+            n_tile_palettes: settings.n_palettes,
+            colorspace: settings.color_space.to_id(),
+            first_color_is_transparent: if settings.col0_is_clear { 1 } else { 0 },
+            premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
+            dither_type: settings.dither_mode.to_id(),
+            dither_level: settings.dither_level,
+            split_ratio: settings.split_ratio,
+            n_tile_cluster_passes: settings.tile_passes,
+            n_color_cluster_passes: settings.color_passes,
+            color_depth: Vec4f {
+                f32: [rgba_depth[0], rgba_depth[1], rgba_depth[2], rgba_depth[3]],
+            },
+            transparent_color: settings.clear_color.to_bgra8(),
         }
     }
 }
