@@ -1,5 +1,6 @@
 use super::BGRA8;
 use crate::color_processor::ColorProcessor;
+use crate::image_processor::QualetizeResult;
 use egui::{Color32, ColorImage, TextureHandle};
 use serde::{Deserialize, Serialize};
 
@@ -61,6 +62,78 @@ impl ImageData {
             rgba_data,
             indexed: None,
         }
+    }
+
+    pub fn create_from_qualetize_result(
+        result: QualetizeResult,
+        ctx: &egui::Context,
+    ) -> Result<ImageData, String> {
+        let QualetizeResult {
+            indexed_data,
+            palette_data,
+            settings,
+            width,
+            height,
+            generation_id: _,
+        } = result;
+
+        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
+        for &pixel_index in &indexed_data {
+            let palette_index = pixel_index as usize;
+            if palette_index < palette_data.len() {
+                let color = &palette_data[palette_index];
+                pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+            } else {
+                pixels.extend_from_slice(&[0, 0, 0, 255]);
+            }
+        }
+
+        let size = [width as usize, height as usize];
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
+
+        // パレット情報を直接変換
+        let palettes_for_ui = Self::convert_palette_data(
+            &palette_data,
+            settings.n_palettes as usize,
+            settings.n_colors as usize,
+        );
+
+        Ok(ImageData {
+            texture: texture,
+            width: width,
+            height: height,
+            rgba_data: pixels,
+            indexed: Some(ImageDataIndexed {
+                palettes_for_ui,
+                palettes: palette_data,
+                indexed_pixels: indexed_data,
+            }),
+        })
+    }
+    fn convert_palette_data(
+        palette_data: &[BGRA8],
+        n_palettes: usize,
+        n_colors: usize,
+    ) -> Vec<Vec<egui::Color32>> {
+        let colors_per_palette = n_colors;
+        let mut palettes = Vec::new();
+
+        let egui_colors: Vec<egui::Color32> = palette_data
+            .iter()
+            .map(|bgra| egui::Color32::from_rgba_unmultiplied(bgra.r, bgra.g, bgra.b, bgra.a))
+            .collect();
+
+        for chunk in egui_colors.chunks(colors_per_palette) {
+            palettes.push(chunk.to_vec());
+        }
+
+        while palettes.len() < n_palettes {
+            palettes.push(vec![egui::Color32::BLACK; colors_per_palette]);
+        }
+        palettes.truncate(n_palettes);
+
+        palettes
     }
 
     pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {
