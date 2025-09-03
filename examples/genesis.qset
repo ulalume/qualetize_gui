@@ -24,5 +24,9 @@
     "shadows": 0.0,
     "highlights": 0.0
   },
-  "version": "0.3.0"
+  "sort_settings": {
+    "mode": "None",
+    "order": "Ascending"
+  },
+  "version": "0.3.2"
 }

@@ -36,6 +36,7 @@ qualetize_gui
 - Instant preview updates when parameters are changed
 - Color adjustment tools
 - Display palettes
+- Reorder palette colors
 - Save and load custom settings presets
 
 ## Settings Management
