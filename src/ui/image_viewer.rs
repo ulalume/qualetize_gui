@@ -278,7 +278,7 @@ fn draw_warning_message(ui: &mut egui::Ui, state: &AppState) {
     );
     ui.add_space(10.0);
     ui.label(
-        egui::RichText::new(&state.tile_size_warning_message)
+        egui::RichText::new(state.tile_size_warning_message())
             .size(12.0)
             .color(Color32::WHITE),
     );

@@ -74,7 +74,6 @@ pub struct AppState {
 
     // 警告状態
     pub tile_size_warning: bool,
-    pub tile_size_warning_message: String,
 
     // デバウンス機能
     pub last_settings_change_time: Option<std::time::Instant>,
@@ -132,7 +131,6 @@ impl Default for AppState {
 
             // 警告状態
             tile_size_warning: false,
-            tile_size_warning_message: String::new(),
 
             // デバウンス機能 - 100msの遅延（応答性向上）
             last_settings_change_time: None,
@@ -149,17 +147,23 @@ impl Default for AppState {
 }
 
 impl AppState {
+    pub fn tile_size_warning_message(&self) -> String {
+        format!(
+            "Image size ({}×{}) is not divisible by tile size ({}×{}). Qualetize processing cannot proceed.",
+            self.input_image.width,
+            self.input_image.height,
+            self.settings.tile_width,
+            self.settings.tile_height,
+        )
+    }
     fn same_color(&self) -> bool {
-        match (self.preferences.background_color.clone(), self.background_color) {
-            (Some(pref_color), Some(back_color)) => {
-                pref_color == SerdeColor32::from(back_color)
-            },
-            (None, None) => {
-                true
-            },
-            _ => {
-                false
-            }
+        match (
+            self.preferences.background_color.clone(),
+            self.background_color,
+        ) {
+            (Some(pref_color), Some(back_color)) => pref_color == SerdeColor32::from(back_color),
+            (None, None) => true,
+            _ => false,
         }
     }
     pub fn check_and_save_preferences(&mut self) {

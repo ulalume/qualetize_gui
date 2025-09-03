@@ -124,7 +124,6 @@ impl QualetizeApp {
     fn check_tile_size_compatibility(&mut self) -> bool {
         if self.state.input_image.texture.is_none() {
             self.state.tile_size_warning = false;
-            self.state.tile_size_warning_message.clear();
             return true;
         }
 
@@ -148,19 +147,11 @@ impl QualetizeApp {
 
         if !width_divisible || !height_divisible {
             self.state.tile_size_warning = true;
-            self.state.tile_size_warning_message = format!(
-                "Image size ({}×{}) is not divisible by tile size ({}×{}). Qualetize processing cannot proceed.",
-                image_width, image_height, tile_width, tile_height
-            );
             self.state.preview_ready = false;
-            log::warn!(
-                "Tile size warning: {}",
-                self.state.tile_size_warning_message
-            );
+            log::warn!("Tile size warning");
             false
         } else {
             self.state.tile_size_warning = false;
-            self.state.tile_size_warning_message.clear();
             log::debug!("No warning - sizes are compatible");
             true
         }
