@@ -400,7 +400,6 @@ impl eframe::App for QualetizeApp {
             });
 
         if settings_changed {
-            println!("settings_changed: {}", settings_changed);
             self.state.request_update_qualetized_image = Some(QualetizeRequest {
                 time: std::time::Instant::now(),
             });

@@ -643,7 +643,7 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ui.label(format!("Output Image: {:?}", state.output_image.is_some()));
     ui.label(format!(
         "Settings changed: {:?}",
-        state.request_update_qualetized_image,
+        state.request_update_qualetized_image.is_some(),
     ));
 }
 
