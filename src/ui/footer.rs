@@ -34,12 +34,14 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         ui.scope(|ui| {
             apply_export_button_style(ui);
-            let response =
-                ui.add_enabled(state.preview_ready, egui::Button::new("💾 Export Image"));
+            let response = ui.add_enabled(
+                state.output_image.is_some(),
+                egui::Button::new("💾 Export Image"),
+            );
             if response.clicked() {
                 request_export(
                     state,
-                    state.selected_export_format.clone(),
+                    state.preferences.selected_export_format.clone(),
                     Some("qualetized"),
                 );
             }
@@ -47,12 +49,12 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
 
         // Format selection ComboBox
         egui::ComboBox::from_id_salt("export_format_footer")
-            .selected_text(state.selected_export_format.display_name())
+            .selected_text(state.preferences.selected_export_format.display_name())
             .width(64.0)
             .show_ui(ui, |ui| {
                 for format in ExportFormat::indexed_list() {
                     ui.selectable_value(
-                        &mut state.selected_export_format,
+                        &mut state.preferences.selected_export_format,
                         format.clone(),
                         format.display_name(),
                     );

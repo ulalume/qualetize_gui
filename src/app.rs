@@ -41,16 +41,6 @@ impl QualetizeApp {
     }
 
     fn load_image_file(&mut self, path: String, ctx: &egui::Context) {
-        // Reset state first
-        self.state.preview_ready = false;
-        self.state.preview_processing = false;
-        self.state.output_image = Default::default();
-        self.state.color_corrected_image = Default::default();
-        self.state.zoom = 1.0;
-        self.state.pan_offset = egui::Vec2::ZERO;
-        self.state.result_message = "Loading image...".to_string();
-        self.state.last_settings_change_time = Some(std::time::Instant::now());
-
         // Cancel any existing processing
         if self.image_processor.is_processing() {
             self.image_processor.cancel_current_processing();
@@ -60,37 +50,36 @@ impl QualetizeApp {
         match ImageProcessor::load_image_from_path(&path, ctx) {
             Ok(image_data) => {
                 self.state.input_path = Some(path.clone());
-                self.state.input_image = image_data;
-                self.state.result_message = "Image loaded, generating preview...".to_string();
+                self.state.input_image = Some(image_data);
 
                 // Invalidate caches when new image is loaded
                 self.image_processor.invalidate_color_corrected_cache();
-                self.state.invalidate_color_corrected_image();
+                self.state.color_corrected_image = None;
 
                 // Check tile size compatibility
                 self.check_tile_size_compatibility();
 
+                self.state.zoom = 1.0;
+                self.state.pan_offset = egui::Vec2::ZERO;
+
                 // Trigger preview generation
                 self.state.settings_changed = true;
+                self.state.last_settings_change_time = Some(std::time::Instant::now());
             }
             Err(e) => {
-                self.state.result_message = format!("Image loading error: {}", e);
+                log::error!("File load Error {}", e);
                 self.state.input_path = None;
                 self.state.input_image = Default::default();
+                self.state.color_corrected_image = None;
             }
         }
     }
 
     fn handle_file_selection(&mut self, ctx: &egui::Context) {
-        // Check if a new file was selected via dialog but not yet loaded
-        if let Some(path) = &self.state.input_path {
-            // Only load if we don't have an existing image or if it's a new path
-            let should_load = self.state.input_image.texture.is_none()
-                || self.state.result_message == "File selected, loading...";
-
-            if should_load {
-                self.load_image_file(path.clone(), ctx);
-            }
+        if let Some(path) = &self.state.input_path
+            && self.state.input_image.is_none()
+        {
+            self.load_image_file(path.clone(), ctx);
         }
     }
 
@@ -122,13 +111,13 @@ impl QualetizeApp {
     }
 
     fn check_tile_size_compatibility(&mut self) -> bool {
-        if self.state.input_image.texture.is_none() {
+        let Some(input_image) = &self.state.input_image else {
             self.state.tile_size_warning = false;
             return true;
-        }
+        };
 
-        let image_width = self.state.input_image.width as u16;
-        let image_height = self.state.input_image.height as u16;
+        let image_width = input_image.width as u16;
+        let image_height = input_image.height as u16;
         let tile_width = self.state.settings.tile_width;
         let tile_height = self.state.settings.tile_height;
 
@@ -147,7 +136,7 @@ impl QualetizeApp {
 
         if !width_divisible || !height_divisible {
             self.state.tile_size_warning = true;
-            self.state.preview_ready = false;
+            self.state.output_image = None;
             log::warn!("Tile size warning");
             false
         } else {
@@ -160,11 +149,8 @@ impl QualetizeApp {
     fn start_preview_generation(&mut self, ctx: &egui::Context) {
         // タイルサイズの互換性をチェック
         if !self.check_tile_size_compatibility() {
-            self.state.preview_processing = false;
             self.state.settings_changed = false;
             self.state.last_settings_change_time = None;
-            self.state.result_message =
-                "Cannot process: Image size incompatible with tile size".to_string();
             return;
         }
 
@@ -176,10 +162,8 @@ impl QualetizeApp {
                     self.state.color_correction.clone(),
                     ctx,
                 );
-                self.state.preview_processing = true;
                 self.state.settings_changed = false;
                 self.state.last_settings_change_time = None; // リセット
-                self.state.result_message = "Generating preview...".to_string();
 
                 // Update tracking
                 self.state.update_color_correction_tracking();
@@ -193,7 +177,7 @@ impl QualetizeApp {
             if self.state.color_correction_changed() {
                 log::debug!("Color correction changed, invalidating cache");
                 self.image_processor.invalidate_color_corrected_cache();
-                self.state.invalidate_color_corrected_image();
+                self.state.color_corrected_image = None;
             }
 
             // Generate color corrected image if needed
@@ -204,13 +188,12 @@ impl QualetizeApp {
                     ctx,
                 ) {
                     Ok(corrected_image) => {
-                        self.state.color_corrected_image = corrected_image;
+                        self.state.color_corrected_image = Some(corrected_image);
                         self.state.update_color_correction_tracking();
                         log::debug!("Color corrected image updated successfully");
                     }
                     Err(e) => {
                         log::error!("Failed to generate color corrected image: {}", e);
-                        self.state.result_message = format!("Color correction failed: {}", e);
                     }
                 }
             }
@@ -219,25 +202,20 @@ impl QualetizeApp {
 
     fn check_preview_completion(&mut self, ctx: &egui::Context) {
         if let Some(result) = self.image_processor.check_preview_complete(ctx) {
-            self.state.preview_processing = false;
-
             match result {
                 Ok(image_data) => {
-                    self.state.output_image = image_data;
-                    self.state.preview_ready = true;
-                    self.state.result_message = "Preview complete".to_string();
+                    self.state.output_image = Some(image_data);
                 }
                 Err(e) => {
-                    self.state.result_message = format!("Preview error: {}", e);
-                    self.state.preview_ready = false;
+                    log::error!("Failed to generate preview image: {}", e);
+                    self.state.output_image = None;
                 }
             }
         }
     }
 
     fn should_repaint(&self) -> bool {
-        self.state.preview_processing
-            || self.state.settings_changed
+        self.state.settings_changed
             || self.state.last_settings_change_time.is_some()
             || self.state.tile_size_warning // 警告状態の変更時も再描画
     }
@@ -250,16 +228,13 @@ impl QualetizeApp {
         self.check_tile_size_compatibility();
 
         // 進行中の処理があれば即座にキャンセル
-        if self.image_processor.is_processing() || self.state.preview_processing {
+        if self.image_processor.is_processing() {
             self.image_processor.cancel_current_processing();
-            self.state.preview_processing = false;
-            self.state.result_message =
-                "Previous processing cancelled, will update soon...".to_string();
         }
     }
 
     fn apply_theme(&self, ctx: &egui::Context) {
-        match self.state.appearance_mode {
+        match self.state.preferences.appearance_mode {
             AppearanceMode::Dark => ctx.set_visuals(egui::Visuals::dark()),
             AppearanceMode::Light => ctx.set_visuals(egui::Visuals::light()),
             AppearanceMode::System => {
@@ -280,10 +255,10 @@ impl QualetizeApp {
             match export_request {
                 crate::types::app_state::ExportRequest::ColorCorrectedPng { output_path } => {
                     // Use ImageData pixels directly
-                    if !self.state.color_corrected_image.rgba_data.is_empty() {
-                        let rgba_data = self.state.color_corrected_image.rgba_data.clone();
-                        let width = self.state.color_corrected_image.width.clone();
-                        let height = self.state.color_corrected_image.height.clone();
+                    if let Some(color_corrected_image) = &self.state.color_corrected_image {
+                        let rgba_data = color_corrected_image.rgba_data.clone();
+                        let width = color_corrected_image.width.clone();
+                        let height = color_corrected_image.height.clone();
                         std::thread::spawn(move || {
                             match ImageProcessor::save_rgba_image(
                                 &output_path,
@@ -310,7 +285,11 @@ impl QualetizeApp {
                     output_path,
                     format,
                 } => {
-                    let Some(indexed_data) = self.state.output_image.indexed.clone() else {
+                    let Some(output_image) = &self.state.output_image else {
+                        log::error!("Qualetized export failed: output image is None");
+                        return;
+                    };
+                    let Some(indexed_data) = &output_image.indexed else {
                         log::error!("Qualetized export failed: indexed is None");
                         return;
                     };
@@ -323,8 +302,8 @@ impl QualetizeApp {
                                 &output_path,
                                 &indexed_data.indexed_pixels,
                                 &indexed_data.palettes,
-                                self.state.output_image.width,
-                                self.state.output_image.height,
+                                output_image.width,
+                                output_image.height,
                             ) {
                                 Ok(()) => {
                                     log::info!(
@@ -341,8 +320,8 @@ impl QualetizeApp {
                                 &output_path,
                                 &indexed_data.indexed_pixels,
                                 &indexed_data.palettes,
-                                self.state.output_image.width,
-                                self.state.output_image.height,
+                                output_image.width,
+                                output_image.height,
                             ) {
                                 Ok(()) => {
                                     log::info!(
@@ -371,11 +350,9 @@ impl QualetizeApp {
 
                     match settings_bundle.save_to_file(&path) {
                         Ok(()) => {
-                            self.state.result_message = format!("Settings saved to: {}", path);
                             log::info!("Settings saved successfully to: {}", path);
                         }
                         Err(e) => {
-                            self.state.result_message = format!("Failed to save settings: {}", e);
                             log::error!("Failed to save settings: {}", e);
                         }
                     }
@@ -389,9 +366,6 @@ impl QualetizeApp {
                                 self.image_processor = ImageProcessor::new();
                             }
                             // Reset state first
-                            self.state.preview_ready = false;
-                            self.state.preview_processing = false;
-                            self.state.result_message = "Loading image...".to_string();
                             self.state.last_settings_change_time = Some(std::time::Instant::now());
 
                             // Apply loaded settings
@@ -401,16 +375,14 @@ impl QualetizeApp {
 
                             // Invalidate caches when settings change
                             self.image_processor.invalidate_color_corrected_cache();
-                            self.state.invalidate_color_corrected_image();
+                            self.state.color_corrected_image = None;
 
                             // Update tracking
                             self.state.update_color_correction_tracking();
 
-                            self.state.result_message = format!("Settings loaded from: {}", path);
                             log::info!("Settings loaded successfully from: {}", path);
                         }
                         Err(e) => {
-                            self.state.result_message = format!("Failed to load settings: {}", e);
                             log::error!("Failed to load settings: {}", e);
                         }
                     }
@@ -488,13 +460,13 @@ impl eframe::App for QualetizeApp {
             .show(ctx, |ui| {
                 // Main
                 if self.state.input_path.is_none() {
-                    UI::draw_main_content(ui, &self.state);
+                    UI::draw_main_content(ui);
                 } else {
                     UI::draw_image_view(ui, &mut self.state);
                 }
 
                 // Footer
-                if self.state.input_image.texture.is_some() {
+                if self.state.input_image.is_some() {
                     egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
                         egui::Frame::NONE
                             .inner_margin(Margin::symmetric(0, 4))

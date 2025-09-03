@@ -17,8 +17,8 @@ impl UI {
         image_viewer::draw_image_view(ui, state)
     }
 
-    pub fn draw_main_content(ui: &mut egui::Ui, state: &AppState) {
-        image_viewer::draw_main_content(ui, state)
+    pub fn draw_main_content(ui: &mut egui::Ui) {
+        image_viewer::draw_main_content(ui)
     }
 
     pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {

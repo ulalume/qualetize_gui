@@ -26,13 +26,10 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 if let Some(path) = selected_path {
                     let path_str = path.display().to_string();
                     state.input_path = Some(path_str.clone());
-                    state.preview_ready = false;
-                    state.preview_processing = false;
                     state.color_corrected_image = Default::default();
                     state.output_image = Default::default();
                     state.zoom = 1.0;
                     state.pan_offset = egui::Vec2::ZERO;
-                    state.result_message = "File selected, loading...".to_string();
 
                     settings_changed = true;
                 }
@@ -40,13 +37,13 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.menu_button("Export Image", |ui| {
-                ui.add_enabled_ui(state.color_corrected_image.texture.is_some(), |ui| {
+                ui.add_enabled_ui(state.color_corrected_image.is_some(), |ui| {
                     if ui.button("Color Corrected PNG").clicked() {
                         request_export(state, ExportFormat::Png, Some("color_corrected"));
                         ui.close();
                     }
                 });
-                ui.add_enabled_ui(state.preview_ready, |ui| {
+                ui.add_enabled_ui(state.output_image.is_some(), |ui| {
                     if ui.button("Qualetized Indexed PNG").clicked() {
                         request_export(state, ExportFormat::PngIndexed, Some("qualetized"));
                         ui.close();
@@ -97,7 +94,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 for format in ExportFormat::indexed_list() {
                     if ui
                         .selectable_value(
-                            &mut state.selected_export_format,
+                            &mut state.preferences.selected_export_format,
                             format.clone(),
                             format.display_name(),
                         )
@@ -117,20 +114,20 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             )
             .ui(ui, |ui| {
                 ui.label(egui::widget_text::RichText::new("Settings").small());
-                ui.checkbox(&mut state.show_advanced, "Advanced Settings");
-                ui.checkbox(&mut state.show_debug_info, "Debug Info");
+                ui.checkbox(&mut state.preferences.show_advanced, "Advanced Settings");
+                ui.checkbox(&mut state.preferences.show_debug_info, "Debug Info");
 
                 ui.separator();
                 ui.label(egui::widget_text::RichText::new("Canvas").small());
-                ui.checkbox(&mut state.show_original_image, "Original Image");
+                ui.checkbox(&mut state.preferences.show_original_image, "Original Image");
                 ui.checkbox(
-                    &mut state.show_color_corrected_image,
+                    &mut state.preferences.show_color_corrected_image,
                     "Color Corrected Image",
                 );
 
                 ui.separator();
 
-                ui.checkbox(&mut state.show_palettes, "Palettes");
+                ui.checkbox(&mut state.preferences.show_palettes, "Palettes");
 
                 ui.separator();
 
@@ -160,7 +157,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 ui.separator();
 
                 if ui
-                    .checkbox(&mut state.show_appearance_dialog, "Appearance")
+                    .checkbox(&mut state.preferences.show_appearance, "Appearance")
                     .clicked()
                 {
                     ui.close();
@@ -168,7 +165,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             });
     });
 
-    let mut show_dialog = state.show_appearance_dialog;
+    let mut show_dialog = state.preferences.show_appearance;
     if let Some(_) = egui::Window::new("Appearance")
         .open(&mut show_dialog)
         .resizable(false)
@@ -177,26 +174,34 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.subheading_with_margin("Theme");
             ui.horizontal(|ui| {
                 ui.selectable_value(
-                    &mut state.appearance_mode,
+                    &mut state.preferences.appearance_mode,
                     AppearanceMode::System,
                     "System Default",
                 );
-                ui.selectable_value(&mut state.appearance_mode, AppearanceMode::Light, "Light");
-                ui.selectable_value(&mut state.appearance_mode, AppearanceMode::Dark, "Dark");
+                ui.selectable_value(
+                    &mut state.preferences.appearance_mode,
+                    AppearanceMode::Light,
+                    "Light",
+                );
+                ui.selectable_value(
+                    &mut state.preferences.appearance_mode,
+                    AppearanceMode::Dark,
+                    "Dark",
+                );
             });
             ui.separator();
 
             ui.subheading_with_margin("Canvas Background Color");
             ui.horizontal(|ui| {
                 // Use selectable_value for Default/Custom selection
-                let mut use_default = state.background_color.is_none();
+                let mut use_default = state.preferences.background_color.is_none();
 
                 if ui
                     .selectable_value(&mut use_default, true, "Default")
                     .changed()
                 {
                     if use_default {
-                        state.background_color = None;
+                        state.preferences.background_color = None;
                     }
                 }
 
@@ -206,13 +211,13 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 {
                     if !use_default {
                         // Set to a default color when switching to custom
-                        state.background_color = Some(egui::Color32::from_gray(64));
+                        state.preferences.background_color = Some(egui::Color32::from_gray(64));
                     }
                 }
 
                 // Show color picker only when using custom
                 if !use_default {
-                    if let Some(ref mut color) = state.background_color {
+                    if let Some(ref mut color) = state.preferences.background_color {
                         let mut color_array = [color.r(), color.g(), color.b()];
                         if ui.color_edit_button_srgb(&mut color_array).changed() {
                             *color = egui::Color32::from_rgb(
@@ -242,7 +247,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             });
         })
     {
-        state.show_appearance_dialog = show_dialog;
+        state.preferences.show_appearance = show_dialog;
     }
 
     settings_changed

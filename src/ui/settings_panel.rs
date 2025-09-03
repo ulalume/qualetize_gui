@@ -27,7 +27,7 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.separator();
 
     // Advanced clustering settings (if enabled)
-    if state.show_advanced {
+    if state.preferences.show_advanced {
         settings_changed |= draw_advanced_settings(ui, state);
         ui.separator();
     }
@@ -35,7 +35,7 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     // Color correction settings
     settings_changed |= draw_color_correction_settings(ui, state);
 
-    if state.show_debug_info {
+    if state.preferences.show_debug_info {
         // Debug information display
         ui.separator();
         draw_status_section(ui, state);
@@ -79,13 +79,14 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     *b = color_array[2];
                     settings_changed = true;
                 }
-                if ui.button("Use Top-Left Pixel Color").clicked() {
-                    if let Some(color) = state.color_corrected_image.get_top_left_pixel_color() {
-                        *r = color.r();
-                        *g = color.g();
-                        *b = color.b();
-                        settings_changed = true;
-                    }
+                if ui.button("Use Top-Left Pixel Color").clicked()
+                    && let Some(color_corrected_image) = &state.color_corrected_image
+                    && let Some(color) = color_corrected_image.get_top_left_pixel_color()
+                {
+                    *r = color.r();
+                    *g = color.g();
+                    *b = color.b();
+                    settings_changed = true;
                 }
                 ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
             });
@@ -622,9 +623,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ui.heading_with_margin("Debug Info");
     ui.add_space(4.0);
-    if state.preview_processing {
-        ui.label("🔄 Generating preview...");
-    } else if let Some(last_change_time) = state.last_settings_change_time {
+    if let Some(last_change_time) = state.last_settings_change_time {
         let elapsed = last_change_time.elapsed();
         if elapsed < state.debounce_delay {
             let remaining = state.debounce_delay - elapsed;
@@ -633,22 +632,15 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
                 remaining.as_secs_f32()
             ));
         }
-    } else if !state.result_message.is_empty() {
-        ui.label(&state.result_message);
     }
-
     // Debug information
     ui.label(format!("Input path: {:?}", state.input_path.is_some()));
+    ui.label(format!("Input Image: {:?}", state.input_image.is_some()));
     ui.label(format!(
-        "Input texture: {:?}",
-        state.input_image.texture.is_some()
+        "Color Corrected Image: {:?}",
+        state.color_corrected_image.is_some()
     ));
-    ui.label(format!(
-        "Output texture: {:?}",
-        state.output_image.texture.is_some()
-    ));
-    ui.label(format!("Preview ready: {}", state.preview_ready));
-    ui.label(format!("Preview processing: {}", state.preview_processing));
+    ui.label(format!("Output Image: {:?}", state.output_image.is_some()));
     ui.label(format!("Settings changed: {}", state.settings_changed));
 }
 

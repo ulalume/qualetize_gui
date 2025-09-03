@@ -1,32 +1,55 @@
 use super::export::ExportFormat;
 use crate::types::app_state::AppearanceMode;
 use egui::Color32;
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct SerdeColor32(u8, u8, u8, u8);
+mod color32_def {
+    use super::*;
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-impl From<Color32> for SerdeColor32 {
-    fn from(c: Color32) -> Self {
-        Self(c.r(), c.g(), c.b(), c.a())
+    pub fn serialize<S>(color: &Option<Color32>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match color {
+            Some(c) => {
+                let rgba = (c.r(), c.g(), c.b(), c.a());
+                rgba.serialize(serializer)
+            }
+            None => serializer.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<Color32>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let rgba: Option<(u8, u8, u8, u8)> = Option::deserialize(deserializer)?;
+        Ok(rgba.map(|(r, g, b, a)| Color32::from_rgba_premultiplied(r, g, b, a)))
     }
 }
-impl From<SerdeColor32> for Color32 {
-    fn from(c: SerdeColor32) -> Self {
-        Color32::from_rgba_unmultiplied(c.0, c.1, c.2, c.3)
-    }
-}
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UserPreferences {
     pub show_advanced: bool,
     pub show_original_image: bool,
-    pub show_color_corrected_image: Option<bool>,
+
+    #[serde(default)]
+    pub show_color_corrected_image: bool,
     pub show_palettes: bool,
-    pub show_debug_info: Option<bool>,
+
+    #[serde(default)]
+    pub show_debug_info: bool,
+    #[serde(default)]
+    pub show_appearance: bool,
     pub selected_export_format: ExportFormat,
 
-    pub appearance_mode: Option<AppearanceMode>,
-    pub background_color: Option<SerdeColor32>,
+    #[serde(default)]
+    pub appearance_mode: AppearanceMode,
+
+    #[serde(with = "color32_def")]
+    pub background_color: Option<Color32>,
 }
 
 impl Default for UserPreferences {
@@ -34,11 +57,12 @@ impl Default for UserPreferences {
         Self {
             show_advanced: false,
             show_original_image: true,
-            show_color_corrected_image: Some(false),
+            show_color_corrected_image: false,
             show_palettes: true,
-            show_debug_info: Some(false),
+            show_debug_info: false,
+            show_appearance: false,
             selected_export_format: ExportFormat::default(),
-            appearance_mode: Some(AppearanceMode::default()),
+            appearance_mode: AppearanceMode::default(),
             background_color: None,
         }
     }

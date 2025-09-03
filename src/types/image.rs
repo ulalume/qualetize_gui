@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct ImageData {
-    pub texture: Option<TextureHandle>,
+    pub texture: TextureHandle,
     pub width: u32,
     pub height: u32,
     pub rgba_data: Vec<u8>,
@@ -17,18 +17,6 @@ pub struct ImageDataIndexed {
     pub palettes_for_ui: Vec<Vec<egui::Color32>>,
     pub palettes: Vec<BGRA8>,
     pub indexed_pixels: Vec<u8>,
-}
-
-impl Default for ImageData {
-    fn default() -> Self {
-        Self {
-            texture: None,
-            width: 0,
-            height: 0,
-            rgba_data: Vec::new(),
-            indexed: None,
-        }
-    }
 }
 
 impl ImageData {

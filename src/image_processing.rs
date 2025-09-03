@@ -155,7 +155,6 @@ impl ImageProcessor {
     pub fn invalidate_color_corrected_cache(&mut self) {
         log::debug!("Invalidating color corrected cache");
         self.color_corrected_cache = None;
-        // Also invalidate BGRA cache since it depends on color correction
         self.bgra_cache = None;
     }
 
@@ -242,7 +241,7 @@ impl ImageProcessor {
         );
 
         Ok(ImageData {
-            texture: Some(texture),
+            texture: texture,
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,
@@ -260,7 +259,7 @@ impl ImageProcessor {
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
 
         Ok(ImageData {
-            texture: Some(texture),
+            texture: texture,
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,
@@ -417,7 +416,7 @@ impl ImageProcessor {
         let palettes = Self::convert_palette_data(&palette_data, &settings);
 
         Ok(ImageData {
-            texture: Some(texture),
+            texture: texture,
             width: width,
             height: height,
             rgba_data: pixels,
