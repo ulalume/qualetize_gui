@@ -1,7 +1,8 @@
 use crate::settings_manager::SettingsBundle;
 use crate::types::{
-    AppState, ColorCorrectionPreset, ExportFormat, QualetizePreset,
+    AppState, ExportFormat, QualetizePreset,
     app_state::{AppStateRequest, AppearanceMode},
+    color_correction::ColorCorrectionPreset,
 };
 use crate::ui::styles::UiMarginExt;
 use rfd::FileDialog;

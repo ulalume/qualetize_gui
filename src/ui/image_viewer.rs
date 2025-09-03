@@ -35,6 +35,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
                     split_x,
                     split_y,
                     &state.input_image,
+                    &None,
                     zoom,
                     pan_offset,
                     &mut pan_changed,
@@ -49,6 +50,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
                     split_x,
                     split_y,
                     &state.color_corrected_image,
+                    &None,
                     zoom,
                     pan_offset,
                     &mut pan_changed,
@@ -61,12 +63,19 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
 
         // Right panel
         if !state.tile_size_warning {
-            // Output image with palettes
+            let indexed = if state.output_palette_sorted_indexed_image.is_some() {
+                &state.output_palette_sorted_indexed_image
+            } else if let Some(image) = &state.output_image {
+                &image.indexed
+            } else {
+                &None
+            };
             draw_image_panel(
                 ui,
                 split_x,
                 available_size.y,
                 &state.output_image,
+                indexed,
                 zoom,
                 pan_offset,
                 &mut pan_changed,
@@ -107,6 +116,7 @@ fn draw_image_panel(
     width: f32,
     height: f32,
     image_data: &Option<crate::types::ImageData>,
+    indexed_image_data: &Option<crate::types::ImageDataIndexed>,
     zoom: f32,
     pan_offset: Vec2,
     pan_changed: &mut Vec2,
@@ -176,7 +186,7 @@ fn draw_image_panel(
 
                 // Draw palettes overlay for output image
                 if state.preferences.show_palettes
-                    && let Some(indexed) = &image_data.indexed
+                    && let Some(indexed) = &indexed_image_data
                     && !indexed.palettes_for_ui.is_empty()
                 {
                     draw_palettes_overlay(&painter, &canvas, &indexed.palettes_for_ui);

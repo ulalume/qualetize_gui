@@ -1,4 +1,6 @@
-use crate::types::{ColorCorrection, QualetizeSettings};
+use crate::types::{
+    QualetizeSettings, color_correction::ColorCorrection, image::PaletteSortSettings,
+};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -7,14 +9,21 @@ use std::path::Path;
 pub struct SettingsBundle {
     pub qualetize_settings: QualetizeSettings,
     pub color_correction: ColorCorrection,
+    #[serde(default)]
+    pub sort_settings: PaletteSortSettings,
     pub version: String,
 }
 
 impl SettingsBundle {
-    pub fn new(qualetize_settings: QualetizeSettings, color_correction: ColorCorrection) -> Self {
+    pub fn new(
+        qualetize_settings: QualetizeSettings,
+        color_correction: ColorCorrection,
+        sort_settings: PaletteSortSettings,
+    ) -> Self {
         Self {
             qualetize_settings,
             color_correction,
+            sort_settings,
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
@@ -64,12 +73,16 @@ mod tests {
 
     #[test]
     fn test_settings_serialization() {
-        let settings =
-            SettingsBundle::new(QualetizeSettings::default(), ColorCorrection::default());
+        let settings = SettingsBundle::new(
+            QualetizeSettings::default(),
+            ColorCorrection::default(),
+            PaletteSortSettings::default(),
+        );
 
         let json = serde_json::to_string(&settings).unwrap();
         let deserialized: SettingsBundle = serde_json::from_str(&json).unwrap();
 
+        assert_eq!(settings.sort_settings.mode, deserialized.sort_settings.mode);
         assert_eq!(
             settings.qualetize_settings.tile_width,
             deserialized.qualetize_settings.tile_width

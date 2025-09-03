@@ -1,4 +1,4 @@
-use crate::types::ColorCorrection;
+use crate::types::color_correction::ColorCorrection;
 use image::{ImageBuffer, Rgba, RgbaImage};
 
 pub struct ColorProcessor;
@@ -61,7 +61,7 @@ impl ColorProcessor {
         let (mut rf, mut gf, mut bf) = Self::hsv_to_rgb(h, s, v);
 
         // Apply shadows/highlights
-        let luminance = 0.299 * rf + 0.587 * gf + 0.114 * bf;
+        let luminance = Self::rgb_f32_to_luminance(rf, gf, bf);
 
         if luminance < 0.5 {
             // Apply shadows adjustment to darker areas
@@ -102,7 +102,11 @@ impl ColorProcessor {
         ((value - 0.5) * contrast + 0.5).clamp(0.0, 1.0)
     }
 
-    fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
+    pub fn rgb_f32_to_luminance(rf: f32, gf: f32, bf: f32) -> f32 {
+        0.299 * rf + 0.587 * gf + 0.114 * bf
+    }
+
+    pub fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
         let max_val = r.max(g).max(b);
         let min_val = r.min(g).min(b);
         let delta = max_val - min_val;
@@ -125,7 +129,7 @@ impl ColorProcessor {
         (h, s, v)
     }
 
-    fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
+    pub fn hsv_to_rgb(h: f32, s: f32, v: f32) -> (f32, f32, f32) {
         let c = v * s;
         let x = c * (1.0 - ((h / 60.0) % 2.0 - 1.0).abs());
         let m = v - c;

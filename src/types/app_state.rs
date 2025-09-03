@@ -1,8 +1,9 @@
 use egui::Vec2;
 
 use super::{
+    color_correction::ColorCorrection,
     export::ExportFormat,
-    image::{ColorCorrection, ImageData},
+    image::{ImageData, ImageDataIndexed, PaletteSortSettings},
     preferences::UserPreferences,
     qualetize::QualetizeSettings,
 };
@@ -52,6 +53,7 @@ pub struct AppState {
     pub input_image: Option<ImageData>,
     pub color_corrected_image: Option<ImageData>,
     pub output_image: Option<ImageData>,
+    pub output_palette_sorted_indexed_image: Option<ImageDataIndexed>,
 
     // View Settings
     pub zoom: f32,
@@ -68,6 +70,10 @@ pub struct AppState {
     pub color_correction: ColorCorrection,
     last_color_correction: ColorCorrection,
 
+    // Palette Sort Settings
+    pub palette_sort_settings: PaletteSortSettings,
+    last_palette_sort_settings: PaletteSortSettings,
+
     // warning
     pub tile_size_warning: bool,
 
@@ -83,6 +89,7 @@ impl Default for AppState {
             input_image: None,
             color_corrected_image: None,
             output_image: None,
+            output_palette_sorted_indexed_image: None,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
@@ -95,6 +102,9 @@ impl Default for AppState {
 
             last_color_correction: ColorCorrection::default(),
             color_correction: ColorCorrection::default(),
+
+            palette_sort_settings: PaletteSortSettings::default(),
+            last_palette_sort_settings: PaletteSortSettings::default(),
 
             tile_size_warning: false,
 
@@ -124,6 +134,15 @@ impl AppState {
                 eprintln!("Failed to save preferences: {}", e);
             }
         }
+    }
+
+    pub fn palette_sort_settings_changed(&self) -> bool {
+        self.palette_sort_settings != self.last_palette_sort_settings
+    }
+
+    /// Update the tracked color correction settings
+    pub fn update_palette_sort_settings_tracking(&mut self) {
+        self.last_palette_sort_settings = self.palette_sort_settings.clone();
     }
 
     /// Check if color correction settings have changed
