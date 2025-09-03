@@ -1,7 +1,7 @@
 use crate::image_processing::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::AppState;
-use crate::types::app_state::{AppearanceMode, SettingsRequest};
+use crate::types::app_state::{AppStateRequest, AppearanceMode};
 use crate::ui::UI;
 use eframe::egui;
 use egui::Margin;
@@ -34,7 +34,9 @@ impl QualetizeApp {
         if !dropped_files.is_empty() {
             if let Some(dropped_file) = dropped_files.first() {
                 if let Some(path) = &dropped_file.path {
-                    self.load_image_file(path.display().to_string(), ctx);
+                    self.state.pending_app_state_request = Some(AppStateRequest::LoadImage {
+                        path: path.display().to_string(),
+                    });
                 }
             }
         }
@@ -75,14 +77,6 @@ impl QualetizeApp {
         }
     }
 
-    fn handle_file_selection(&mut self, ctx: &egui::Context) {
-        if let Some(path) = &self.state.input_path
-            && self.state.input_image.is_none()
-        {
-            self.load_image_file(path.clone(), ctx);
-        }
-    }
-
     fn handle_settings_changes(&mut self, ctx: &egui::Context) {
         // Check for color correction changes
         let color_correction_changed = self.state.color_correction_changed();
@@ -112,7 +106,6 @@ impl QualetizeApp {
 
     fn check_tile_size_compatibility(&mut self) -> bool {
         let Some(input_image) = &self.state.input_image else {
-            self.state.tile_size_warning = false;
             return true;
         };
 
@@ -250,10 +243,13 @@ impl QualetizeApp {
         }
     }
 
-    fn handle_export_requests(&mut self) {
-        if let Some(export_request) = self.state.pending_export_request.take() {
-            match export_request {
-                crate::types::app_state::ExportRequest::ColorCorrectedPng { output_path } => {
+    fn handle_requests(&mut self, ctx: &egui::Context) {
+        if let Some(app_state_request) = self.state.pending_app_state_request.take() {
+            match app_state_request {
+                AppStateRequest::LoadImage { path } => {
+                    self.load_image_file(path.clone(), ctx);
+                }
+                AppStateRequest::ColorCorrectedPng { output_path } => {
                     // Use ImageData pixels directly
                     if let Some(color_corrected_image) = &self.state.color_corrected_image {
                         let rgba_data = color_corrected_image.rgba_data.clone();
@@ -281,7 +277,7 @@ impl QualetizeApp {
                         log::error!("No color corrected image data available in memory");
                     }
                 }
-                crate::types::app_state::ExportRequest::QualetizedIndexed {
+                AppStateRequest::QualetizedIndexed {
                     output_path,
                     format,
                 } => {
@@ -335,14 +331,7 @@ impl QualetizeApp {
                         }
                     }
                 }
-            }
-        }
-    }
-
-    fn handle_settings_requests(&mut self) {
-        if let Some(settings_request) = self.state.pending_settings_request.take() {
-            match settings_request {
-                SettingsRequest::Save { path } => {
+                AppStateRequest::SaveSettings { path } => {
                     let settings_bundle = SettingsBundle::new(
                         self.state.settings.clone(),
                         self.state.color_correction.clone(),
@@ -357,7 +346,7 @@ impl QualetizeApp {
                         }
                     }
                 }
-                SettingsRequest::Load { path } => {
+                AppStateRequest::LoadSettings { path } => {
                     match SettingsBundle::load_from_file(&path) {
                         Ok(settings_bundle) => {
                             // // Cancel any existing processing
@@ -410,12 +399,6 @@ impl eframe::App for QualetizeApp {
         // Handle drag and drop first
         self.handle_dropped_files(ctx);
 
-        // Handle file selection from dialog
-        self.handle_file_selection(ctx);
-
-        // Handle settings save/load requests
-        self.handle_settings_requests();
-
         // Check preview completion
         self.check_preview_completion(ctx);
 
@@ -426,7 +409,7 @@ impl eframe::App for QualetizeApp {
         self.handle_settings_changes(ctx);
 
         // Handle export requests
-        self.handle_export_requests();
+        self.handle_requests(ctx);
 
         // Save preferences
         self.state.check_and_save_preferences();

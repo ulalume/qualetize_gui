@@ -22,7 +22,10 @@ impl Default for AppearanceMode {
 
 // Export request types
 #[derive(Debug, Clone)]
-pub enum ExportRequest {
+pub enum AppStateRequest {
+    LoadImage {
+        path: String,
+    },
     ColorCorrectedPng {
         output_path: String,
     },
@@ -30,51 +33,44 @@ pub enum ExportRequest {
         output_path: String,
         format: ExportFormat,
     },
-}
-
-// Settings save/load request types
-#[derive(Debug, Clone)]
-pub enum SettingsRequest {
-    Save { path: String },
-    Load { path: String },
+    SaveSettings {
+        path: String,
+    },
+    LoadSettings {
+        path: String,
+    },
 }
 
 pub struct AppState {
-    // ファイル管理
+    // Image management
     pub input_path: Option<String>,
     pub input_image: Option<ImageData>,
     pub color_corrected_image: Option<ImageData>,
     pub output_image: Option<ImageData>,
 
-    // ユーザー設定
+    // View Settings
+    pub zoom: f32,
+    pub pan_offset: Vec2,
     pub preferences: UserPreferences,
     pub last_preferences: UserPreferences,
 
-    // 画像表示制御
-    pub zoom: f32,
-    pub pan_offset: Vec2,
-
-    // 設定
+    // Qualetize Settings
     pub settings: QualetizeSettings,
+    pub settings_changed: bool,
 
+    // Color Correction Settings
     pub color_correction: ColorCorrection,
     pub last_color_correction: ColorCorrection,
 
-    // 処理状態
-    pub settings_changed: bool,
-
-    // 警告状態
+    // warning
     pub tile_size_warning: bool,
 
-    // デバウンス機能
+    // debounce
     pub last_settings_change_time: Option<std::time::Instant>,
     pub debounce_delay: std::time::Duration,
 
     // Export requests
-    pub pending_export_request: Option<ExportRequest>,
-
-    // Settings save/load requests
-    pub pending_settings_request: Option<SettingsRequest>,
+    pub pending_app_state_request: Option<AppStateRequest>,
 }
 
 impl Default for AppState {
@@ -86,29 +82,22 @@ impl Default for AppState {
             color_corrected_image: None,
             output_image: None,
 
+            zoom: 1.0,
+            pan_offset: Vec2::ZERO,
             preferences: preferences.clone(),
             last_preferences: preferences.clone(),
 
-            zoom: 1.0,
-            pan_offset: Vec2::ZERO,
-
             settings: QualetizeSettings::default(),
+            settings_changed: false,
+            last_settings_change_time: None,
+            debounce_delay: std::time::Duration::from_millis(100),
 
             last_color_correction: ColorCorrection::default(),
             color_correction: ColorCorrection::default(),
 
-            settings_changed: false,
-
-            // 警告状態
             tile_size_warning: false,
 
-            // デバウンス機能 - 100msの遅延（応答性向上）
-            last_settings_change_time: None,
-            debounce_delay: std::time::Duration::from_millis(100),
-
-            pending_export_request: None,
-
-            pending_settings_request: None,
+            pending_app_state_request: None,
         }
     }
 }

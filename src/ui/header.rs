@@ -1,7 +1,7 @@
 use crate::settings_manager::SettingsBundle;
 use crate::types::{
     AppState, ColorCorrectionPreset, ExportFormat, QualetizePreset,
-    app_state::{AppearanceMode, ExportRequest, SettingsRequest},
+    app_state::{AppStateRequest, AppearanceMode},
 };
 use crate::ui::styles::UiMarginExt;
 use rfd::FileDialog;
@@ -21,17 +21,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     let dialog = FileDialog::new()
                         .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
                     dialog.pick_file()
-                }; // dialog is dropped here
+                };
 
                 if let Some(path) = selected_path {
-                    let path_str = path.display().to_string();
-                    state.input_path = Some(path_str.clone());
-                    state.color_corrected_image = Default::default();
-                    state.output_image = Default::default();
-                    state.zoom = 1.0;
-                    state.pan_offset = egui::Vec2::ZERO;
-
-                    settings_changed = true;
+                    state.pending_app_state_request = Some(AppStateRequest::LoadImage {
+                        path: path.display().to_string(),
+                    });
                 }
             }
             ui.separator();
@@ -277,15 +272,15 @@ pub fn request_export(state: &mut AppState, format: ExportFormat, suffix: Option
         // Process result after dialog is cleaned up
         if let Some(output_path) = export_result {
             let export_request = match format {
-                ExportFormat::Png => ExportRequest::ColorCorrectedPng {
+                ExportFormat::Png => AppStateRequest::ColorCorrectedPng {
                     output_path: output_path.display().to_string(),
                 },
-                _ => ExportRequest::QualetizedIndexed {
+                _ => AppStateRequest::QualetizedIndexed {
                     output_path: output_path.display().to_string(),
                     format,
                 },
             };
-            state.pending_export_request = Some(export_request);
+            state.pending_app_state_request = Some(export_request);
         }
     }
 }
@@ -309,7 +304,7 @@ pub fn request_settings_save(state: &mut AppState) {
 
     // Process result after dialog is cleaned up
     if let Some(output_path) = save_result {
-        state.pending_settings_request = Some(SettingsRequest::Save {
+        state.pending_app_state_request = Some(AppStateRequest::SaveSettings {
             path: output_path.display().to_string(),
         });
     }
@@ -329,7 +324,7 @@ pub fn request_settings_load(state: &mut AppState) {
         dialog.pick_file()
     };
     if let Some(input_path) = load_result {
-        state.pending_settings_request = Some(SettingsRequest::Load {
+        state.pending_app_state_request = Some(AppStateRequest::LoadSettings {
             path: input_path.display().to_string(),
         });
     }
