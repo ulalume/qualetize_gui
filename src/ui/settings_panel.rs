@@ -702,7 +702,7 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
 }
 
 fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.heading_with_margin("Palette Color Sorting");
+    ui.heading_with_margin("Reorder Palette Colors");
 
     ui.horizontal(|ui| {
         egui::ComboBox::from_id_salt("sort_mode")

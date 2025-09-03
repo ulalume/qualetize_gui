@@ -302,7 +302,7 @@ impl QualetizeApp {
                 AppStateRequest::LoadSettings { path } => {
                     match SettingsBundle::load_from_file(&path) {
                         Ok(settings_bundle) => {
-                            // // Cancel any existing processing
+                            // Cancel any existing processing
                             if self.image_processor.is_processing() {
                                 self.image_processor.cancel_current_processing();
                                 self.image_processor = ImageProcessor::new();
@@ -311,12 +311,19 @@ impl QualetizeApp {
                             // Apply loaded settings
                             self.state.settings = settings_bundle.qualetize_settings;
                             self.state.color_correction = settings_bundle.color_correction;
+                            self.state.palette_sort_settings = settings_bundle.sort_settings;
+
                             self.state.request_update_qualetized_image = Some(QualetizeRequest {
                                 time: std::time::Instant::now(),
                             });
 
-                            // Invalidate caches when settings change
-                            self.state.color_corrected_image = None;
+                            if let Some(input_image) = &self.state.input_image {
+                                self.state.color_corrected_image = Some(
+                                    input_image.color_corrected(&self.state.color_correction, ctx),
+                                );
+                            } else {
+                                self.state.color_corrected_image = None;
+                            }
 
                             // Update tracking
                             self.state.update_color_correction_tracking();
