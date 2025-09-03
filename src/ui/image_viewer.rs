@@ -184,8 +184,11 @@ fn draw_image_panel(
                 );
 
                 // Draw palettes overlay for output image
-                if !image_data.palettes.is_empty() && state.show_palettes {
-                    draw_palettes_overlay(&painter, &canvas, &image_data.palettes);
+                if state.show_palettes
+                    && let Some(indexed) = &image_data.indexed
+                    && !indexed.palettes_for_ui.is_empty()
+                {
+                    draw_palettes_overlay(&painter, &canvas, &indexed.palettes_for_ui);
                 }
             }
 

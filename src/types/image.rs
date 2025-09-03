@@ -7,10 +7,16 @@ pub struct ImageData {
     pub texture: Option<TextureHandle>,
     pub width: u32,
     pub height: u32,
-    pub palettes: Vec<Vec<egui::Color32>>,
-    pub palettes_raw: Vec<BGRA8>,
-    pub indexed: Option<Vec<u8>>,
-    pub pixels: Vec<u8>,
+    pub rgba_data: Vec<u8>,
+    // indexed data
+    pub indexed: Option<ImageDataIndexed>,
+}
+
+#[derive(Clone)]
+pub struct ImageDataIndexed {
+    pub palettes_for_ui: Vec<Vec<egui::Color32>>,
+    pub palettes: Vec<BGRA8>,
+    pub indexed_pixels: Vec<u8>,
 }
 
 impl Default for ImageData {
@@ -19,10 +25,8 @@ impl Default for ImageData {
             texture: None,
             width: 0,
             height: 0,
-            palettes: Vec::new(),
-            palettes_raw: Vec::new(),
+            rgba_data: Vec::new(),
             indexed: None,
-            pixels: Vec::new(),
         }
     }
 }
@@ -30,11 +34,10 @@ impl Default for ImageData {
 impl ImageData {
     /// Get the color of the top-left pixel (0, 0)
     pub fn get_top_left_pixel_color(&self) -> Option<Color32> {
-        if self.pixels.len() >= 4 && self.width > 0 && self.height > 0 {
-            let r = self.pixels[0];
-            let g = self.pixels[1];
-            let b = self.pixels[2];
-            let _a = self.pixels[3]; // Alpha not used for RGB color
+        if self.rgba_data.len() >= 4 && self.width > 0 && self.height > 0 {
+            let r = self.rgba_data[0];
+            let g = self.rgba_data[1];
+            let b = self.rgba_data[2];
             Some(Color32::from_rgb(r, g, b))
         } else {
             None

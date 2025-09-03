@@ -1,4 +1,5 @@
 use crate::color_processor::ColorProcessor;
+use crate::types::image::ImageDataIndexed;
 use crate::types::{BGRA8, ColorCorrection, ImageData, QualetizeSettings};
 use egui::{ColorImage, Context};
 use std::sync::mpsc;
@@ -231,9 +232,9 @@ impl ImageProcessor {
         }
 
         let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let pixels = rgba_img.into_raw();
+        let rgba_data = rgba_img.into_raw();
 
-        let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture(
             "color_corrected",
             color_image,
@@ -244,9 +245,7 @@ impl ImageProcessor {
             texture: Some(texture),
             width: size[0] as u32,
             height: size[1] as u32,
-            palettes: Vec::new(),
-            palettes_raw: Vec::new(),
-            pixels,
+            rgba_data,
             indexed: None,
         })
     }
@@ -255,18 +254,16 @@ impl ImageProcessor {
         let img = image::open(path).map_err(|e| format!("Image loading error: {}", e))?;
         let rgba_img = img.to_rgba8();
         let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let pixels = rgba_img.into_raw();
+        let rgba_data = rgba_img.into_raw();
 
-        let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
 
         Ok(ImageData {
             texture: Some(texture),
             width: size[0] as u32,
             height: size[1] as u32,
-            palettes: Vec::new(), // 入力画像にはパレット情報なし
-            palettes_raw: Vec::new(),
-            pixels,
+            rgba_data,
             indexed: None,
         })
     }
@@ -423,10 +420,12 @@ impl ImageProcessor {
             texture: Some(texture),
             width: width,
             height: height,
-            palettes,
-            palettes_raw: palette_data,
-            pixels,
-            indexed: Some(indexed_data),
+            rgba_data: pixels,
+            indexed: Some(ImageDataIndexed {
+                palettes_for_ui: palettes,
+                palettes: palette_data,
+                indexed_pixels: indexed_data,
+            }),
         })
     }
 
@@ -616,7 +615,7 @@ impl ImageProcessor {
 
     pub fn save_indexed_png(
         output_path: &str,
-        index_data: &[u8],
+        indexed_pixel_data: &[u8],
         palette_data: &[BGRA8],
         width: u32,
         height: u32,
@@ -651,14 +650,14 @@ impl ImageProcessor {
             .map_err(|e| format!("Failed to write PNG header: {}", e))?;
 
         writer
-            .write_image_data(index_data)
+            .write_image_data(indexed_pixel_data)
             .map_err(|e| format!("Failed to write PNG image data: {}", e))?;
 
         Ok(())
     }
     pub fn save_indexed_bmp(
         output_path: &str,
-        index_data: &[u8],
+        indexed_pixel_data: &[u8],
         palette_data: &[BGRA8],
         width: u32,
         height: u32,
@@ -710,8 +709,8 @@ impl ImageProcessor {
         for y in (0..height).rev() {
             for x in 0..width {
                 let pixel_idx = (y * width + x) as usize;
-                if pixel_idx < index_data.len() {
-                    bmp_data.push(index_data[pixel_idx]);
+                if pixel_idx < indexed_pixel_data.len() {
+                    bmp_data.push(indexed_pixel_data[pixel_idx]);
                 } else {
                     bmp_data.push(0);
                 }

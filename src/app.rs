@@ -280,8 +280,8 @@ impl QualetizeApp {
             match export_request {
                 crate::types::app_state::ExportRequest::ColorCorrectedPng { output_path } => {
                     // Use ImageData pixels directly
-                    if !self.state.color_corrected_image.pixels.is_empty() {
-                        let rgba_data = self.state.color_corrected_image.pixels.clone();
+                    if !self.state.color_corrected_image.rgba_data.is_empty() {
+                        let rgba_data = self.state.color_corrected_image.rgba_data.clone();
                         let width = self.state.color_corrected_image.width.clone();
                         let height = self.state.color_corrected_image.height.clone();
                         std::thread::spawn(move || {
@@ -321,8 +321,8 @@ impl QualetizeApp {
                         crate::types::ExportFormat::Bmp => {
                             match ImageProcessor::save_indexed_bmp(
                                 &output_path,
-                                &indexed_data,
-                                &self.state.output_image.palettes_raw,
+                                &indexed_data.indexed_pixels,
+                                &indexed_data.palettes,
                                 self.state.output_image.width,
                                 self.state.output_image.height,
                             ) {
@@ -339,8 +339,8 @@ impl QualetizeApp {
                         crate::types::ExportFormat::PngIndexed => {
                             match ImageProcessor::save_indexed_png(
                                 &output_path,
-                                &indexed_data,
-                                &self.state.output_image.palettes_raw,
+                                &indexed_data.indexed_pixels,
+                                &indexed_data.palettes,
                                 self.state.output_image.width,
                                 self.state.output_image.height,
                             ) {
