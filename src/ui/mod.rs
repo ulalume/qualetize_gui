@@ -9,8 +9,12 @@ use crate::types::AppState;
 pub struct UI;
 
 impl UI {
-    pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-        settings_panel::draw_settings_panel(ui, state)
+    pub fn draw_settings_panel(
+        ui: &mut egui::Ui,
+        state: &mut AppState,
+        ctx: &egui::Context,
+    ) -> bool {
+        settings_panel::draw_settings_panel(ui, state, ctx)
     }
 
     pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {

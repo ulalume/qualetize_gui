@@ -1,4 +1,5 @@
 use super::BGRA8;
+use super::ColorCorrection;
 use crate::color_processor::ColorProcessor;
 use crate::image_processor::QualetizeResult;
 use egui::{Color32, ColorImage, TextureHandle};
@@ -19,6 +20,209 @@ pub struct ImageDataIndexed {
     pub palettes_for_ui: Vec<Vec<egui::Color32>>,
     pub palettes: Vec<BGRA8>,
     pub indexed_pixels: Vec<u8>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PaletteSortSettings {
+    pub mode: SortMode,
+    pub order: SortOrder,
+}
+
+impl Default for PaletteSortSettings {
+    fn default() -> Self {
+        Self {
+            mode: SortMode::default(),
+            order: SortOrder::default(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SortOrder {
+    Ascending,
+    Descending,
+}
+impl Default for SortOrder {
+    fn default() -> Self {
+        Self::Ascending
+    }
+}
+
+impl SortOrder {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Ascending => "Ascending",
+            Self::Descending => "Descending",
+        }
+    }
+    pub fn all() -> &'static [Self] {
+        &[Self::Ascending, Self::Descending]
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum SortMode {
+    None,
+    Luminance,
+    Hue,
+    Brightness,
+    Saturation,
+}
+
+impl SortMode {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::None => "Default",
+            Self::Luminance => "Luminance",
+            Self::Hue => "Hue",
+            Self::Brightness => "Brightness",
+            Self::Saturation => "Saturation",
+        }
+    }
+    pub fn all() -> &'static [Self] {
+        &[
+            Self::None,
+            Self::Luminance,
+            Self::Hue,
+            Self::Brightness,
+            Self::Saturation,
+        ]
+    }
+}
+
+impl Default for SortMode {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl ImageDataIndexed {
+    pub fn sorted(
+        &self,
+        mode: SortMode,
+        order: SortOrder,
+        first_color_is_transparent: bool,
+    ) -> Self {
+        // Get the number of colors per palette from palettes_for_ui
+        if self.palettes_for_ui.is_empty() {
+            return self.clone();
+        }
+
+        let colors_per_palette = self.palettes_for_ui[0].len();
+        let num_palettes = self.palettes_for_ui.len();
+
+        // Create a new copy to work with
+        let mut new_palettes_for_ui = self.palettes_for_ui.clone();
+        let mut new_palettes = self.palettes.clone();
+        let mut new_indexed_pixels = self.indexed_pixels.clone();
+
+        // Process each palette
+        for palette_idx in 0..num_palettes {
+            // Get colors for this palette
+            let palette_start = palette_idx * colors_per_palette;
+            let palette_end = palette_start + colors_per_palette;
+
+            if palette_end > self.palettes.len() {
+                continue;
+            }
+
+            // Create index mapping for sorting
+            let mut indices: Vec<usize> = (0..colors_per_palette).collect();
+
+            // Sort indices based on color values
+            indices.sort_by(|&a, &b| {
+                if first_color_is_transparent {
+                    if a == 0 {
+                        return std::cmp::Ordering::Less;
+                    } else if b == 0 {
+                        return std::cmp::Ordering::Greater;
+                    }
+                }
+                let color_a = &self.palettes_for_ui[palette_idx][a];
+                let color_b = &self.palettes_for_ui[palette_idx][b];
+
+                let sort_key_a = Self::get_sort_key(color_a, &mode);
+                let sort_key_b = Self::get_sort_key(color_b, &mode);
+
+                match order {
+                    SortOrder::Ascending => sort_key_a
+                        .partial_cmp(&sort_key_b)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                    SortOrder::Descending => sort_key_b
+                        .partial_cmp(&sort_key_a)
+                        .unwrap_or(std::cmp::Ordering::Equal),
+                }
+            });
+
+            // Create reverse mapping (old index -> new index)
+            let mut index_mapping = vec![0; colors_per_palette];
+            for (new_idx, &old_idx) in indices.iter().enumerate() {
+                index_mapping[old_idx] = new_idx;
+            }
+
+            // Update palettes_for_ui for this palette
+            let mut sorted_ui_palette = vec![egui::Color32::BLACK; colors_per_palette];
+            for (new_idx, &old_idx) in indices.iter().enumerate() {
+                sorted_ui_palette[new_idx] = self.palettes_for_ui[palette_idx][old_idx];
+            }
+            new_palettes_for_ui[palette_idx] = sorted_ui_palette;
+
+            // Update palettes for this palette
+            let mut sorted_palette = vec![
+                BGRA8 {
+                    b: 0,
+                    g: 0,
+                    r: 0,
+                    a: 255
+                };
+                colors_per_palette
+            ];
+            for (new_idx, &old_idx) in indices.iter().enumerate() {
+                sorted_palette[new_idx] = self.palettes[palette_start + old_idx];
+            }
+            for (i, color) in sorted_palette.iter().enumerate() {
+                new_palettes[palette_start + i] = *color;
+            }
+
+            // Update indexed_pixels that reference this palette
+            for pixel in new_indexed_pixels.iter_mut() {
+                let pixel_palette_idx = (*pixel as usize) / colors_per_palette;
+                let pixel_color_idx = (*pixel as usize) % colors_per_palette;
+
+                if pixel_palette_idx == palette_idx {
+                    let new_color_idx = index_mapping[pixel_color_idx];
+                    *pixel = (palette_idx * colors_per_palette + new_color_idx) as u8;
+                }
+            }
+        }
+
+        ImageDataIndexed {
+            palettes_for_ui: new_palettes_for_ui,
+            palettes: new_palettes,
+            indexed_pixels: new_indexed_pixels,
+        }
+    }
+
+    fn get_sort_key(color: &egui::Color32, mode: &SortMode) -> f32 {
+        if mode == &SortMode::None {
+            return 0.0;
+        }
+        let r = color.r() as f32 / 255.0;
+        let g = color.g() as f32 / 255.0;
+        let b = color.b() as f32 / 255.0;
+        let a = color.a() as f32 / 255.0;
+
+        let (h, s, v) = ColorProcessor::rgb_to_hsv(r, g, b);
+        let l = ColorProcessor::rgb_f32_to_luminance(r, g, b);
+
+        match mode {
+            SortMode::None => 0.0,
+            SortMode::Luminance => l * 10000.0 + a + v,
+            SortMode::Hue => h * 10000.0 + a + l,
+            SortMode::Saturation => s * 10000.0 + a + l,
+            SortMode::Brightness => v * 10000.0 + a + l,
+        }
+    }
 }
 
 impl ImageData {
@@ -152,110 +356,5 @@ impl ImageData {
             rgba_data,
             indexed: None,
         })
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-pub struct ColorCorrection {
-    pub brightness: f32, // -1.0 to 1.0
-    pub contrast: f32,   // 0.0 to 2.0
-    pub gamma: f32,      // 0.1 to 3.0
-    pub saturation: f32, // 0.0 to 2.0
-    pub hue_shift: f32,  // -180.0 to 180.0 degrees
-    pub shadows: f32,    // -1.0 to 1.0
-    pub highlights: f32, // -1.0 to 1.0
-}
-
-pub enum ColorCorrectionPreset {
-    None,
-    Vibrant,
-    Warm,
-    Cool,
-    Dark,
-}
-
-impl ColorCorrectionPreset {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            ColorCorrectionPreset::None => "None",
-            ColorCorrectionPreset::Vibrant => "Vibrant",
-            ColorCorrectionPreset::Warm => "Warm",
-            ColorCorrectionPreset::Cool => "Cool",
-            ColorCorrectionPreset::Dark => "Dark",
-        }
-    }
-
-    pub fn all() -> &'static [ColorCorrectionPreset] {
-        &[
-            ColorCorrectionPreset::None,
-            ColorCorrectionPreset::Vibrant,
-            ColorCorrectionPreset::Warm,
-            ColorCorrectionPreset::Cool,
-            ColorCorrectionPreset::Dark,
-        ]
-    }
-
-    pub fn color_correction(&self) -> ColorCorrection {
-        match self {
-            ColorCorrectionPreset::None => ColorCorrection::default(),
-            ColorCorrectionPreset::Vibrant => ColorCorrection::preset_vibrant(),
-            ColorCorrectionPreset::Warm => ColorCorrection::preset_retro_warm(),
-            ColorCorrectionPreset::Cool => ColorCorrection::preset_retro_cool(),
-            ColorCorrectionPreset::Dark => ColorCorrection::preset_dark(),
-        }
-    }
-}
-
-impl Default for ColorCorrection {
-    fn default() -> Self {
-        Self {
-            brightness: 0.0,
-            contrast: 1.0,
-            gamma: 1.0,
-            saturation: 1.0,
-            hue_shift: 0.0,
-            shadows: 0.0,
-            highlights: 0.0,
-        }
-    }
-}
-
-impl ColorCorrection {
-    pub fn preset_dark() -> ColorCorrection {
-        ColorCorrection {
-            contrast: 1.75,
-            gamma: 0.28,
-            saturation: 0.30,
-            hue_shift: 100.0,
-            ..ColorCorrection::default()
-        }
-    }
-
-    pub fn preset_vibrant() -> ColorCorrection {
-        ColorCorrection {
-            saturation: 1.3,
-            contrast: 1.1,
-            ..ColorCorrection::default()
-        }
-    }
-
-    pub fn preset_retro_warm() -> ColorCorrection {
-        ColorCorrection {
-            hue_shift: 10.0,
-            saturation: 1.2,
-            brightness: 0.05,
-            highlights: -0.1,
-            ..ColorCorrection::default()
-        }
-    }
-
-    pub fn preset_retro_cool() -> ColorCorrection {
-        ColorCorrection {
-            hue_shift: -15.0,
-            saturation: 0.9,
-            shadows: 0.1,
-            highlights: -0.05,
-            ..ColorCorrection::default()
-        }
     }
 }

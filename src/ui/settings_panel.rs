@@ -2,11 +2,15 @@ use super::styles::UiMarginExt;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
-use crate::types::{AppState, ClearColor, ColorCorrection, ColorSpace, DitherMode};
+use crate::types::{
+    AppState, ClearColor, ColorSpace, DitherMode,
+    color_correction::ColorCorrection,
+    image::{SortMode, SortOrder},
+};
 use egui::Color32;
 use regex::Regex;
 
-pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState, ctx: &egui::Context) -> bool {
     let mut settings_changed = false;
 
     // Basic settings
@@ -34,11 +38,14 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     // Color correction settings
     settings_changed |= draw_color_correction_settings(ui, state);
+    ui.separator();
+
+    draw_palette_sort_settings(ui, state);
 
     if state.preferences.show_debug_info {
         // Debug information display
         ui.separator();
-        draw_status_section(ui, state);
+        draw_status_section(ui, state, ctx);
     }
     settings_changed
 }
@@ -620,9 +627,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
     settings_changed
 }
 
-fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
+fn draw_status_section(ui: &mut egui::Ui, state: &AppState, ctx: &egui::Context) {
     ui.heading_with_margin("Debug Info");
-    ui.add_space(4.0);
     if let Some(request_qualetize) = &state.request_update_qualetized_image {
         let elapsed = request_qualetize.time.elapsed();
         if elapsed < state.debounce_delay {
@@ -631,6 +637,7 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
                 "⏱ Preview will update in {:.1}s...",
                 remaining.as_secs_f32()
             ));
+            ctx.request_repaint();
         }
     }
     // Debug information
@@ -692,4 +699,35 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
     }
 
     None
+}
+
+fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.heading_with_margin("Palette Color Sorting");
+
+    ui.horizontal(|ui| {
+        egui::ComboBox::from_id_salt("sort_mode")
+            .selected_text(state.palette_sort_settings.mode.display_name())
+            .show_ui(ui, |ui| {
+                for sort_mode in SortMode::all() {
+                    ui.selectable_value(
+                        &mut state.palette_sort_settings.mode,
+                        sort_mode.clone(),
+                        sort_mode.display_name(),
+                    );
+                }
+            });
+        ui.add_enabled_ui(state.palette_sort_settings.mode != SortMode::None, |ui| {
+            egui::ComboBox::from_id_salt("sort_order")
+                .selected_text(state.palette_sort_settings.order.display_name())
+                .show_ui(ui, |ui| {
+                    for sort_order in SortOrder::all() {
+                        ui.selectable_value(
+                            &mut state.palette_sort_settings.order,
+                            sort_order.clone(),
+                            sort_order.display_name(),
+                        );
+                    }
+                });
+        });
+    });
 }

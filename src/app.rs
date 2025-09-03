@@ -4,6 +4,7 @@ use crate::settings_manager::SettingsBundle;
 use crate::types::AppState;
 use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
+use crate::types::image::SortMode;
 use crate::ui::UI;
 use eframe::egui;
 use egui::Margin;
@@ -121,6 +122,7 @@ impl QualetizeApp {
         if !width_divisible || !height_divisible {
             self.state.tile_size_warning = true;
             self.state.output_image = None;
+            self.state.output_palette_sorted_indexed_image = None;
             log::warn!("Tile size warning");
             false
         } else {
@@ -145,10 +147,12 @@ impl QualetizeApp {
             match result {
                 Ok(image_data) => {
                     self.state.output_image = Some(image_data);
+                    self.state.output_palette_sorted_indexed_image = None;
                 }
                 Err(e) => {
                     log::error!("Failed to generate preview image: {}", e);
                     self.state.output_image = None;
+                    self.state.output_palette_sorted_indexed_image = None;
                 }
             }
         }
@@ -224,10 +228,19 @@ impl QualetizeApp {
                         log::error!("Qualetized export failed: output image is None");
                         return;
                     };
-                    let Some(indexed_data) = &output_image.indexed else {
-                        log::error!("Qualetized export failed: indexed is None");
+
+                    let indexed = if self.state.output_palette_sorted_indexed_image.is_some() {
+                        &self.state.output_palette_sorted_indexed_image
+                    } else if let Some(image) = &self.state.output_image {
+                        &image.indexed
+                    } else {
+                        &None
+                    };
+
+                    let Some(indexed) = indexed else {
                         return;
                     };
+
                     match format {
                         crate::types::ExportFormat::Png => {
                             log::error!("Qualetized export failed: Unexpected format");
@@ -235,8 +248,8 @@ impl QualetizeApp {
                         crate::types::ExportFormat::Bmp => {
                             match save_indexed_bmp(
                                 &output_path,
-                                &indexed_data.indexed_pixels,
-                                &indexed_data.palettes,
+                                &indexed.indexed_pixels,
+                                &indexed.palettes,
                                 output_image.width,
                                 output_image.height,
                             ) {
@@ -253,8 +266,8 @@ impl QualetizeApp {
                         crate::types::ExportFormat::PngIndexed => {
                             match save_indexed_png(
                                 &output_path,
-                                &indexed_data.indexed_pixels,
-                                &indexed_data.palettes,
+                                &indexed.indexed_pixels,
+                                &indexed.palettes,
                                 output_image.width,
                                 output_image.height,
                             ) {
@@ -274,6 +287,7 @@ impl QualetizeApp {
                     let settings_bundle = SettingsBundle::new(
                         self.state.settings.clone(),
                         self.state.color_correction.clone(),
+                        self.state.palette_sort_settings.clone(),
                     );
 
                     match settings_bundle.save_to_file(&path) {
@@ -317,6 +331,39 @@ impl QualetizeApp {
             }
         }
     }
+
+    fn update_palette_sort_settings(&mut self) {
+        if self.state.output_palette_sorted_indexed_image.is_some()
+            && !self.state.palette_sort_settings_changed()
+        {
+            return;
+        }
+
+        // Extract the indexed image data first to avoid borrowing conflicts
+        let indexed_image = if let Some(output_image) = &self.state.output_image {
+            if let Some(indexed) = &output_image.indexed {
+                indexed.clone()
+            } else {
+                return;
+            }
+        } else {
+            return;
+        };
+
+        let palette_sort_settings = self.state.palette_sort_settings.clone();
+
+        self.state.update_palette_sort_settings_tracking();
+
+        if palette_sort_settings.mode == SortMode::None {
+            self.state.output_palette_sorted_indexed_image = None;
+        } else {
+            self.state.output_palette_sorted_indexed_image = Some(indexed_image.sorted(
+                palette_sort_settings.mode,
+                palette_sort_settings.order,
+                self.state.settings.col0_is_clear,
+            ));
+        }
+    }
 }
 
 impl Drop for QualetizeApp {
@@ -346,6 +393,8 @@ impl eframe::App for QualetizeApp {
         // Handle settings changes after checking completion
         self.handle_settings_changes();
 
+        self.update_palette_sort_settings();
+
         // Handle export requests
         self.handle_requests(ctx);
 
@@ -368,7 +417,7 @@ impl eframe::App for QualetizeApp {
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    settings_changed |= UI::draw_settings_panel(ui, &mut self.state);
+                    settings_changed |= UI::draw_settings_panel(ui, &mut self.state, ctx);
                 });
             });
 
