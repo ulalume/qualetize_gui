@@ -15,31 +15,48 @@ fn main() {
         ])
         .include("external/qualetize/include")
         .include("external/qualetize/source")
-        .flag("-std=c99")
-        .flag("-O3")
-        .flag("-ffast-math")
-        .flag("-funroll-loops")
-        .flag("-w")
         .warnings(false);
 
-    let host = std::env::var("HOST").unwrap();
-    let target = std::env::var("TARGET").unwrap();
+    let host = env::var("HOST").unwrap();
+    let target = env::var("TARGET").unwrap();
 
-    if host != target {
-        if target.contains("x86_64") {
-            build.flag("-march=x86-64");
-        } else if target.contains("aarch64") {
-            build.flag("-march=armv8-a");
-        }
+    // Check if we're using MSVC on Windows
+    let is_msvc = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default() == "msvc";
+    let is_windows = target.contains("windows");
+
+    if is_windows && is_msvc {
+        // MSVC-specific flags
+        build.flag("/std:c11");
+        build.flag("/Ox");
+        build.flag("/fp:fast");
+        build.flag("/Oi");
+        build.flag("/Ot");
+        build.flag("/GT");
+        build.flag("/w");
     } else {
-        build.flag("-march=native");
+        // GCC/Clang/MinGW flags
+        build.flag("-std=c11");
+        build.flag("-O3");
+        build.flag("-ffast-math");
+        build.flag("-funroll-loops");
+        build.flag("-w");
+
+        if host != target {
+            if target.contains("x86_64") {
+                build.flag("-march=x86-64");
+            } else if target.contains("aarch64") {
+                build.flag("-march=armv8-a");
+            }
+        } else {
+            build.flag("-march=native");
+        }
+        if target.contains("linux") {
+            build.define("M_PI", "3.14159265358979323846");
+        }
     }
 
-    if target.contains("linux") {
-        build.define("M_PI", "3.14159265358979323846");
-    }
-    if target.contains("windows") {
-        build.flag("-D_USE_MATH_DEFINES");
+    if is_windows {
+        build.define("_USE_MATH_DEFINES", None);
 
         let version = env::var("CARGO_PKG_VERSION").unwrap();
         let parts: Vec<&str> = version.split('.').collect();
