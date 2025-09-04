@@ -158,19 +158,17 @@ impl QualetizeApp {
         }
     }
     fn apply_theme(&self, ctx: &egui::Context) {
-        match self.state.preferences.appearance_mode {
-            AppearanceMode::Dark => ctx.set_visuals(egui::Visuals::dark()),
-            AppearanceMode::Light => ctx.set_visuals(egui::Visuals::light()),
-            AppearanceMode::System => {
-                if let Some(theme) = ctx.system_theme() {
-                    match theme {
-                        egui::Theme::Dark => ctx.set_visuals(egui::Visuals::dark()),
-                        egui::Theme::Light => ctx.set_visuals(egui::Visuals::light()),
-                    }
-                } else {
-                    ctx.set_visuals(egui::Visuals::dark());
-                }
-            }
+        let visuals = match self.state.preferences.appearance_mode {
+            AppearanceMode::Dark => egui::Visuals::dark(),
+            AppearanceMode::Light => egui::Visuals::light(),
+            AppearanceMode::System => match ctx.system_theme() {
+                Some(egui::Theme::Dark) => egui::Visuals::dark(),
+                Some(egui::Theme::Light) => egui::Visuals::light(),
+                None => egui::Visuals::dark(),
+            },
+        };
+        if ctx.style().visuals != visuals {
+            ctx.set_visuals(visuals);
         }
     }
 
