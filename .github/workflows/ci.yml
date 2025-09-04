@@ -65,6 +65,9 @@ jobs:
           echo "C:/msys64/mingw64/bin" >> $GITHUB_PATH
           echo "CC=gcc" >> $GITHUB_ENV
           echo "CXX=g++" >> $GITHUB_ENV
+          echo "CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=gcc" >> $GITHUB_ENV
+          rustup toolchain install stable-x86_64-pc-windows-gnu
+          rustup default stable-x86_64-pc-windows-gnu
 
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
