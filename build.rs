@@ -85,7 +85,7 @@ PRODUCTVERSION {version_comma}
         let rc_path = Path::new(&out_dir).join("version_info.rc");
         fs::write(&rc_path, rc).unwrap();
 
-        embed_resource::compile(rc_path, embed_resource::NONE);
+        let _ = embed_resource::compile(rc_path, embed_resource::NONE);
     }
 
     build.compile("qualetize_c");
