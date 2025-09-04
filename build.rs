@@ -26,20 +26,21 @@ fn main() {
 
     if is_windows && is_msvc {
         // MSVC-specific flags
-        build.flag("/std:c11");
+        build.flag("/std:c99");
         build.flag("/Ox");
         build.flag("/fp:fast");
         build.flag("/Oi");
         build.flag("/Ot");
         build.flag("/GT");
-        build.flag("/w");
+        build.flag("/LTCG");
+        build.flag("/OPT:REF");
+        build.flag("/OPT:ICF");
     } else {
         // GCC/Clang/MinGW flags
-        build.flag("-std=c11");
+        build.flag("-std=c99");
         build.flag("-O3");
         build.flag("-ffast-math");
         build.flag("-funroll-loops");
-        build.flag("-w");
 
         if host != target {
             if target.contains("x86_64") {
