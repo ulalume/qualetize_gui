@@ -1,0 +1,149 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g., v0.3.3)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-and-release:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-gnu
+            use_bundle: false
+            archive_ext: zip
+            executable_ext: .exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            use_bundle: true
+            archive_ext: tar.gz
+            executable_ext: ""
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            use_bundle: true
+            archive_ext: tar.gz
+            executable_ext: ""
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use_bundle: false
+            archive_ext: tar.gz
+            executable_ext: ""
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            use_bundle: false
+            archive_ext: tar.gz
+            executable_ext: ""
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Get version
+        id: get_version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cargo-bundle (macOS only)
+        if: matrix.use_bundle
+        run: cargo install cargo-bundle
+
+      - name: Install cross-compilation dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux aarch64)
+        if: matrix.os == 'ubuntu-latest' && matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          mkdir -p ~/.cargo
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build (bundle for macOS)
+        if: matrix.use_bundle
+        run: cargo bundle --release --target ${{ matrix.target }}
+
+      - name: Build (regular for other platforms)
+        if: "!matrix.use_bundle"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare release directory
+        shell: bash
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          RELEASE_DIR="qualetize-gui-${VERSION}-${{ matrix.target }}"
+          mkdir -p "${RELEASE_DIR}"
+
+          if [ "${{ matrix.use_bundle }}" = "true" ]; then
+            # For macOS bundle
+            cp -r target/${{ matrix.target }}/release/bundle/osx/QualetizeGUI.app "${RELEASE_DIR}/"
+          else
+            # For other platforms
+            if [ "${{ matrix.os }}" = "windows-latest" ]; then
+              cp target/${{ matrix.target }}/release/QualetizeGUI${{ matrix.executable_ext }} "${RELEASE_DIR}/"
+            else
+              cp target/${{ matrix.target }}/release/QualetizeGUI "${RELEASE_DIR}/"
+            fi
+          fi
+
+          echo "RELEASE_DIR=${RELEASE_DIR}" >> $GITHUB_ENV
+
+      - name: Create archive
+        shell: bash
+        run: |
+          VERSION=${{ steps.get_version.outputs.version }}
+          ARCHIVE_NAME="qualetize-gui-${VERSION}-${{ matrix.target }}"
+
+          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
+            if [ "${{ matrix.os }}" = "windows-latest" ]; then
+              powershell Compress-Archive -Path "${RELEASE_DIR}" -DestinationPath "${ARCHIVE_NAME}.zip"
+            else
+              zip -r -X -D "${ARCHIVE_NAME}.zip" "${RELEASE_DIR}"
+            fi
+            echo "ARCHIVE_NAME=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
+          else
+            tar -czf "${ARCHIVE_NAME}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
+            echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.get_version.outputs.version }}
+          name: QualetizeGUI ${{ steps.get_version.outputs.version }}
+          files: ${{ env.ARCHIVE_NAME }}
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

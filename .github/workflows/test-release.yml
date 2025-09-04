@@ -1,0 +1,146 @@
+name: Test Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Platform to test'
+        required: true
+        default: 'ubuntu-latest'
+        type: choice
+        options:
+        - ubuntu-latest
+        - windows-latest
+        - macos-latest
+      target:
+        description: 'Target to build'
+        required: true
+        default: 'x86_64-unknown-linux-gnu'
+        type: choice
+        options:
+        - x86_64-unknown-linux-gnu
+        - x86_64-pc-windows-gnu
+        - x86_64-apple-darwin
+        - aarch64-apple-darwin
+        - aarch64-unknown-linux-gnu
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test-build:
+    runs-on: ${{ github.event.inputs.platform }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ github.event.inputs.target }}
+
+      - name: Install cargo-bundle (macOS only)
+        if: contains(github.event.inputs.target, 'apple-darwin')
+        run: cargo install cargo-bundle
+
+      - name: Install cross-compilation dependencies (Linux aarch64)
+        if: github.event.inputs.platform == 'ubuntu-latest' && github.event.inputs.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux aarch64)
+        if: github.event.inputs.platform == 'ubuntu-latest' && github.event.inputs.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          mkdir -p ~/.cargo
+          echo '[target.aarch64-unknown-linux-gnu]' >> ~/.cargo/config.toml
+          echo 'linker = "aarch64-linux-gnu-gcc"' >> ~/.cargo/config.toml
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ github.event.inputs.target }}
+
+      - name: Build (bundle for macOS)
+        if: contains(github.event.inputs.target, 'apple-darwin')
+        run: cargo bundle --release --target ${{ github.event.inputs.target }}
+
+      - name: Build (regular for other platforms)
+        if: "!contains(github.event.inputs.target, 'apple-darwin')"
+        run: cargo build --release --target ${{ github.event.inputs.target }}
+
+      - name: List build output
+        shell: bash
+        run: |
+          echo "=== Build output ==="
+          if [ -d "target/${{ github.event.inputs.target }}/release/bundle" ]; then
+            echo "Bundle directory contents:"
+            find target/${{ github.event.inputs.target }}/release/bundle -type f
+          fi
+
+          if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI" ]; then
+            echo "Linux/macOS executable found"
+            ls -la target/${{ github.event.inputs.target }}/release/QualetizeGUI
+          fi
+
+          if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe" ]; then
+            echo "Windows executable found"
+            ls -la target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe
+          fi
+
+      - name: Test archive creation
+        shell: bash
+        run: |
+          VERSION="v0.3.3-test"
+          RELEASE_DIR="qualetize-gui-${VERSION}-${{ github.event.inputs.target }}"
+          mkdir -p "${RELEASE_DIR}"
+
+          if [[ "${{ github.event.inputs.target }}" == *"apple-darwin"* ]]; then
+            # For macOS bundle
+            if [ -d "target/${{ github.event.inputs.target }}/release/bundle/osx/QualetizeGUI.app" ]; then
+              cp -r target/${{ github.event.inputs.target }}/release/bundle/osx/QualetizeGUI.app "${RELEASE_DIR}/"
+              echo "Copied macOS app bundle"
+            else
+              echo "ERROR: macOS app bundle not found"
+              exit 1
+            fi
+          else
+            # For other platforms
+            if [[ "${{ github.event.inputs.target }}" == *"windows"* ]]; then
+              if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe" ]; then
+                cp target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe "${RELEASE_DIR}/"
+                echo "Copied Windows executable"
+              else
+                echo "ERROR: Windows executable not found"
+                exit 1
+              fi
+            else
+              if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI" ]; then
+                cp target/${{ github.event.inputs.target }}/release/QualetizeGUI "${RELEASE_DIR}/"
+                echo "Copied Linux executable"
+              else
+                echo "ERROR: Linux executable not found"
+                exit 1
+              fi
+            fi
+          fi
+
+          # Create archive
+          if [[ "${{ github.event.inputs.target }}" == *"windows"* ]]; then
+            zip -r -X -D "${RELEASE_DIR}.zip" "${RELEASE_DIR}"
+            echo "Created ${RELEASE_DIR}.zip"
+            ls -la "${RELEASE_DIR}.zip"
+          else
+            tar -czf "${RELEASE_DIR}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
+            echo "Created ${RELEASE_DIR}.tar.gz"
+            ls -la "${RELEASE_DIR}.tar.gz"
+          fi
+
+      - name: Upload test artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: test-build-${{ github.event.inputs.target }}
+          path: qualetize-gui-v0.3.3-test-${{ github.event.inputs.target }}.*
