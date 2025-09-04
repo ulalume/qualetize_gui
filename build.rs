@@ -43,7 +43,7 @@ fn main() {
 
         let version = env::var("CARGO_PKG_VERSION").unwrap();
         let parts: Vec<&str> = version.split('.').collect();
-        let major = parts.get(0).unwrap_or(&"0");
+        let major = parts.first().unwrap_or(&"0");
         let minor = parts.get(1).unwrap_or(&"0");
         let patch = parts.get(2).unwrap_or(&"0");
         let build_num = parts.get(3).unwrap_or(&"0");

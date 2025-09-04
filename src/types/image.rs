@@ -22,19 +22,10 @@ pub struct ImageDataIndexed {
     pub indexed_pixels: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub struct PaletteSortSettings {
     pub mode: SortMode,
     pub order: SortOrder,
-}
-
-impl Default for PaletteSortSettings {
-    fn default() -> Self {
-        Self {
-            mode: SortMode::default(),
-            order: SortOrder::default(),
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -117,7 +108,7 @@ impl ImageDataIndexed {
         let mut new_indexed_pixels = self.indexed_pixels.clone();
 
         // Process each palette
-        for palette_idx in 0..num_palettes {
+        for palette_idx in 0..num_palettes.min(new_palettes_for_ui.len()) {
             // Get colors for this palette
             let palette_start = palette_idx * colors_per_palette;
             let palette_end = palette_start + colors_per_palette;
@@ -260,7 +251,7 @@ impl ImageData {
         );
 
         ImageData {
-            texture: texture,
+            texture,
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,
@@ -304,9 +295,9 @@ impl ImageData {
         );
 
         Ok(ImageData {
-            texture: texture,
-            width: width,
-            height: height,
+            texture,
+            width,
+            height,
             rgba_data: pixels,
             indexed: Some(ImageDataIndexed {
                 palettes_for_ui,
@@ -349,7 +340,7 @@ impl ImageData {
         let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
         Ok(ImageData {
-            texture: texture,
+            texture,
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,

@@ -34,14 +34,13 @@ impl QualetizeApp {
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
-        if !dropped_files.is_empty() {
-            if let Some(dropped_file) = dropped_files.first() {
-                if let Some(path) = &dropped_file.path {
-                    self.state.pending_app_state_request = Some(AppStateRequest::LoadImage {
-                        path: path.display().to_string(),
-                    });
-                }
-            }
+        if !dropped_files.is_empty()
+            && let Some(dropped_file) = dropped_files.first()
+            && let Some(path) = &dropped_file.path
+        {
+            self.state.pending_app_state_request = Some(AppStateRequest::LoadImage {
+                path: path.display().to_string(),
+            });
         }
     }
 
@@ -93,7 +92,7 @@ impl QualetizeApp {
 
         self.state.request_update_qualetized_image = None;
         self.image_processor
-            .start_qualetize(&color_corrected_image, self.state.settings.clone());
+            .start_qualetize(color_corrected_image, self.state.settings.clone());
     }
 
     fn check_tile_size_compatibility(&mut self) -> bool {
@@ -106,8 +105,8 @@ impl QualetizeApp {
         let tile_width = self.state.settings.tile_width;
         let tile_height = self.state.settings.tile_height;
 
-        let width_divisible = image_width % tile_width == 0;
-        let height_divisible = image_height % tile_height == 0;
+        let width_divisible = image_width.is_multiple_of(tile_width);
+        let height_divisible = image_height.is_multiple_of(tile_height);
 
         log::debug!(
             "Tile size check: image {}×{}, tile {}×{}, divisible: width={}, height={}",
@@ -194,8 +193,8 @@ impl QualetizeApp {
                     // Use ImageData pixels directly
                     if let Some(color_corrected_image) = &self.state.color_corrected_image {
                         let rgba_data = color_corrected_image.rgba_data.clone();
-                        let width = color_corrected_image.width.clone();
-                        let height = color_corrected_image.height.clone();
+                        let width = color_corrected_image.width;
+                        let height = color_corrected_image.height;
                         std::thread::spawn(move || {
                             match save_rgba_image(
                                 &output_path,

@@ -1,6 +1,7 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub enum DitherMode {
     None,
+    #[default]
     Floyd,
     Atkinson,
     Checker,
@@ -71,11 +72,5 @@ impl DitherMode {
             DitherMode::Ord32,
             DitherMode::Ord64,
         ]
-    }
-}
-
-impl Default for DitherMode {
-    fn default() -> Self {
-        DitherMode::Floyd
     }
 }

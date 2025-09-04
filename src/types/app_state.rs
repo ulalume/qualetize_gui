@@ -8,17 +8,14 @@ use super::{
     qualetize::QualetizeSettings,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
+)]
 pub enum AppearanceMode {
+    #[default]
     System,
     Light,
     Dark,
-}
-
-impl Default for AppearanceMode {
-    fn default() -> Self {
-        AppearanceMode::System
-    }
 }
 
 // Export request types

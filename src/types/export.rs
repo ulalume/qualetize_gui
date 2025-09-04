@@ -1,5 +1,6 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ExportFormat {
+    #[default]
     PngIndexed,
     Png,
     Bmp,
@@ -33,10 +34,4 @@ impl ExportFormat {
     //         ExportFormat::PngIndexed,
     //     ]
     // }
-}
-
-impl Default for ExportFormat {
-    fn default() -> Self {
-        ExportFormat::PngIndexed
-    }
 }

@@ -79,10 +79,10 @@ impl UserPreferences {
 
     pub fn load() -> Self {
         let path = Self::config_path();
-        if let Ok(content) = std::fs::read_to_string(&path) {
-            if let Ok(prefs) = serde_json::from_str(&content) {
-                return prefs;
-            }
+        if let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(prefs) = serde_json::from_str(&content)
+        {
+            return prefs;
         }
         Self::default()
     }

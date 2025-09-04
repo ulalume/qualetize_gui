@@ -162,7 +162,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     });
 
     let mut show_dialog = state.preferences.show_appearance;
-    if let Some(_) = egui::Window::new("Appearance")
+    if egui::Window::new("Appearance")
         .open(&mut show_dialog)
         .resizable(false)
         .collapsible(false)
@@ -195,42 +195,35 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 if ui
                     .selectable_value(&mut use_default, true, "Default")
                     .changed()
+                    && use_default
                 {
-                    if use_default {
-                        state.preferences.background_color = None;
-                    }
+                    state.preferences.background_color = None;
                 }
 
                 if ui
                     .selectable_value(&mut use_default, false, "Custom")
                     .changed()
+                    && !use_default
                 {
-                    if !use_default {
-                        // Set to a default color when switching to custom
-                        state.preferences.background_color = Some(egui::Color32::from_gray(64));
-                    }
+                    // Set to a default color when switching to custom
+                    state.preferences.background_color = Some(egui::Color32::from_gray(64));
                 }
 
                 // Show color picker only when using custom
-                if !use_default {
-                    if let Some(ref mut color) = state.preferences.background_color {
-                        let mut color_array = [color.r(), color.g(), color.b()];
-                        if ui.color_edit_button_srgb(&mut color_array).changed() {
-                            *color = egui::Color32::from_rgb(
-                                color_array[0],
-                                color_array[1],
-                                color_array[2],
-                            );
-                        }
-
-                        // Show current color as text
-                        ui.label(format!(
-                            "#{:02X}{:02X}{:02X}",
-                            color.r(),
-                            color.g(),
-                            color.b()
-                        ));
+                if !use_default && let Some(ref mut color) = state.preferences.background_color {
+                    let mut color_array = [color.r(), color.g(), color.b()];
+                    if ui.color_edit_button_srgb(&mut color_array).changed() {
+                        *color =
+                            egui::Color32::from_rgb(color_array[0], color_array[1], color_array[2]);
                     }
+
+                    // Show current color as text
+                    ui.label(format!(
+                        "#{:02X}{:02X}{:02X}",
+                        color.r(),
+                        color.g(),
+                        color.b()
+                    ));
                 }
             });
 
@@ -242,6 +235,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 }
             });
         })
+        .is_some()
     {
         state.preferences.show_appearance = show_dialog;
     }
@@ -256,7 +250,7 @@ pub fn request_export(state: &mut AppState, format: ExportFormat, suffix: Option
         // Ensure proper resource cleanup by scoping the dialog and result
         let export_result = {
             let mut dialog = FileDialog::new().add_filter(
-                &format!("{} files", format.display_name()),
+                format!("{} files", format.display_name()),
                 &[format.extension()],
             );
 

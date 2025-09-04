@@ -13,24 +13,13 @@ pub struct QualetizeResult {
     pub generation_id: u64,
 }
 
+#[derive(Default)]
 pub struct ImageProcessor {
     preview_thread: Option<std::thread::JoinHandle<()>>,
     preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
     cancel_sender: Option<mpsc::Sender<()>>,
     current_generation_id: u64,
     active_threads: Vec<std::thread::JoinHandle<()>>,
-}
-
-impl Default for ImageProcessor {
-    fn default() -> Self {
-        Self {
-            preview_thread: None,
-            preview_receiver: None,
-            cancel_sender: None,
-            current_generation_id: 0,
-            active_threads: Vec::new(),
-        }
-    }
 }
 
 impl ImageProcessor {
@@ -103,40 +92,40 @@ impl ImageProcessor {
     pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
         self.cleanup_finished_threads();
 
-        if let Some(receiver) = &mut self.preview_receiver {
-            if let Ok(result) = receiver.try_recv() {
-                self.preview_thread = None;
-                self.preview_receiver = None;
+        if let Some(receiver) = &mut self.preview_receiver
+            && let Ok(result) = receiver.try_recv()
+        {
+            self.preview_thread = None;
+            self.preview_receiver = None;
 
-                return Some(match result {
-                    Ok(qualetize_result) => {
-                        if qualetize_result.generation_id == self.current_generation_id {
-                            log::debug!(
-                                "Accepting result from generation {}",
-                                qualetize_result.generation_id
-                            );
-                            match ImageData::create_from_qualetize_result(qualetize_result, ctx) {
-                                Ok(image_data) => Ok(image_data),
-                                Err(e) => Err(e),
-                            }
-                        } else {
-                            log::debug!(
-                                "Ignoring outdated result from generation {} (current: {})",
-                                qualetize_result.generation_id,
-                                self.current_generation_id
-                            );
-                            return None; // 古い結果は無視
+            return Some(match result {
+                Ok(qualetize_result) => {
+                    if qualetize_result.generation_id == self.current_generation_id {
+                        log::debug!(
+                            "Accepting result from generation {}",
+                            qualetize_result.generation_id
+                        );
+                        match ImageData::create_from_qualetize_result(qualetize_result, ctx) {
+                            Ok(image_data) => Ok(image_data),
+                            Err(e) => Err(e),
                         }
+                    } else {
+                        log::debug!(
+                            "Ignoring outdated result from generation {} (current: {})",
+                            qualetize_result.generation_id,
+                            self.current_generation_id
+                        );
+                        return None; // 古い結果は無視
                     }
-                    Err(e) => {
-                        if e.contains("Processing cancelled") {
-                            return None; // キャンセルされた処理は無視
-                        } else {
-                            Err(e)
-                        }
+                }
+                Err(e) => {
+                    if e.contains("Processing cancelled") {
+                        return None; // キャンセルされた処理は無視
+                    } else {
+                        Err(e)
                     }
-                });
-            }
+                }
+            });
         }
         None
     }
