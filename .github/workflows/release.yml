@@ -68,6 +68,25 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Setup MinGW (Windows)
+        if: matrix.os == 'windows-latest'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-toolchain
+            mingw-w64-x86_64-pkg-config
+
+      - name: Configure MinGW environment (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          echo "C:/msys64/mingw64/bin" >> $GITHUB_PATH
+          echo "CC=gcc" >> $GITHUB_ENV
+          echo "CXX=g++" >> $GITHUB_ENV
+
       - name: Install cargo-bundle (macOS only)
         if: matrix.use_bundle
         run: cargo install cargo-bundle

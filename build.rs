@@ -25,12 +25,15 @@ fn main() {
     let is_windows = target.contains("windows");
 
     if is_windows && is_msvc {
+        // Error: qualetize library uses compound literals which MSVC doesn't support properly
+        panic!("MSVC compilation is not supported. Use MinGW target: x86_64-pc-windows-gnu");
+
         // MSVC-specific flags
-        build.flag("/TP");
-        build.flag("/std:c++17");
-        build.flag("/O2");
-        build.flag("/fp:fast");
-        build.flag("/Oi");
+        // build.flag("/TP");
+        // build.flag("/std:c++17");
+        // build.flag("/O2");
+        // build.flag("/fp:fast");
+        // build.flag("/Oi");
     } else {
         // GCC/Clang/MinGW flags
         build.flag("-std=c99");
