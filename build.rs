@@ -43,7 +43,7 @@ fn main() {
 
         let version = env::var("CARGO_PKG_VERSION").unwrap();
         let parts: Vec<&str> = version.split('.').collect();
-        let major = parts.get(0).unwrap_or(&"0");
+        let major = parts.first().unwrap_or(&"0");
         let minor = parts.get(1).unwrap_or(&"0");
         let patch = parts.get(2).unwrap_or(&"0");
         let build_num = parts.get(3).unwrap_or(&"0");
@@ -85,7 +85,7 @@ PRODUCTVERSION {version_comma}
         let rc_path = Path::new(&out_dir).join("version_info.rc");
         fs::write(&rc_path, rc).unwrap();
 
-        embed_resource::compile(rc_path, embed_resource::NONE);
+        let _ = embed_resource::compile(rc_path, embed_resource::NONE);
     }
 
     build.compile("qualetize_c");

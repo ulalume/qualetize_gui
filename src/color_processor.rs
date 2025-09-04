@@ -5,7 +5,7 @@ pub struct ColorProcessor;
 
 impl ColorProcessor {
     pub fn apply_pixels_correction(
-        pixels: &Vec<u8>,
+        pixels: &[u8],
         width: u32,
         height: u32,
         corrections: &ColorCorrection,

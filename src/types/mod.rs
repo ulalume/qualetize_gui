@@ -13,5 +13,5 @@ pub use color_correction::ColorCorrection;
 pub use color_space::ColorSpace;
 pub use dither::DitherMode;
 pub use export::ExportFormat;
-pub use image::{ImageData, ImageDataIndexed};
+pub use image::ImageData;
 pub use qualetize::{BGRA8, ClearColor, QualetizePreset, QualetizeSettings};

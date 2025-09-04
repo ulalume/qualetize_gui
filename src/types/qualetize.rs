@@ -47,16 +47,11 @@ pub struct BGRA8 {
     pub a: u8,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum ClearColor {
+    #[default]
     None,
-    RGB(u8, u8, u8),
-}
-
-impl Default for ClearColor {
-    fn default() -> Self {
-        ClearColor::None
-    }
+    Rgb(u8, u8, u8),
 }
 
 impl ClearColor {
@@ -68,7 +63,7 @@ impl ClearColor {
                 r: 0,
                 a: 0,
             },
-            ClearColor::RGB(r, g, b) => BGRA8 {
+            ClearColor::Rgb(r, g, b) => BGRA8 {
                 b: *b,
                 g: *g,
                 r: *r,
@@ -96,16 +91,13 @@ pub struct QualetizeSettings {
     pub clear_color: ClearColor,
 }
 
+#[derive(Default)]
 pub enum QualetizePreset {
+    #[default]
     Genesis,
     GenesisFullPals,
     GbaNds,
     GbaNdsFullPals,
-}
-impl Default for QualetizePreset {
-    fn default() -> Self {
-        QualetizePreset::Genesis
-    }
 }
 
 impl QualetizePreset {
