@@ -26,15 +26,11 @@ fn main() {
 
     if is_windows && is_msvc {
         // MSVC-specific flags
-        build.flag("/std:c99");
-        build.flag("/Ox");
+        build.flag("/TP");
+        build.flag("/std:c++17");
+        build.flag("/O2");
         build.flag("/fp:fast");
         build.flag("/Oi");
-        build.flag("/Ot");
-        build.flag("/GT");
-        build.flag("/LTCG");
-        build.flag("/OPT:REF");
-        build.flag("/OPT:ICF");
     } else {
         // GCC/Clang/MinGW flags
         build.flag("-std=c99");
