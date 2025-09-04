@@ -4,25 +4,25 @@ on:
   workflow_dispatch:
     inputs:
       platform:
-        description: 'Platform to test'
+        description: "Platform to test"
         required: true
-        default: 'ubuntu-latest'
+        default: "ubuntu-latest"
         type: choice
         options:
-        - ubuntu-latest
-        - windows-latest
-        - macos-latest
+          - ubuntu-latest
+          - windows-latest
+          - macos-latest
       target:
-        description: 'Target to build'
+        description: "Target to build"
         required: true
-        default: 'x86_64-unknown-linux-gnu'
+        default: "x86_64-unknown-linux-gnu"
         type: choice
         options:
-        - x86_64-unknown-linux-gnu
-        - x86_64-pc-windows-gnu
-        - x86_64-apple-darwin
-        - aarch64-apple-darwin
-        - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-gnu
+          - x86_64-pc-windows-gnu
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - aarch64-unknown-linux-gnu
 
 env:
   CARGO_TERM_COLOR: always
