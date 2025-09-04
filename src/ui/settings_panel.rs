@@ -60,44 +60,44 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.separator();
 
-    let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::RGB(_, _, _));
+    let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::Rgb(_, _, _));
     if ui
         .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
         .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
         .changed()
     {
         if has_clear_color {
-            state.settings.clear_color = ClearColor::RGB(255, 0, 255); // Default magenta
+            state.settings.clear_color = ClearColor::Rgb(255, 0, 255); // Default magenta
         } else {
             state.settings.clear_color = ClearColor::None;
         }
         settings_changed = true;
     }
 
-    if has_clear_color {
-        if let ClearColor::RGB(ref mut r, ref mut g, ref mut b) = state.settings.clear_color {
-            ui.horizontal(|ui| {
-                ui.add_space(16.0); // Indent the color picker
+    if has_clear_color
+        && let ClearColor::Rgb(ref mut r, ref mut g, ref mut b) = state.settings.clear_color
+    {
+        ui.horizontal(|ui| {
+            ui.add_space(16.0); // Indent the color picker
 
-                let mut color_array = [*r, *g, *b];
-                if ui.color_edit_button_srgb(&mut color_array).changed() {
-                    *r = color_array[0];
-                    *g = color_array[1];
-                    *b = color_array[2];
-                    settings_changed = true;
-                }
-                if ui.button("Use Top-Left Pixel Color").clicked()
-                    && let Some(color_corrected_image) = &state.color_corrected_image
-                    && let Some(color) = color_corrected_image.get_top_left_pixel_color()
-                {
-                    *r = color.r();
-                    *g = color.g();
-                    *b = color.b();
-                    settings_changed = true;
-                }
-                ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
-            });
-        }
+            let mut color_array = [*r, *g, *b];
+            if ui.color_edit_button_srgb(&mut color_array).changed() {
+                *r = color_array[0];
+                *g = color_array[1];
+                *b = color_array[2];
+                settings_changed = true;
+            }
+            if ui.button("Use Top-Left Pixel Color").clicked()
+                && let Some(color_corrected_image) = &state.color_corrected_image
+                && let Some(color) = color_corrected_image.get_top_left_pixel_color()
+            {
+                *r = color.r();
+                *g = color.g();
+                *b = color.b();
+                settings_changed = true;
+            }
+            ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
+        });
     }
 
     ui.separator();
@@ -685,7 +685,7 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
         }
 
         let digit = ch.to_digit(10).unwrap();
-        if digit < 1 || digit > 8 {
+        if !(1..=8).contains(&digit) {
             let component = match i {
                 0 => "R",
                 1 => "G",

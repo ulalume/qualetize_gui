@@ -30,58 +30,71 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
         ui.vertical(|ui| {
             ui.style_mut().spacing.item_spacing = egui::vec2(0.0, HORIZONTAL_MARGIN);
             if state.preferences.show_original_image {
-                draw_image_panel(
-                    ui,
-                    split_x,
-                    split_y,
-                    &state.input_image,
-                    &None,
+                let settings = ImagePanelSettings {
+                    width: split_x,
+                    height: split_y,
                     zoom,
                     pan_offset,
+                    title: "Original".into(),
+                    has_spinner: false,
+                };
+                draw_image_panel(
+                    ui,
+                    state,
+                    settings,
+                    &state.input_image,
+                    None,
                     &mut pan_changed,
-                    &state,
-                    false,
-                    "Original",
                 );
             }
             if state.preferences.show_color_corrected_image {
-                draw_image_panel(
-                    ui,
-                    split_x,
-                    split_y,
-                    &state.color_corrected_image,
-                    &None,
+                let settings = ImagePanelSettings {
+                    width: split_x,
+                    height: split_y,
                     zoom,
                     pan_offset,
+                    title: "Color Corrected".into(),
+                    has_spinner: state.color_corrected_image.is_none(),
+                };
+                draw_image_panel(
+                    ui,
+                    state,
+                    settings,
+                    &state.color_corrected_image,
+                    None,
                     &mut pan_changed,
-                    &state,
-                    state.color_corrected_image.is_none(),
-                    "Color Corrected",
                 );
             }
         });
 
         // Right panel
         if !state.tile_size_warning {
-            let indexed = if state.output_palette_sorted_indexed_image.is_some() {
-                &state.output_palette_sorted_indexed_image
-            } else if let Some(image) = &state.output_image {
-                &image.indexed
-            } else {
-                &None
+            let palettes_for_ui =
+                if let Some(indexed_image) = &state.output_palette_sorted_indexed_image {
+                    Some(&indexed_image.palettes_for_ui)
+                } else if let Some(image) = &state.output_image {
+                    image
+                        .indexed
+                        .as_ref()
+                        .map(|indexed_image| &indexed_image.palettes_for_ui)
+                } else {
+                    None
+                };
+            let settings = ImagePanelSettings {
+                width: split_x,
+                height: available_size.y,
+                zoom,
+                pan_offset,
+                title: "Qualetized".into(),
+                has_spinner: image_processing,
             };
             draw_image_panel(
                 ui,
-                split_x,
-                available_size.y,
+                state,
+                settings,
                 &state.output_image,
-                indexed,
-                zoom,
-                pan_offset,
+                palettes_for_ui,
                 &mut pan_changed,
-                &state,
-                image_processing,
-                "Qualetized",
             );
         } else {
             // Status/ Warning message
@@ -110,133 +123,158 @@ pub fn draw_main_content(ui: &mut egui::Ui) {
         ui.heading_with_margin("📁 Drop an image file here or use 'File > Open Image...'");
     });
 }
+#[derive(Clone)]
+struct ImagePanelSettings {
+    pub width: f32,
+    pub height: f32,
+    pub zoom: f32,
+    pub pan_offset: Vec2,
+    pub title: String,
+    pub has_spinner: bool,
+}
+
+fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color: Color32) {
+    painter.rect_filled(canvas, 0.0, base_color);
+
+    const MAGNIFICATION_PIXEL_SIZE: f32 = 24.0;
+    let canvas_min_x = canvas.min.x % MAGNIFICATION_PIXEL_SIZE;
+    let canvas_min_y = canvas.min.y % MAGNIFICATION_PIXEL_SIZE;
+    let pixel_radius = 1.25;
+    let pixel_color = Color32::from_rgba_unmultiplied(
+        (base_color.r() as f32 * 1.5) as u8,
+        (base_color.g() as f32 * 1.5) as u8,
+        (base_color.b() as f32 * 1.5) as u8,
+        base_color.a(),
+    );
+
+    for yi in 0.. {
+        let y = (yi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
+        if y > canvas.height() + MAGNIFICATION_PIXEL_SIZE {
+            break;
+        }
+        for xi in 0.. {
+            let x = (xi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
+            if x > canvas.width() + MAGNIFICATION_PIXEL_SIZE {
+                break;
+            }
+            painter.circle_filled(
+                canvas.center()
+                    + egui::vec2(x, y)
+                    + egui::vec2(-canvas_min_x, -canvas_min_y)
+                    + egui::vec2(-canvas.width() / 2.0, -canvas.height() / 2.0),
+                pixel_radius,
+                pixel_color,
+            );
+        }
+    }
+}
+
+fn draw_main_image(
+    painter: &egui::Painter,
+    canvas: Rect,
+    image_data: &Option<crate::types::ImageData>,
+    zoom: f32,
+    pan_offset: Vec2,
+) {
+    if let Some(image_data) = image_data {
+        let original_size = egui::vec2(image_data.width as f32, image_data.height as f32);
+        let image_rect = calculate_image_rect(&canvas, original_size, zoom, pan_offset);
+
+        painter.image(
+            image_data.texture.id(),
+            image_rect,
+            Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+            Color32::WHITE,
+        );
+    }
+}
+
+fn draw_title(painter: &egui::Painter, canvas: Rect, title: &str, ui_ctx: &egui::Context) {
+    if title.is_empty() {
+        return;
+    }
+
+    let visuals = &ui_ctx.style().visuals;
+    let window_color = visuals.window_fill();
+    let bg_color =
+        Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
+    let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
+
+    let galley =
+        ui_ctx.fonts(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
+
+    let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
+    let rect = Align2::LEFT_TOP.align_size_within_rect(
+        galley.size() + egui::vec2(4.0, 2.0),
+        Rect::from_min_size(
+            pos - egui::vec2(2.0, 1.0),
+            galley.size() + egui::vec2(4.0, 2.0),
+        ),
+    );
+    painter.rect_filled(rect, 0.0, bg_color);
+    painter.galley(pos, galley, text_color);
+}
+
+fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
+    let center = canvas.center();
+    let radius = 16.0;
+    let num_lines = 12;
+    let time = ui_ctx.input(|i| i.time) as f32;
+
+    for i in 0..num_lines {
+        let angle = i as f32 / num_lines as f32 * std::f32::consts::TAU + time;
+        let start = center + egui::vec2(angle.cos(), angle.sin()) * radius * 0.5;
+        let end = center + egui::vec2(angle.cos(), angle.sin()) * radius;
+        painter.line_segment([start, end], (2.5, Color32::LIGHT_GRAY));
+    }
+}
 
 fn draw_image_panel(
     ui: &mut egui::Ui,
-    width: f32,
-    height: f32,
-    image_data: &Option<crate::types::ImageData>,
-    indexed_image_data: &Option<crate::types::ImageDataIndexed>,
-    zoom: f32,
-    pan_offset: Vec2,
-    pan_changed: &mut Vec2,
     state: &AppState,
-    has_spinner: bool,
-    title: &str,
+    settings: ImagePanelSettings,
+    image_data: &Option<crate::types::ImageData>,
+    palettes_for_ui: Option<&Vec<Vec<egui::Color32>>>,
+    pan_changed: &mut Vec2,
 ) {
     ui.allocate_ui_with_layout(
-        Vec2::new(width, height),
+        Vec2::new(settings.width, settings.height),
         egui::Layout::top_down(egui::Align::Center),
         |ui| {
-            let (response, painter) =
-                ui.allocate_painter(Vec2::new(width, height), egui::Sense::click_and_drag());
-
+            let (response, painter) = ui.allocate_painter(
+                Vec2::new(settings.width, settings.height),
+                egui::Sense::click_and_drag(),
+            );
             let canvas = response.rect;
 
-            // Draw background
+            // 背景色を取得
             let base_color = state
                 .preferences
                 .background_color
                 .unwrap_or(Color32::from_gray(64));
-            painter.rect_filled(canvas, 0.0, base_color);
 
-            // Draw pixel centers:
-            const MAGNIFICATION_PIXEL_SIZE: f32 = 24.0;
-            let canvas_min_x = canvas.min.x % MAGNIFICATION_PIXEL_SIZE;
-            let canvas_min_y = canvas.min.y % MAGNIFICATION_PIXEL_SIZE;
-            let pixel_radius = 1.25;
-            let pixel_color = Color32::from_rgba_unmultiplied(
-                (base_color.r() as f32 * 1.5) as u8,
-                (base_color.g() as f32 * 1.5) as u8,
-                (base_color.b() as f32 * 1.5) as u8,
-                base_color.a(), // alphaはそのまま
+            // 各要素を描画
+            draw_background_and_pixels(&painter, canvas, base_color);
+            draw_main_image(
+                &painter,
+                canvas,
+                image_data,
+                settings.zoom,
+                settings.pan_offset,
             );
-            for yi in 0.. {
-                let y = (yi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
-                if y > canvas.height() + MAGNIFICATION_PIXEL_SIZE {
-                    break;
-                }
-                for xi in 0.. {
-                    let x = (xi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
-                    if x > canvas.width() + MAGNIFICATION_PIXEL_SIZE {
-                        break;
-                    }
-                    painter.circle_filled(
-                        canvas.center()
-                            + egui::vec2(x, y)
-                            + egui::vec2(-canvas_min_x, -canvas_min_y)
-                            + egui::vec2(-canvas.width() / 2.0, -canvas.height() / 2.0),
-                        pixel_radius,
-                        pixel_color,
-                    );
-                }
+            draw_title(&painter, canvas, &settings.title, ui.ctx());
+
+            if state.preferences.show_palettes
+                && let Some(palettes_for_ui) = palettes_for_ui
+            {
+                draw_palettes_overlay(&painter, canvas, palettes_for_ui);
             }
 
-            if let Some(image_data) = &image_data {
-                let original_size = egui::vec2(image_data.width as f32, image_data.height as f32);
-
-                let image_rect = calculate_image_rect(&canvas, original_size, zoom, pan_offset);
-
-                painter.image(
-                    image_data.texture.id(),
-                    image_rect,
-                    Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                    Color32::WHITE,
-                );
-
-                // Draw palettes overlay for output image
-                if state.preferences.show_palettes
-                    && let Some(indexed) = &indexed_image_data
-                    && !indexed.palettes_for_ui.is_empty()
-                {
-                    draw_palettes_overlay(&painter, &canvas, &indexed.palettes_for_ui);
-                }
+            if settings.has_spinner {
+                draw_spinner(&painter, canvas, ui.ctx());
             }
 
-            // Draw title
-            if !title.is_empty() {
-                let visuals = &ui.ctx().style().visuals;
-                let window_color = visuals.window_fill();
-                let bg_color = Color32::from_rgba_unmultiplied(
-                    window_color.r(),
-                    window_color.g(),
-                    window_color.b(),
-                    178,
-                );
-                let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
-
-                let galley = ui
-                    .fonts(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
-
-                let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
-                let rect = Align2::LEFT_TOP.align_size_within_rect(
-                    galley.size() + egui::vec2(4.0, 2.0),
-                    Rect::from_min_size(
-                        pos - egui::vec2(2.0, 1.0),
-                        galley.size() + egui::vec2(4.0, 2.0),
-                    ),
-                );
-                painter.rect_filled(rect, 0.0, bg_color);
-
-                // その上に文字を描画
-                painter.galley(pos, galley, text_color);
-            }
-
-            if has_spinner {
-                let center = canvas.center();
-                let radius = 16.0;
-                let num_lines = 12;
-                let time = ui.ctx().input(|i| i.time) as f32;
-                for i in 0..num_lines {
-                    let angle = i as f32 / num_lines as f32 * std::f32::consts::TAU + time;
-                    let start = center + egui::vec2(angle.cos(), angle.sin()) * radius * 0.5;
-                    let end = center + egui::vec2(angle.cos(), angle.sin()) * radius;
-                    painter.line_segment([start, end], (2.5, Color32::LIGHT_GRAY));
-                }
-                // ui.ctx().request_repaint();
-            }
-
-            // Handle pan
+            // パン操作の処理
             if response.dragged() {
                 *pan_changed += response.drag_delta();
             }
@@ -303,14 +341,14 @@ fn calculate_image_rect(
     Rect::from_center_size(view_center, display_size)
 }
 
-fn draw_palettes_overlay(painter: &egui::Painter, rect: &Rect, palettes: &[Vec<egui::Color32>]) {
+fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<egui::Color32>]) {
     if palettes.is_empty() {
         return;
     }
 
     let palette_margin = 8.0;
     let palette_spacing = 1.0;
-    let palette_size = calculate_palette_size(rect, palettes, palette_margin, palette_spacing);
+    let palette_size = calculate_palette_size(&rect, palettes, palette_margin, palette_spacing);
 
     let start_x = rect.max.x - palette_margin;
     let mut current_y = rect.min.y + palette_margin;

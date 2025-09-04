@@ -1,6 +1,7 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ColorSpace {
     Srgb,
+    #[default]
     RgbLinear,
     Ycbcr,
     Ycocg,
@@ -77,11 +78,5 @@ impl ColorSpace {
             ColorSpace::YcbcrPsy,
             ColorSpace::YcocgPsy,
         ]
-    }
-}
-
-impl Default for ColorSpace {
-    fn default() -> Self {
-        ColorSpace::RgbLinear
     }
 }

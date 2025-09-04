@@ -13,7 +13,7 @@ pub fn save_indexed_png(
     // Create PNG encoder
     let file =
         File::create(output_path).map_err(|e| format!("Failed to create output file: {}", e))?;
-    let ref mut w = BufWriter::new(file);
+    let w = BufWriter::new(file);
 
     let mut encoder = png::Encoder::new(w, width, height);
     encoder.set_color(png::ColorType::Indexed);
@@ -51,7 +51,7 @@ pub fn save_indexed_bmp(
 ) -> Result<(), String> {
     // Create 8-bit indexed BMP with palette (always 256 entries)
     let palette_size = palette_data.len().min(256); // Max 256 colors for 8-bit
-    let row_size = ((width + 3) / 4) * 4; // 4-byte aligned for 8-bit data
+    let row_size = (width + 3).div_ceil(4) * 4; // 4-byte aligned for 8-bit data
     let image_size = row_size * height;
     let palette_bytes = 256 * 4; // Always 256 palette entries * 4 bytes each (BGRA)
     let data_offset = 54 + palette_bytes; // Header + palette
@@ -61,9 +61,9 @@ pub fn save_indexed_bmp(
 
     // BMP File Header (14 bytes)
     bmp_data.extend_from_slice(b"BM"); // Signature
-    bmp_data.extend_from_slice(&(file_size as u32).to_le_bytes()); // File size
+    bmp_data.extend_from_slice(&file_size.to_le_bytes()); // File size
     bmp_data.extend_from_slice(&[0, 0, 0, 0]); // Reserved
-    bmp_data.extend_from_slice(&(data_offset as u32).to_le_bytes()); // Data offset
+    bmp_data.extend_from_slice(&data_offset.to_le_bytes()); // Data offset
 
     // BMP Info Header (40 bytes)
     bmp_data.extend_from_slice(&40u32.to_le_bytes()); // Header size
@@ -72,15 +72,14 @@ pub fn save_indexed_bmp(
     bmp_data.extend_from_slice(&1u16.to_le_bytes()); // Planes
     bmp_data.extend_from_slice(&8u16.to_le_bytes()); // Bits per pixel (8-bit indexed)
     bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Compression
-    bmp_data.extend_from_slice(&(image_size as u32).to_le_bytes()); // Image size
+    bmp_data.extend_from_slice(&image_size.to_le_bytes()); // Image size
     bmp_data.extend_from_slice(&0u32.to_le_bytes()); // X pixels per meter
     bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Y pixels per meter
     bmp_data.extend_from_slice(&256u32.to_le_bytes()); // Colors used (always 256 for 8-bit)
     bmp_data.extend_from_slice(&0u32.to_le_bytes()); // Important colors
 
     // Color palette (BGRA format, 4 bytes per color)
-    for i in 0..palette_size {
-        let color = &palette_data[i];
+    for color in palette_data.iter().take(palette_size) {
         bmp_data.push(color.b); // Blue
         bmp_data.push(color.g); // Green
         bmp_data.push(color.r); // Red
@@ -103,10 +102,8 @@ pub fn save_indexed_bmp(
             }
         }
         // Add padding if necessary
-        let padding = row_size - width;
-        for _ in 0..padding {
-            bmp_data.push(0);
-        }
+        let padding = (row_size - width) as usize;
+        bmp_data.extend(std::iter::repeat_n(0, padding));
     }
 
     std::fs::write(output_path, bmp_data).map_err(|e| format!("File write error: {}", e))?;
