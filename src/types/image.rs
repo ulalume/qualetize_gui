@@ -348,7 +348,6 @@ impl ImageData {
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
-
         Ok(ImageData {
             texture: texture,
             width: size[0] as u32,

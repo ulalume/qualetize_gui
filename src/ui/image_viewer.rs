@@ -233,7 +233,7 @@ fn draw_image_panel(
                     let end = center + egui::vec2(angle.cos(), angle.sin()) * radius;
                     painter.line_segment([start, end], (2.5, Color32::LIGHT_GRAY));
                 }
-                ui.ctx().request_repaint();
+                // ui.ctx().request_repaint();
             }
 
             // Handle pan

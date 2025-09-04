@@ -424,7 +424,7 @@ impl eframe::App for QualetizeApp {
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    settings_changed |= UI::draw_settings_panel(ui, &mut self.state, ctx);
+                    settings_changed |= UI::draw_settings_panel(ui, &mut self.state);
                 });
             });
 
@@ -459,6 +459,13 @@ impl eframe::App for QualetizeApp {
             self.state.request_update_qualetized_image = Some(QualetizeRequest {
                 time: std::time::Instant::now(),
             });
+        }
+
+        // Repaint drawing while updating image
+        if self.image_processor.is_processing()
+            || self.state.request_update_qualetized_image.is_some()
+        {
+            ctx.request_repaint();
         }
     }
 }

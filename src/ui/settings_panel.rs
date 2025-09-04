@@ -10,7 +10,7 @@ use crate::types::{
 use egui::Color32;
 use regex::Regex;
 
-pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState, ctx: &egui::Context) -> bool {
+pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     // Basic settings
@@ -45,7 +45,7 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState, ctx: &egui::
     if state.preferences.show_debug_info {
         // Debug information display
         ui.separator();
-        draw_status_section(ui, state, ctx);
+        draw_status_section(ui, state);
     }
     settings_changed
 }
@@ -627,7 +627,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
     settings_changed
 }
 
-fn draw_status_section(ui: &mut egui::Ui, state: &AppState, ctx: &egui::Context) {
+fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ui.heading_with_margin("Debug Info");
     if let Some(request_qualetize) = &state.request_update_qualetized_image {
         let elapsed = request_qualetize.time.elapsed();
@@ -637,7 +637,6 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState, ctx: &egui::Context)
                 "⏱ Preview will update in {:.1}s...",
                 remaining.as_secs_f32()
             ));
-            ctx.request_repaint();
         }
     }
     // Debug information
