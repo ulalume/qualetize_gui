@@ -141,23 +141,23 @@ jobs:
 
           echo "RELEASE_DIR=${RELEASE_DIR}" >> $GITHUB_ENV
 
-      - name: Create archive
+      - name: Create archive (Windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ steps.get_version.outputs.version }}"
+          $ARCHIVE_NAME = "qualetize-gui-$VERSION-${{ matrix.target }}"
+          Compress-Archive -Path $env:RELEASE_DIR -DestinationPath "$ARCHIVE_NAME.zip" -Force
+          Write-Output "ARCHIVE_NAME=$ARCHIVE_NAME.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Create archive (Unix)
+        if: matrix.archive_ext == 'tar.gz'
         shell: bash
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
           ARCHIVE_NAME="qualetize-gui-${VERSION}-${{ matrix.target }}"
-
-          if [ "${{ matrix.archive_ext }}" = "zip" ]; then
-            if [ "${{ matrix.os }}" = "windows-latest" ]; then
-              powershell Compress-Archive -Path "${RELEASE_DIR}" -DestinationPath "${ARCHIVE_NAME}.zip"
-            else
-              zip -r -X -D "${ARCHIVE_NAME}.zip" "${RELEASE_DIR}"
-            fi
-            echo "ARCHIVE_NAME=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
-          else
-            tar -czf "${ARCHIVE_NAME}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
-            echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
-          fi
+          tar -czf "${ARCHIVE_NAME}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v1

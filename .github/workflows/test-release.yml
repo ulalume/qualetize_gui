@@ -113,7 +113,29 @@ jobs:
             ls -la target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe
           fi
 
-      - name: Test archive creation
+      - name: Test archive creation (Windows)
+        if: contains(github.event.inputs.target, 'windows')
+        shell: pwsh
+        run: |
+          $VERSION = "v0.3.3-test"
+          $RELEASE_DIR = "qualetize-gui-$VERSION-${{ github.event.inputs.target }}"
+          New-Item -ItemType Directory -Force -Path $RELEASE_DIR
+
+          if (Test-Path "target\${{ github.event.inputs.target }}\release\QualetizeGUI.exe") {
+            Copy-Item "target\${{ github.event.inputs.target }}\release\QualetizeGUI.exe" -Destination "$RELEASE_DIR\"
+            Write-Output "Copied Windows executable"
+          } else {
+            Write-Error "ERROR: Windows executable not found"
+            exit 1
+          }
+
+          # Create ZIP archive
+          Compress-Archive -Path $RELEASE_DIR -DestinationPath "$RELEASE_DIR.zip" -Force
+          Write-Output "Created $RELEASE_DIR.zip"
+          Get-ChildItem "$RELEASE_DIR.zip" | Format-List
+
+      - name: Test archive creation (Unix)
+        if: "!contains(github.event.inputs.target, 'windows')"
         shell: bash
         run: |
           VERSION="v0.3.3-test"
@@ -130,36 +152,20 @@ jobs:
               exit 1
             fi
           else
-            # For other platforms
-            if [[ "${{ github.event.inputs.target }}" == *"windows"* ]]; then
-              if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe" ]; then
-                cp target/${{ github.event.inputs.target }}/release/QualetizeGUI.exe "${RELEASE_DIR}/"
-                echo "Copied Windows executable"
-              else
-                echo "ERROR: Windows executable not found"
-                exit 1
-              fi
+            # For Linux
+            if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI" ]; then
+              cp target/${{ github.event.inputs.target }}/release/QualetizeGUI "${RELEASE_DIR}/"
+              echo "Copied Linux executable"
             else
-              if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI" ]; then
-                cp target/${{ github.event.inputs.target }}/release/QualetizeGUI "${RELEASE_DIR}/"
-                echo "Copied Linux executable"
-              else
-                echo "ERROR: Linux executable not found"
-                exit 1
-              fi
+              echo "ERROR: Linux executable not found"
+              exit 1
             fi
           fi
 
-          # Create archive
-          if [[ "${{ github.event.inputs.target }}" == *"windows"* ]]; then
-            zip -r -X -D "${RELEASE_DIR}.zip" "${RELEASE_DIR}"
-            echo "Created ${RELEASE_DIR}.zip"
-            ls -la "${RELEASE_DIR}.zip"
-          else
-            tar -czf "${RELEASE_DIR}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
-            echo "Created ${RELEASE_DIR}.tar.gz"
-            ls -la "${RELEASE_DIR}.tar.gz"
-          fi
+          # Create tar.gz archive
+          tar -czf "${RELEASE_DIR}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
+          echo "Created ${RELEASE_DIR}.tar.gz"
+          ls -la "${RELEASE_DIR}.tar.gz"
 
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
