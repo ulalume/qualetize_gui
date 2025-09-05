@@ -91,7 +91,7 @@ jobs:
         run: cargo bundle --release --target ${{ github.event.inputs.target }}
 
       - name: Build (regular for other platforms)
-        if: "!contains(github.event.inputs.target, 'apple-darwin')"
+        if: ${{ !contains(github.event.inputs.target, 'apple-darwin') }}
         run: cargo build --release --target ${{ github.event.inputs.target }}
 
       - name: List build output
@@ -129,13 +129,10 @@ jobs:
             exit 1
           }
 
-          # Create ZIP archive
-          Compress-Archive -Path $RELEASE_DIR -DestinationPath "$RELEASE_DIR.zip" -Force
-          Write-Output "Created $RELEASE_DIR.zip"
-          Get-ChildItem "$RELEASE_DIR.zip" | Format-List
+          Write-Output "Prepared release directory: $RELEASE_DIR"
 
       - name: Test archive creation (Unix)
-        if: "!contains(github.event.inputs.target, 'windows')"
+        if: ${{ !contains(github.event.inputs.target, 'windows') }}
         shell: bash
         run: |
           VERSION="v0.3.3-test"
@@ -161,14 +158,10 @@ jobs:
               exit 1
             fi
           fi
-
-          # Create tar.gz archive
-          tar -czf "${RELEASE_DIR}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
-          echo "Created ${RELEASE_DIR}.tar.gz"
-          ls -la "${RELEASE_DIR}.tar.gz"
+          echo "Prepared release directory: ${RELEASE_DIR}"
 
       - name: Upload test artifact
         uses: actions/upload-artifact@v4
         with:
           name: test-build-${{ github.event.inputs.target }}
-          path: qualetize-gui-v0.3.3-test-${{ github.event.inputs.target }}.*
+          path: qualetize-gui-v0.3.3-test-${{ github.event.inputs.target }}/

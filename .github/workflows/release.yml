@@ -117,7 +117,7 @@ jobs:
         run: cargo bundle --release --target ${{ matrix.target }}
 
       - name: Build (regular for other platforms)
-        if: "!matrix.use_bundle"
+        if: ${{ !matrix.use_bundle }}
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Prepare release directory
