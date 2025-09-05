@@ -162,7 +162,7 @@ jobs:
           fi
 
       - name: Upload test artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: test-build-${{ github.event.inputs.target }}
           path: qualetize-gui-v0.3.3-test-${{ github.event.inputs.target }}.*
