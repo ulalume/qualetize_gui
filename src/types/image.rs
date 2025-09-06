@@ -1,13 +1,20 @@
+use std::fs::File;
+use std::io::BufReader;
+
 use super::BGRA8;
 use super::ColorCorrection;
 use crate::color_processor::ColorProcessor;
 use crate::image_processor::QualetizeResult;
 use egui::{Color32, ColorImage, TextureHandle};
+use image::DynamicImage;
+use image::ImageDecoder;
+use image::ImageReader;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: TextureHandle,
+    pub icc_profile: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
     pub rgba_data: Vec<u8>,
@@ -252,6 +259,7 @@ impl ImageData {
 
         ImageData {
             texture,
+            icc_profile: self.icc_profile.clone(),
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,
@@ -296,6 +304,7 @@ impl ImageData {
 
         Ok(ImageData {
             texture,
+            icc_profile: None,
             width,
             height,
             rgba_data: pixels,
@@ -332,15 +341,34 @@ impl ImageData {
     }
 
     pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {
-        let img = image::open(path).map_err(|e| format!("Image loading error: {}", e))?;
+        let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+        let buf_reader = BufReader::new(file);
+
+        let reader = ImageReader::new(buf_reader)
+            .with_guessed_format()
+            .map_err(|e| format!("Image format guess error: {}", e))?;
+        let mut decoder = reader
+            .into_decoder()
+            .map_err(|e| format!("Decoder creation error: {}", e))?;
+
+        let icc_profile: Option<Vec<u8>> = decoder
+            .icc_profile()
+            .map_err(|e| format!("Error reading ICC profile: {}", e))?;
+
+        let img = DynamicImage::from_decoder(decoder)
+            .map_err(|e| format!("Error decoding image: {}", e))?;
+
         let rgba_img = img.to_rgba8();
         let size = [rgba_img.width() as usize, rgba_img.height() as usize];
         let rgba_data = rgba_img.into_raw();
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
+
+        log::debug!("icc_profile: {:?}", icc_profile);
         Ok(ImageData {
             texture,
+            icc_profile,
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,
