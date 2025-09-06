@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main, feature/github-actions]
+    branches: [main]
   pull_request:
-    branches: [main, feature/github-actions]
+    branches: [main]
 
 env:
   CARGO_TERM_COLOR: always
