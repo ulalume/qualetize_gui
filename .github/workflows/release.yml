@@ -173,10 +173,10 @@ jobs:
         with:
           tag_name: ${{ steps.get_version.outputs.version }}
           name: QualetizeGUI ${{ steps.get_version.outputs.version }}
-          body: "Release ${{ steps.get_version.outputs.version }}"
           files: ${{ env.ARCHIVE_NAME }}
           draft: false
           prerelease: false
           make_latest: true
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
