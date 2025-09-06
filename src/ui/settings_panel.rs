@@ -390,7 +390,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.highlights, HIGHLIGHTS_RANGE)
+                    egui::Slider::new(&mut state.color_correction.brightness, BRIGHTNESS_RANGE)
                         .show_value(false),
                 )
                 .changed()
@@ -399,8 +399,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             }
             if ui
                 .add(
-                    egui::DragValue::new(&mut state.color_correction.highlights)
-                        .range(HIGHLIGHTS_RANGE)
+                    egui::DragValue::new(&mut state.color_correction.brightness)
+                        .range(BRIGHTNESS_RANGE)
                         .speed(0.01)
                         .custom_formatter(|n, _| format_percentage(n as f32))
                         .custom_parser(|s| {
@@ -507,7 +507,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.brightness, BRIGHTNESS_RANGE)
+                    egui::Slider::new(&mut state.color_correction.shadows, SHADOWS_RANGE)
                         .show_value(false),
                 )
                 .changed()
@@ -516,8 +516,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             }
             if ui
                 .add(
-                    egui::DragValue::new(&mut state.color_correction.brightness)
-                        .range(BRIGHTNESS_RANGE)
+                    egui::DragValue::new(&mut state.color_correction.shadows)
+                        .range(SHADOWS_RANGE)
                         .speed(0.01)
                         .custom_formatter(|n, _| format_percentage(n as f32))
                         .custom_parser(|s| {
@@ -542,7 +542,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             if ui
                 .add_sized(
                     [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.shadows, SHADOWS_RANGE)
+                    egui::Slider::new(&mut state.color_correction.highlights, HIGHLIGHTS_RANGE)
                         .show_value(false),
                 )
                 .changed()
@@ -551,8 +551,8 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
             }
             if ui
                 .add(
-                    egui::DragValue::new(&mut state.color_correction.shadows)
-                        .range(SHADOWS_RANGE)
+                    egui::DragValue::new(&mut state.color_correction.highlights)
+                        .range(HIGHLIGHTS_RANGE)
                         .speed(0.01)
                         .custom_formatter(|n, _| format_percentage(n as f32))
                         .custom_parser(|s| {
