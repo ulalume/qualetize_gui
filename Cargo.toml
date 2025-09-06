@@ -25,6 +25,7 @@ serde_json = "1.0"
 dirs = "6.0"
 png = "0.18"
 regex = "1.11"
+moxcms = "0.7.5"
 
 [build-dependencies]
 cc = "*"

@@ -7,14 +7,15 @@ use crate::color_processor::ColorProcessor;
 use crate::image_processor::QualetizeResult;
 use egui::{Color32, ColorImage, TextureHandle};
 use image::DynamicImage;
+use image::GenericImageView;
 use image::ImageDecoder;
 use image::ImageReader;
+use moxcms::ColorProfile;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone)]
 pub struct ImageData {
     pub texture: TextureHandle,
-    pub icc_profile: Option<Vec<u8>>,
     pub width: u32,
     pub height: u32,
     pub rgba_data: Vec<u8>,
@@ -259,7 +260,6 @@ impl ImageData {
 
         ImageData {
             texture,
-            icc_profile: self.icc_profile.clone(),
             width: size[0] as u32,
             height: size[1] as u32,
             rgba_data,
@@ -304,7 +304,6 @@ impl ImageData {
 
         Ok(ImageData {
             texture,
-            icc_profile: None,
             width,
             height,
             rgba_data: pixels,
@@ -359,19 +358,45 @@ impl ImageData {
             .map_err(|e| format!("Error decoding image: {}", e))?;
 
         let rgba_img = img.to_rgba8();
-        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let rgba_data = rgba_img.into_raw();
+        let rgba_data = if let Some(icc) = &icc_profile {
+            let color_profile = ColorProfile::new_from_slice(&icc).unwrap();
+            let dest_profile = ColorProfile::new_srgb();
+            let transform = color_profile
+                .create_transform_8bit(
+                    moxcms::Layout::Rgba,
+                    &dest_profile,
+                    moxcms::Layout::Rgba,
+                    moxcms::TransformOptions::default(),
+                )
+                .unwrap();
+            let mut dst = vec![0u8; rgba_img.len()];
+
+            for (src, dst) in rgba_img
+                .chunks_exact(img.width() as usize * 4)
+                .zip(dst.chunks_exact_mut(img.dimensions().0 as usize * 4))
+            {
+                transform
+                    .transform(
+                        &src[..img.dimensions().0 as usize * 4],
+                        &mut dst[..img.dimensions().0 as usize * 4],
+                    )
+                    .unwrap();
+            }
+            dst
+        } else {
+            rgba_img.into_raw()
+        };
+        let size = [img.width() as usize, img.height() as usize];
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
 
-        log::debug!("icc_profile: {:?}", icc_profile);
+        // log::debug!("icc_profile: {:?}", icc_profile);
         Ok(ImageData {
             texture,
-            icc_profile,
             width: size[0] as u32,
             height: size[1] as u32,
-            rgba_data,
+            rgba_data, // srgba
             indexed: None,
         })
     }
