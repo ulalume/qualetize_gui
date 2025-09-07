@@ -28,7 +28,6 @@ regex = "1.11"
 
 [build-dependencies]
 cc = "*"
-embed-resource = "3.0"
 
 [profile.dev]
 opt-level = 1
