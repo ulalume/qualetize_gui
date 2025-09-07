@@ -30,9 +30,9 @@ impl SettingsBundle {
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
         let json_data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {}", e))?;
+            .map_err(|e| format!("Failed to serialize settings: {e}"))?;
 
-        fs::write(&path, json_data).map_err(|e| format!("Failed to write settings file: {}", e))?;
+        fs::write(&path, json_data).map_err(|e| format!("Failed to write settings file: {e}"))?;
 
         log::info!("Settings saved to: {}", path.as_ref().display());
         Ok(())
@@ -40,10 +40,10 @@ impl SettingsBundle {
 
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
         let json_data = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read settings file: {}", e))?;
+            .map_err(|e| format!("Failed to read settings file: {e}"))?;
 
         let settings = serde_json::from_str::<SettingsBundle>(&json_data)
-            .map_err(|e| format!("Failed to parse settings file: {}", e))?;
+            .map_err(|e| format!("Failed to parse settings file: {e}"))?;
 
         log::info!("Settings loaded from: {}", path.as_ref().display());
         Ok(settings)
@@ -54,7 +54,7 @@ impl SettingsBundle {
             let app_config_dir = config_dir.join("QualetizeGUI");
             if !app_config_dir.exists() {
                 fs::create_dir_all(&app_config_dir)
-                    .map_err(|e| format!("Failed to create config directory: {}", e))?;
+                    .map_err(|e| format!("Failed to create config directory: {e}"))?;
             }
             Ok(app_config_dir)
         } else {

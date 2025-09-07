@@ -332,7 +332,7 @@ impl ImageData {
     }
 
     pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {
-        let img = image::open(path).map_err(|e| format!("Image loading error: {}", e))?;
+        let img = image::open(path).map_err(|e| format!("Image loading error: {e}"))?;
         let rgba_img = img.to_rgba8();
         let size = [rgba_img.width() as usize, rgba_img.height() as usize];
         let rgba_data = rgba_img.into_raw();

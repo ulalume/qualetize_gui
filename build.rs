@@ -55,14 +55,14 @@ fn main() {
         let minor = parts.get(1).unwrap_or(&"0");
         let patch = parts.get(2).unwrap_or(&"0");
         let build_num = parts.get(3).unwrap_or(&"0");
-        let file_version = format!("{},{},{},{}", major, minor, patch, build_num);
+        let file_version = format!("{major},{minor},{patch},{build_num}");
 
         let rc = format!(
             r#"IDI_ICON1 ICON "assets/icon.ico"
 
 1 VERSIONINFO
-FILEVERSION {version_comma}
-PRODUCTVERSION {version_comma}
+FILEVERSION {file_version}
+PRODUCTVERSION {file_version}
 {{
   BLOCK "StringFileInfo"
   {{
@@ -70,12 +70,12 @@ PRODUCTVERSION {version_comma}
     {{
       VALUE "CompanyName", "ulalume"
       VALUE "FileDescription", "Qualetize GUI Application"
-      VALUE "FileVersion", "{version_dot}"
+      VALUE "FileVersion", "{version}"
       VALUE "InternalName", "Qualetize GUI"
       VALUE "LegalCopyright", "ulalume"
       VALUE "OriginalFilename", "QualetizeGUI.exe"
       VALUE "ProductName", "Qualetize GUI"
-      VALUE "ProductVersion", "{version_dot}"
+      VALUE "ProductVersion", "{version}"
     }}
   }}
 
@@ -84,9 +84,7 @@ PRODUCTVERSION {version_comma}
     VALUE "Translation", 0x409, 1200
   }}
 }}
-"#,
-            version_comma = file_version,
-            version_dot = version
+"#
         );
 
         let out_dir = env::var("OUT_DIR").unwrap();
