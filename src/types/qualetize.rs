@@ -2,6 +2,13 @@ use super::color_space::ColorSpace;
 use super::dither::DitherMode;
 use serde::{Deserialize, Serialize};
 
+#[cfg(target_arch = "x86_64")]
+#[repr(C, align(16))]
+pub struct Vec4f {
+    pub f32: [f32; 4],
+}
+
+#[cfg(not(target_arch = "x86_64"))]
 #[repr(C)]
 pub struct Vec4f {
     pub f32: [f32; 4],

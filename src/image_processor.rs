@@ -176,9 +176,7 @@ impl ImageProcessor {
         cancel_receiver: mpsc::Receiver<()>,
         generation_id: u64,
     ) -> Result<QualetizeResult, String> {
-        log::info!(
-            "Starting preview generation from BGRA data (generation {generation_id})"
-        );
+        log::info!("Starting preview generation from BGRA data (generation {generation_id})");
 
         // Check for cancellation
         if cancel_receiver.try_recv().is_ok() {
