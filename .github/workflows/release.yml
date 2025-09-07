@@ -152,6 +152,7 @@ jobs:
 
       - name: Create archive (Windows)
         if: matrix.archive_ext == 'zip'
+        id: create_archive_win
         shell: bash
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
@@ -173,23 +174,24 @@ jobs:
 
           print(f'Created {archive_name}')
           "
-          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
+          echo "archive_name=${ARCHIVE_NAME}.zip" >> $GITHUB_OUTPUT
 
       - name: Create archive (Unix)
         if: matrix.archive_ext == 'tar.gz'
+        id: create_archive_unix
         shell: bash
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
           ARCHIVE_NAME="qualetize-gui-${VERSION}-${{ matrix.target }}"
           tar -czf "${ARCHIVE_NAME}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
-          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          echo "archive_name=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.get_version.outputs.version }}
           name: QualetizeGUI ${{ steps.get_version.outputs.version }}
-          files: ${{ env.ARCHIVE_NAME }}
+          files: ${{ steps.create_archive_win.outputs.archive_name || steps.create_archive_unix.outputs.archive_name }}
           draft: false
           prerelease: false
           make_latest: true
