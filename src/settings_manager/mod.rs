@@ -39,8 +39,8 @@ impl SettingsBundle {
     }
 
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let json_data = fs::read_to_string(&path)
-            .map_err(|e| format!("Failed to read settings file: {e}"))?;
+        let json_data =
+            fs::read_to_string(&path).map_err(|e| format!("Failed to read settings file: {e}"))?;
 
         let settings = serde_json::from_str::<SettingsBundle>(&json_data)
             .map_err(|e| format!("Failed to parse settings file: {e}"))?;

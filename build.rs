@@ -5,7 +5,7 @@ use std::path::Path;
 fn main() {
     let host = env::var("HOST").unwrap();
     let target = env::var("TARGET").unwrap();
-    
+
     let is_msvc = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default() == "msvc";
     let is_windows = target.contains("windows");
 
@@ -32,7 +32,7 @@ fn main() {
     build.flag("-O3");
     build.flag("-ffast-math");
     build.flag("-funroll-loops");
-    
+
     if target.contains("x86_64") {
         build.flag("-msse");
         build.flag("-msse2");
@@ -53,7 +53,7 @@ fn main() {
 
     if is_windows {
         build.define("_USE_MATH_DEFINES", None);
-        build.flag("-malign-double"); 
+        build.flag("-malign-double");
 
         let version = env::var("CARGO_PKG_VERSION").unwrap();
         let parts: Vec<&str> = version.split('.').collect();
@@ -99,20 +99,23 @@ PRODUCTVERSION {file_version}
 
         // Use windres for MinGW/GNU toolchain
         use std::process::Command;
-        
+
         let obj_path = Path::new(&out_dir).join("version_info.o");
         let windres_result = Command::new("windres")
             .arg(&rc_path)
             .arg("-o")
             .arg(&obj_path)
             .output();
-            
+
         match windres_result {
             Ok(output) => {
                 if output.status.success() {
                     println!("cargo:rustc-link-arg={}", obj_path.display());
                 } else {
-                    eprintln!("windres failed: {}", String::from_utf8_lossy(&output.stderr));
+                    eprintln!(
+                        "windres failed: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    );
                     eprintln!("Continuing without Windows resources...");
                 }
             }
