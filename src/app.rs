@@ -6,12 +6,14 @@ use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
 use crate::types::image::SortMode;
 use crate::ui::UI;
+use display_icc::get_primary_display_profile_data;
 use eframe::egui;
 use egui::Margin;
 
 pub struct QualetizeApp {
     state: AppState,
     image_processor: ImageProcessor,
+    display_icc_profile: Option<Vec<u8>>,
 }
 
 impl Default for QualetizeApp {
@@ -19,6 +21,7 @@ impl Default for QualetizeApp {
         Self {
             state: AppState::default(),
             image_processor: ImageProcessor::new(),
+            display_icc_profile: None,
         }
     }
 }
@@ -26,10 +29,12 @@ impl Default for QualetizeApp {
 impl QualetizeApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let ctx = &cc.egui_ctx;
-
         crate::ui::styles::init_styles(ctx);
 
-        Self::default()
+        let mut app = Self::default();
+        app.display_icc_profile = get_primary_display_profile_data().ok();
+
+        app
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
@@ -51,7 +56,7 @@ impl QualetizeApp {
             self.image_processor = ImageProcessor::new();
         }
 
-        match ImageData::load(&path, ctx) {
+        match ImageData::load(&path, ctx, &self.display_icc_profile) {
             Ok(image_data) => {
                 self.state.input_path = Some(path.clone());
                 self.state.input_image = Some(image_data);
@@ -142,7 +147,10 @@ impl QualetizeApp {
     }
 
     fn check_preview_completion(&mut self, ctx: &egui::Context) {
-        if let Some(result) = self.image_processor.check_preview_complete(ctx) {
+        if let Some(result) = self
+            .image_processor
+            .check_preview_complete(ctx, &self.display_icc_profile)
+        {
             match result {
                 Ok(image_data) => {
                     self.state.output_image = Some(image_data);
@@ -173,7 +181,8 @@ impl QualetizeApp {
 
     fn apply_color_correct_image(&mut self, ctx: &egui::Context) {
         if let Some(image) = &self.state.input_image {
-            let color_corrected_image = image.color_corrected(&self.state.color_correction, ctx);
+            let color_corrected_image =
+                image.color_corrected(&self.state.color_correction, ctx, &self.display_icc_profile);
             self.state.color_corrected_image = Some(color_corrected_image);
         }
     }
@@ -315,9 +324,12 @@ impl QualetizeApp {
                             });
 
                             if let Some(input_image) = &self.state.input_image {
-                                self.state.color_corrected_image = Some(
-                                    input_image.color_corrected(&self.state.color_correction, ctx),
-                                );
+                                self.state.color_corrected_image =
+                                    Some(input_image.color_corrected(
+                                        &self.state.color_correction,
+                                        ctx,
+                                        &self.display_icc_profile,
+                                    ));
                             } else {
                                 self.state.color_corrected_image = None;
                             }

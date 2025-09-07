@@ -89,7 +89,11 @@ impl ImageProcessor {
         Ok((bgra_data, width, height))
     }
 
-    pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
+    pub fn check_preview_complete(
+        &mut self,
+        ctx: &Context,
+        display_icc_profile: &Option<Vec<u8>>,
+    ) -> Option<Result<ImageData, String>> {
         self.cleanup_finished_threads();
 
         if let Some(receiver) = &mut self.preview_receiver
@@ -105,7 +109,11 @@ impl ImageProcessor {
                             "Accepting result from generation {}",
                             qualetize_result.generation_id
                         );
-                        match ImageData::create_from_qualetize_result(qualetize_result, ctx) {
+                        match ImageData::create_from_qualetize_result(
+                            qualetize_result,
+                            ctx,
+                            display_icc_profile,
+                        ) {
                             Ok(image_data) => Ok(image_data),
                             Err(e) => Err(e),
                         }

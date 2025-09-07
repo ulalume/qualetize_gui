@@ -1,5 +1,6 @@
 pub mod app_state;
 pub mod color_correction;
+pub mod color_management;
 pub mod color_space;
 pub mod dither;
 pub mod export;
