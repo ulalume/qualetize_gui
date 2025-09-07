@@ -32,6 +32,11 @@ fn main() {
     build.flag("-O3");
     build.flag("-ffast-math");
     build.flag("-funroll-loops");
+    
+    if target.contains("x86_64") {
+        build.flag("-msse");
+        build.flag("-msse2");
+    }
 
     if host != target {
         if target.contains("x86_64") {
@@ -48,6 +53,7 @@ fn main() {
 
     if is_windows {
         build.define("_USE_MATH_DEFINES", None);
+        build.flag("-malign-double"); 
 
         let version = env::var("CARGO_PKG_VERSION").unwrap();
         let parts: Vec<&str> = version.split('.').collect();
