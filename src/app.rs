@@ -69,7 +69,7 @@ impl QualetizeApp {
                 self.state.pan_offset = egui::Vec2::ZERO;
             }
             Err(e) => {
-                log::error!("File load Error {}", e);
+                log::error!("File load Error {e}");
                 self.state.input_path = None;
                 self.state.input_image = Default::default();
                 self.state.color_corrected_image = None;
@@ -114,13 +114,7 @@ impl QualetizeApp {
         let height_divisible = image_height.is_multiple_of(tile_height);
 
         log::debug!(
-            "Tile size check: image {}×{}, tile {}×{}, divisible: width={}, height={}",
-            image_width,
-            image_height,
-            tile_width,
-            tile_height,
-            width_divisible,
-            height_divisible
+            "Tile size check: image {image_width}×{image_height}, tile {tile_width}×{tile_height}, divisible: width={width_divisible}, height={height_divisible}"
         );
 
         if !width_divisible || !height_divisible {
@@ -157,7 +151,7 @@ impl QualetizeApp {
                     self.state.output_palette_sorted_indexed_image = None;
                 }
                 Err(e) => {
-                    log::error!("Failed to generate preview image: {}", e);
+                    log::error!("Failed to generate preview image: {e}");
                     self.state.output_image = None;
                     self.state.output_palette_sorted_indexed_image = None;
                 }
@@ -218,7 +212,7 @@ impl QualetizeApp {
                                     );
                                 }
                                 Err(e) => {
-                                    log::error!("Color corrected PNG export failed: {}", e);
+                                    log::error!("Color corrected PNG export failed: {e}");
                                 }
                             }
                         });
@@ -265,7 +259,7 @@ impl QualetizeApp {
                                     );
                                 }
                                 Err(e) => {
-                                    log::error!("Qualetized indexed export failed: {}", e);
+                                    log::error!("Qualetized indexed export failed: {e}");
                                 }
                             }
                         }
@@ -283,7 +277,7 @@ impl QualetizeApp {
                                     );
                                 }
                                 Err(e) => {
-                                    log::error!("Qualetized indexed export failed: {}", e);
+                                    log::error!("Qualetized indexed export failed: {e}");
                                 }
                             }
                         }
@@ -298,10 +292,10 @@ impl QualetizeApp {
 
                     match settings_bundle.save_to_file(&path) {
                         Ok(()) => {
-                            log::info!("Settings saved successfully to: {}", path);
+                            log::info!("Settings saved successfully to: {path}");
                         }
                         Err(e) => {
-                            log::error!("Failed to save settings: {}", e);
+                            log::error!("Failed to save settings: {e}");
                         }
                     }
                 }
@@ -337,10 +331,10 @@ impl QualetizeApp {
                             // Update tracking
                             self.state.update_color_correction_tracking();
 
-                            log::info!("Settings loaded successfully from: {}", path);
+                            log::info!("Settings loaded successfully from: {path}");
                         }
                         Err(e) => {
-                            log::error!("Failed to load settings: {}", e);
+                            log::error!("Failed to load settings: {e}");
                         }
                     }
                 }

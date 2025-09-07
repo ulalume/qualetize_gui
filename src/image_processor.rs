@@ -40,7 +40,7 @@ impl ImageProcessor {
         let (bgra_data, width, height) = match bgra_result {
             Ok(data) => data,
             Err(e) => {
-                log::error!("Failed to generate BGRA data: {}", e);
+                log::error!("Failed to generate BGRA data: {e}");
                 return;
             }
         };
@@ -177,13 +177,12 @@ impl ImageProcessor {
         generation_id: u64,
     ) -> Result<QualetizeResult, String> {
         log::info!(
-            "Starting preview generation from BGRA data (generation {})",
-            generation_id
+            "Starting preview generation from BGRA data (generation {generation_id})"
         );
 
         // Check for cancellation
         if cancel_receiver.try_recv().is_ok() {
-            log::info!("Processing cancelled for generation {}", generation_id);
+            log::info!("Processing cancelled for generation {generation_id}");
             return Err("Processing cancelled".to_string());
         }
 

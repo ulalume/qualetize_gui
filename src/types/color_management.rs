@@ -1,7 +1,7 @@
 use moxcms::ColorProfile;
 
 pub fn convert_rgba_with_color_profile(
-    rgba_data: &Vec<u8>,
+    rgba_data: &[u8],
     width: usize,
     src_profile: &ColorProfile,
     dest_profile: &ColorProfile,
@@ -9,7 +9,7 @@ pub fn convert_rgba_with_color_profile(
     let transform = src_profile
         .create_transform_8bit(
             moxcms::Layout::Rgba,
-            &dest_profile,
+            dest_profile,
             moxcms::Layout::Rgba,
             moxcms::TransformOptions::default(),
         )

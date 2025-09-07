@@ -189,7 +189,7 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         // Show validation feedback with detailed error messages
         if let Some(error) = get_rgba_depth_error(&state.settings.rgba_depth) {
             ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
-                .on_hover_text(format!("{}\nExamples: 8888, 5551, 3331", error));
+                .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
         }
     });
 
@@ -681,7 +681,7 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
                 3 => "A",
                 _ => "?",
             };
-            return Some(format!("{} component '{}' is not a digit", component, ch));
+            return Some(format!("{component} component '{ch}' is not a digit"));
         }
 
         let digit = ch.to_digit(10).unwrap();
@@ -693,7 +693,7 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
                 3 => "A",
                 _ => "?",
             };
-            return Some(format!("{} component {} must be 1-8", component, digit));
+            return Some(format!("{component} component {digit} must be 1-8"));
         }
     }
 

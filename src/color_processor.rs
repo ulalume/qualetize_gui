@@ -171,5 +171,5 @@ pub fn format_percentage(value: f32) -> String {
 }
 
 pub fn format_gamma(gamma: f32) -> String {
-    format!("{:.2}", gamma)
+    format!("{gamma:.2}")
 }

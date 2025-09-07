@@ -373,22 +373,22 @@ impl ImageData {
         ctx: &egui::Context,
         display_icc_profile: &Option<Vec<u8>>,
     ) -> Result<ImageData, String> {
-        let file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
+        let file = File::open(path).map_err(|e| format!("Failed to open file: {e}"))?;
         let buf_reader = BufReader::new(file);
 
         let reader = ImageReader::new(buf_reader)
             .with_guessed_format()
-            .map_err(|e| format!("Image format guess error: {}", e))?;
+            .map_err(|e| format!("Image format guess error: {e}"))?;
         let mut decoder = reader
             .into_decoder()
-            .map_err(|e| format!("Decoder creation error: {}", e))?;
+            .map_err(|e| format!("Decoder creation error: {e}"))?;
 
         let icc_profile: Option<Vec<u8>> = decoder
             .icc_profile()
-            .map_err(|e| format!("Error reading ICC profile: {}", e))?;
+            .map_err(|e| format!("Error reading ICC profile: {e}"))?;
 
         let img = DynamicImage::from_decoder(decoder)
-            .map_err(|e| format!("Error decoding image: {}", e))?;
+            .map_err(|e| format!("Error decoding image: {e}"))?;
 
         let rgba_img = img.to_rgba8();
         let size = [img.width() as usize, img.height() as usize];

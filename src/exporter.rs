@@ -12,7 +12,7 @@ pub fn save_indexed_png(
 
     // Create PNG encoder
     let file =
-        File::create(output_path).map_err(|e| format!("Failed to create output file: {}", e))?;
+        File::create(output_path).map_err(|e| format!("Failed to create output file: {e}"))?;
     let w = BufWriter::new(file);
 
     let mut encoder = png::Encoder::new(w, width, height);
@@ -34,11 +34,11 @@ pub fn save_indexed_png(
 
     let mut writer = encoder
         .write_header()
-        .map_err(|e| format!("Failed to write PNG header: {}", e))?;
+        .map_err(|e| format!("Failed to write PNG header: {e}"))?;
 
     writer
         .write_image_data(indexed_pixel_data)
-        .map_err(|e| format!("Failed to write PNG image data: {}", e))?;
+        .map_err(|e| format!("Failed to write PNG image data: {e}"))?;
 
     Ok(())
 }
@@ -106,7 +106,7 @@ pub fn save_indexed_bmp(
         bmp_data.extend(std::iter::repeat_n(0, padding));
     }
 
-    std::fs::write(output_path, bmp_data).map_err(|e| format!("File write error: {}", e))?;
+    std::fs::write(output_path, bmp_data).map_err(|e| format!("File write error: {e}"))?;
 
     Ok(())
 }
@@ -135,15 +135,15 @@ pub fn save_rgba_image(
         crate::types::ExportFormat::Png => {
             dynamic_img
                 .save_with_format(output_path, image::ImageFormat::Png)
-                .map_err(|e| format!("PNG save error: {}", e))?;
+                .map_err(|e| format!("PNG save error: {e}"))?;
         }
         crate::types::ExportFormat::Bmp => {
             dynamic_img
                 .save_with_format(output_path, image::ImageFormat::Bmp)
-                .map_err(|e| format!("BMP save error: {}", e))?;
+                .map_err(|e| format!("BMP save error: {e}"))?;
         }
     }
 
-    log::info!("RGBA image exported successfully to: {}", output_path);
+    log::info!("RGBA image exported successfully to: {output_path}");
     Ok(())
 }

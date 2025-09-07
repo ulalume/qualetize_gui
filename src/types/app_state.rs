@@ -128,7 +128,7 @@ impl AppState {
         if self.preferences != self.last_preferences {
             self.last_preferences = self.preferences.clone();
             if let Err(e) = self.preferences.save() {
-                eprintln!("Failed to save preferences: {}", e);
+                eprintln!("Failed to save preferences: {e}");
             }
         }
     }
