@@ -37,14 +37,11 @@ pub struct PaletteSortSettings {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SortOrder {
+    #[default]
     Ascending,
     Descending,
-}
-impl Default for SortOrder {
-    fn default() -> Self {
-        Self::Ascending
-    }
 }
 
 impl SortOrder {
@@ -60,7 +57,9 @@ impl SortOrder {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SortMode {
+    #[default]
     None,
     Luminance,
     Hue,
@@ -89,11 +88,6 @@ impl SortMode {
     }
 }
 
-impl Default for SortMode {
-    fn default() -> Self {
-        Self::None
-    }
-}
 
 impl ImageDataIndexed {
     pub fn sorted(
