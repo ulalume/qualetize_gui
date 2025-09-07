@@ -2,12 +2,12 @@ use super::color_space::ColorSpace;
 use super::dither::DitherMode;
 use serde::{Deserialize, Serialize};
 
-#[repr(C)]
+#[repr(C, align(16))]
 pub struct Vec4f {
     pub f32: [f32; 4],
 }
 
-#[repr(C)]
+#[repr(C, align(8))]
 pub struct QualetizePlan {
     pub tile_width: u16,
     pub tile_height: u16,
