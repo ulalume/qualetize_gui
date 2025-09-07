@@ -36,8 +36,7 @@ pub struct PaletteSortSettings {
     pub order: SortOrder,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum SortOrder {
     #[default]
     Ascending,
@@ -56,8 +55,7 @@ impl SortOrder {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
 pub enum SortMode {
     #[default]
     None,
@@ -87,7 +85,6 @@ impl SortMode {
         ]
     }
 }
-
 
 impl ImageDataIndexed {
     pub fn sorted(
@@ -408,13 +405,13 @@ impl ImageData {
         let color_image = if let Some(display_icc_data) = display_icc_profile
             && let Some(display_profile) = ColorProfile::new_from_slice(display_icc_data).ok()
         {
-            let display_data = convert_rgba_with_color_profile(
+            let rgba_data = convert_rgba_with_color_profile(
                 &rgba_data,
                 width,
                 &ColorProfile::new_srgb(),
                 &display_profile,
             );
-            ColorImage::from_rgba_unmultiplied(size, &display_data)
+            ColorImage::from_rgba_unmultiplied(size, &rgba_data)
         } else {
             // No display profile, use sRGB data directly for both display and storage
             ColorImage::from_rgba_unmultiplied(size, &rgba_data)
