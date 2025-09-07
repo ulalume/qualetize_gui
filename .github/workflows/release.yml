@@ -152,12 +152,28 @@ jobs:
 
       - name: Create archive (Windows)
         if: matrix.archive_ext == 'zip'
-        shell: pwsh
+        shell: bash
         run: |
-          $VERSION = "${{ steps.get_version.outputs.version }}"
-          $ARCHIVE_NAME = "qualetize-gui-$VERSION-${{ matrix.target }}"
-          Compress-Archive -Path $env:RELEASE_DIR -DestinationPath "$ARCHIVE_NAME.zip" -Force
-          Write-Output "ARCHIVE_NAME=$ARCHIVE_NAME.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          VERSION=${{ steps.get_version.outputs.version }}
+          ARCHIVE_NAME="qualetize-gui-${VERSION}-${{ matrix.target }}"
+          python -c "
+          import zipfile
+          import os
+          import sys
+
+          release_dir = '${RELEASE_DIR}'
+          archive_name = '${ARCHIVE_NAME}.zip'
+
+          with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
+              for root, dirs, files in os.walk(release_dir):
+                  for file in files:
+                      file_path = os.path.join(root, file)
+                      arc_name = os.path.relpath(file_path, release_dir)
+                      zipf.write(file_path, arc_name)
+
+          print(f'Created {archive_name}')
+          "
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
 
       - name: Create archive (Unix)
         if: matrix.archive_ext == 'tar.gz'
