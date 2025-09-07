@@ -152,28 +152,46 @@ jobs:
 
       - name: Create archive (Windows)
         if: matrix.archive_ext == 'zip'
-        shell: pwsh
+        id: create_archive_win
+        shell: bash
         run: |
-          $VERSION = "${{ steps.get_version.outputs.version }}"
-          $ARCHIVE_NAME = "qualetize-gui-$VERSION-${{ matrix.target }}"
-          Compress-Archive -Path $env:RELEASE_DIR -DestinationPath "$ARCHIVE_NAME.zip" -Force
-          Write-Output "ARCHIVE_NAME=$ARCHIVE_NAME.zip" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          VERSION=${{ steps.get_version.outputs.version }}
+          ARCHIVE_NAME="qualetize-gui-${VERSION}-${{ matrix.target }}"
+          python -c "
+          import zipfile
+          import os
+          import sys
+
+          release_dir = '${RELEASE_DIR}'
+          archive_name = '${ARCHIVE_NAME}.zip'
+
+          with zipfile.ZipFile(archive_name, 'w', zipfile.ZIP_DEFLATED, compresslevel=6) as zipf:
+              for root, dirs, files in os.walk(release_dir):
+                  for file in files:
+                      file_path = os.path.join(root, file)
+                      arc_name = os.path.relpath(file_path, release_dir)
+                      zipf.write(file_path, arc_name)
+
+          print(f'Created {archive_name}')
+          "
+          echo "archive_name=${ARCHIVE_NAME}.zip" >> $GITHUB_OUTPUT
 
       - name: Create archive (Unix)
         if: matrix.archive_ext == 'tar.gz'
+        id: create_archive_unix
         shell: bash
         run: |
           VERSION=${{ steps.get_version.outputs.version }}
           ARCHIVE_NAME="qualetize-gui-${VERSION}-${{ matrix.target }}"
           tar -czf "${ARCHIVE_NAME}.tar.gz" --exclude='.DS_Store' "${RELEASE_DIR}"
-          echo "ARCHIVE_NAME=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          echo "archive_name=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_OUTPUT
 
       - name: Upload to Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.get_version.outputs.version }}
           name: QualetizeGUI ${{ steps.get_version.outputs.version }}
-          files: ${{ env.ARCHIVE_NAME }}
+          files: ${{ steps.create_archive_win.outputs.archive_name || steps.create_archive_unix.outputs.archive_name }}
           draft: false
           prerelease: false
           make_latest: true
