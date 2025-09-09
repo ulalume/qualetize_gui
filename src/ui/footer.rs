@@ -1,6 +1,5 @@
-use super::header::request_export;
 use super::styles;
-use crate::types::{AppState, ExportFormat};
+use crate::types::{AppState, ExportFormat, app_state::AppStateRequest};
 use egui::{Color32, Vec2};
 
 pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -39,11 +38,12 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 egui::Button::new("💾 Export Image"),
             );
             if response.clicked() {
-                request_export(
-                    state,
-                    state.preferences.selected_export_format.clone(),
-                    Some("qualetized"),
-                );
+                _ = state
+                    .app_state_request_sender
+                    .send(AppStateRequest::ExportImageDialog {
+                        format: state.preferences.selected_export_format.clone(),
+                        suffix: Some("qualetized".to_string()),
+                    });
             }
         });
 

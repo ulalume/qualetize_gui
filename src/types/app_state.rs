@@ -1,4 +1,5 @@
 use egui::Vec2;
+use std::sync::{Arc, atomic::AtomicBool, mpsc};
 
 use super::{
     color_correction::ColorCorrection,
@@ -37,6 +38,14 @@ pub enum AppStateRequest {
     LoadSettings {
         path: String,
     },
+
+    OpenImageDialog,
+    ExportImageDialog {
+        format: ExportFormat,
+        suffix: Option<String>,
+    },
+    SaveSettingsDialog,
+    LoadSettingsDialog,
 }
 
 #[derive(Debug, Clone)]
@@ -75,12 +84,17 @@ pub struct AppState {
     pub tile_size_warning: bool,
 
     // Export requests
-    pub pending_app_state_request: Option<AppStateRequest>,
+    pub app_state_request_receiver: mpsc::Receiver<AppStateRequest>,
+    pub app_state_request_sender: mpsc::Sender<AppStateRequest>,
+
+    pub file_dialog_open: Arc<AtomicBool>,
 }
 
 impl Default for AppState {
     fn default() -> Self {
         let preferences = UserPreferences::load();
+        let (sender, receiver) = mpsc::channel();
+
         Self {
             input_path: None,
             input_image: None,
@@ -105,7 +119,10 @@ impl Default for AppState {
 
             tile_size_warning: false,
 
-            pending_app_state_request: None,
+            app_state_request_receiver: receiver,
+            app_state_request_sender: sender,
+
+            file_dialog_open: Arc::new(AtomicBool::new(false)),
         }
     }
 }

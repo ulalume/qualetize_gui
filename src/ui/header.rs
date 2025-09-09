@@ -1,12 +1,9 @@
-use crate::settings_manager::SettingsBundle;
+use crate::types::app_state::AppStateRequest;
 use crate::types::{
-    AppState, ExportFormat, QualetizePreset,
-    app_state::{AppStateRequest, AppearanceMode},
+    AppState, ExportFormat, QualetizePreset, app_state::AppearanceMode,
     color_correction::ColorCorrectionPreset,
 };
 use crate::ui::styles::UiMarginExt;
-use rfd::FileDialog;
-use std::path::Path;
 
 pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
@@ -15,37 +12,42 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         // --- File menu ---
         ui.menu_button("File", |ui| {
             if ui.button("Open Image...").clicked() {
+                _ = state
+                    .app_state_request_sender
+                    .send(AppStateRequest::OpenImageDialog);
                 ui.close();
-
-                // Ensure proper resource cleanup by scoping the dialog
-                let selected_path = {
-                    let dialog = FileDialog::new()
-                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
-                    dialog.pick_file()
-                };
-
-                if let Some(path) = selected_path {
-                    state.pending_app_state_request = Some(AppStateRequest::LoadImage {
-                        path: path.display().to_string(),
-                    });
-                }
             }
             ui.separator();
 
             ui.menu_button("Export Image", |ui| {
                 ui.add_enabled_ui(state.color_corrected_image.is_some(), |ui| {
                     if ui.button("Color Corrected PNG").clicked() {
-                        request_export(state, ExportFormat::Png, Some("color_corrected"));
+                        _ = state.app_state_request_sender.send(
+                            AppStateRequest::ExportImageDialog {
+                                format: ExportFormat::Png,
+                                suffix: Some("color_corrected".to_string()),
+                            },
+                        );
                         ui.close();
                     }
                 });
                 ui.add_enabled_ui(state.output_image.is_some(), |ui| {
                     if ui.button("Qualetized Indexed PNG").clicked() {
-                        request_export(state, ExportFormat::PngIndexed, Some("qualetized"));
+                        _ = state.app_state_request_sender.send(
+                            AppStateRequest::ExportImageDialog {
+                                format: ExportFormat::PngIndexed,
+                                suffix: Some("qualetized".to_string()),
+                            },
+                        );
                         ui.close();
                     }
                     if ui.button("Qualetized Indexed BMP").clicked() {
-                        request_export(state, ExportFormat::Bmp, Some("qualetized"));
+                        _ = state.app_state_request_sender.send(
+                            AppStateRequest::ExportImageDialog {
+                                format: ExportFormat::Bmp,
+                                suffix: Some("qualetized".to_string()),
+                            },
+                        );
                         ui.close();
                     }
                 });
@@ -56,11 +58,15 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.menu_button("Settings", |ui| {
                 if ui.button("Load Settings...").clicked() {
                     ui.close();
-                    request_settings_load(state);
+                    _ = state
+                        .app_state_request_sender
+                        .send(AppStateRequest::LoadSettingsDialog);
                 }
                 if ui.button("Save Settings...").clicked() {
                     ui.close();
-                    request_settings_save(state);
+                    _ = state
+                        .app_state_request_sender
+                        .send(AppStateRequest::SaveSettingsDialog);
                 }
             });
         });
@@ -241,103 +247,4 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     }
 
     settings_changed
-}
-
-pub fn request_export(state: &mut AppState, format: ExportFormat, suffix: Option<&str>) {
-    if let Some(input_path) = state.input_path.clone() {
-        let default_path = get_export_path(input_path, &format, suffix);
-
-        // Ensure proper resource cleanup by scoping the dialog and result
-        let export_result = {
-            let mut dialog = FileDialog::new().add_filter(
-                format!("{} files", format.display_name()),
-                &[format.extension()],
-            );
-
-            if let Some(filename) = default_path.file_name() {
-                dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
-            }
-            if let Some(parent) = default_path.parent() {
-                dialog = dialog.set_directory(parent);
-            }
-
-            dialog.save_file()
-        }; // dialog is dropped here
-
-        // Process result after dialog is cleaned up
-        if let Some(output_path) = export_result {
-            let export_request = match format {
-                ExportFormat::Png => AppStateRequest::ColorCorrectedPng {
-                    output_path: output_path.display().to_string(),
-                },
-                _ => AppStateRequest::QualetizedIndexed {
-                    output_path: output_path.display().to_string(),
-                    format,
-                },
-            };
-            state.pending_app_state_request = Some(export_request);
-        }
-    }
-}
-
-pub fn request_settings_save(state: &mut AppState) {
-    // Ensure proper resource cleanup by scoping the dialog and result
-    let save_result = {
-        let mut dialog = FileDialog::new()
-            .add_filter(
-                "QualetizeGUI Settings",
-                &[SettingsBundle::get_settings_file_extension()],
-            )
-            .set_file_name("qualetize_settings.qset");
-
-        if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-            dialog = dialog.set_directory(&settings_dir);
-        }
-
-        dialog.save_file()
-    }; // dialog is dropped here
-
-    // Process result after dialog is cleaned up
-    if let Some(output_path) = save_result {
-        state.pending_app_state_request = Some(AppStateRequest::SaveSettings {
-            path: output_path.display().to_string(),
-        });
-    }
-}
-
-pub fn request_settings_load(state: &mut AppState) {
-    let load_result = {
-        let mut dialog = FileDialog::new().add_filter(
-            "QualetizeGUI Settings",
-            &[SettingsBundle::get_settings_file_extension()],
-        );
-
-        if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-            dialog = dialog.set_directory(&settings_dir);
-        }
-
-        dialog.pick_file()
-    };
-    if let Some(input_path) = load_result {
-        state.pending_app_state_request = Some(AppStateRequest::LoadSettings {
-            path: input_path.display().to_string(),
-        });
-    }
-}
-
-fn get_export_path(
-    input_path: String,
-    format: &ExportFormat,
-    suffix: Option<&str>,
-) -> std::path::PathBuf {
-    let path = Path::new(&input_path);
-
-    let parent = path.parent().unwrap_or(Path::new("."));
-    let stem = path.file_stem().unwrap_or(std::ffi::OsStr::new("output"));
-    let new_name = if let Some(suffix) = suffix {
-        format!("{}_{}", stem.to_string_lossy(), suffix)
-    } else {
-        stem.to_string_lossy().to_string()
-    };
-    parent.join(new_name).with_extension(format.extension())
 }

@@ -1,13 +1,20 @@
+use std::path::Path;
+
 use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
 use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
-use crate::types::AppState;
 use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
 use crate::types::image::SortMode;
+use crate::types::{AppState, ExportFormat};
 use crate::ui::UI;
 use eframe::egui;
 use egui::Margin;
+use rfd::FileDialog;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 
 pub struct QualetizeApp {
     state: AppState,
@@ -34,13 +41,17 @@ impl QualetizeApp {
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
+
         if !dropped_files.is_empty()
             && let Some(dropped_file) = dropped_files.first()
             && let Some(path) = &dropped_file.path
         {
-            self.state.pending_app_state_request = Some(AppStateRequest::LoadImage {
-                path: path.display().to_string(),
-            });
+            _ = self
+                .state
+                .app_state_request_sender
+                .send(AppStateRequest::LoadImage {
+                    path: path.display().to_string(),
+                });
         }
     }
 
@@ -173,159 +184,255 @@ impl QualetizeApp {
     }
 
     fn handle_requests(&mut self, ctx: &egui::Context) {
-        if let Some(app_state_request) = self.state.pending_app_state_request.take() {
-            match app_state_request {
-                AppStateRequest::LoadImage { path } => {
-                    self.load_image_file(path.clone(), ctx);
-                    self.apply_color_correct_image(ctx);
-                    self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                        time: std::time::Instant::now(),
-                    });
-                    self.state.update_color_correction_tracking();
-                }
-                AppStateRequest::ColorCorrectedPng { output_path } => {
-                    // Use ImageData pixels directly
-                    if let Some(color_corrected_image) = &self.state.color_corrected_image {
-                        let rgba_data = color_corrected_image.rgba_data.clone();
-                        let width = color_corrected_image.width;
-                        let height = color_corrected_image.height;
-                        std::thread::spawn(move || {
-                            match save_rgba_image(
-                                &output_path,
-                                &rgba_data,
-                                width,
-                                height,
-                                crate::types::ExportFormat::Png,
-                            ) {
-                                Ok(()) => {
-                                    log::info!(
-                                        "Color corrected PNG export completed successfully (from memory)"
-                                    );
-                                }
-                                Err(e) => {
-                                    log::error!("Color corrected PNG export failed: {e}");
-                                }
-                            }
-                        });
-                    } else {
-                        log::error!("No color corrected image data available in memory");
-                    }
-                }
-                AppStateRequest::QualetizedIndexed {
-                    output_path,
-                    format,
-                } => {
-                    let Some(output_image) = &self.state.output_image else {
-                        log::error!("Qualetized export failed: output image is None");
-                        return;
-                    };
+        // Check for file dialog results first
+        let Ok(app_state_request) = &self.state.app_state_request_receiver.try_recv() else {
+            return;
+        };
+        match app_state_request {
+            AppStateRequest::LoadImage { path } => {
+                self.load_image_file(path.clone(), ctx);
+                self.apply_color_correct_image(ctx);
+                self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                    time: std::time::Instant::now(),
+                });
+                self.state.update_color_correction_tracking();
+            }
+            AppStateRequest::ColorCorrectedPng { output_path } => {
+                // Use ImageData pixels directly
+                let Some(color_corrected_image) = &self.state.color_corrected_image else {
+                    log::error!("No color corrected image data available in memory");
+                    return;
+                };
 
-                    let indexed = if self.state.output_palette_sorted_indexed_image.is_some() {
-                        &self.state.output_palette_sorted_indexed_image
-                    } else if let Some(image) = &self.state.output_image {
-                        &image.indexed
-                    } else {
-                        &None
-                    };
-
-                    let Some(indexed) = indexed else {
-                        return;
-                    };
-
-                    match format {
-                        crate::types::ExportFormat::Png => {
-                            log::error!("Qualetized export failed: Unexpected format");
-                        }
-                        crate::types::ExportFormat::Bmp => {
-                            match save_indexed_bmp(
-                                &output_path,
-                                &indexed.indexed_pixels,
-                                &indexed.palettes,
-                                output_image.width,
-                                output_image.height,
-                            ) {
-                                Ok(()) => {
-                                    log::info!(
-                                        "Qualetized indexed BMP export completed successfully"
-                                    );
-                                }
-                                Err(e) => {
-                                    log::error!("Qualetized indexed export failed: {e}");
-                                }
-                            }
-                        }
-                        crate::types::ExportFormat::PngIndexed => {
-                            match save_indexed_png(
-                                &output_path,
-                                &indexed.indexed_pixels,
-                                &indexed.palettes,
-                                output_image.width,
-                                output_image.height,
-                            ) {
-                                Ok(()) => {
-                                    log::info!(
-                                        "Qualetized indexed PNG export completed successfully"
-                                    );
-                                }
-                                Err(e) => {
-                                    log::error!("Qualetized indexed export failed: {e}");
-                                }
-                            }
-                        }
-                    }
-                }
-                AppStateRequest::SaveSettings { path } => {
-                    let settings_bundle = SettingsBundle::new(
-                        self.state.settings.clone(),
-                        self.state.color_correction.clone(),
-                        self.state.palette_sort_settings.clone(),
-                    );
-
-                    match settings_bundle.save_to_file(&path) {
+                let output_path = output_path.clone();
+                let rgba_data = color_corrected_image.rgba_data.clone();
+                let width = color_corrected_image.width;
+                let height = color_corrected_image.height;
+                std::thread::spawn(move || {
+                    match save_rgba_image(
+                        &output_path,
+                        &rgba_data,
+                        width,
+                        height,
+                        crate::types::ExportFormat::Png,
+                    ) {
                         Ok(()) => {
-                            log::info!("Settings saved successfully to: {path}");
+                            log::info!(
+                                "Color corrected PNG export completed successfully (from memory)"
+                            );
                         }
                         Err(e) => {
-                            log::error!("Failed to save settings: {e}");
+                            log::error!("Color corrected PNG export failed: {e}");
+                        }
+                    }
+                });
+            }
+            AppStateRequest::QualetizedIndexed {
+                output_path,
+                format,
+            } => {
+                let Some(output_image) = &self.state.output_image else {
+                    log::error!("Qualetized export failed: output image is None");
+                    return;
+                };
+
+                let indexed = if self.state.output_palette_sorted_indexed_image.is_some() {
+                    &self.state.output_palette_sorted_indexed_image
+                } else if let Some(image) = &self.state.output_image {
+                    &image.indexed
+                } else {
+                    &None
+                };
+
+                let Some(indexed) = indexed else {
+                    return;
+                };
+
+                match format {
+                    crate::types::ExportFormat::Png => {
+                        log::error!("Qualetized export failed: Unexpected format");
+                    }
+                    crate::types::ExportFormat::Bmp => {
+                        match save_indexed_bmp(
+                            &output_path,
+                            &indexed.indexed_pixels,
+                            &indexed.palettes,
+                            output_image.width,
+                            output_image.height,
+                        ) {
+                            Ok(()) => {
+                                log::info!("Qualetized indexed BMP export completed successfully");
+                            }
+                            Err(e) => {
+                                log::error!("Qualetized indexed export failed: {e}");
+                            }
+                        }
+                    }
+                    crate::types::ExportFormat::PngIndexed => {
+                        match save_indexed_png(
+                            &output_path,
+                            &indexed.indexed_pixels,
+                            &indexed.palettes,
+                            output_image.width,
+                            output_image.height,
+                        ) {
+                            Ok(()) => {
+                                log::info!("Qualetized indexed PNG export completed successfully");
+                            }
+                            Err(e) => {
+                                log::error!("Qualetized indexed export failed: {e}");
+                            }
                         }
                     }
                 }
-                AppStateRequest::LoadSettings { path } => {
-                    match SettingsBundle::load_from_file(&path) {
-                        Ok(settings_bundle) => {
-                            // Cancel any existing processing
-                            if self.image_processor.is_processing() {
-                                self.image_processor.cancel_current_processing();
-                                self.image_processor = ImageProcessor::new();
-                            }
+            }
+            AppStateRequest::SaveSettings { path } => {
+                let settings_bundle = SettingsBundle::new(
+                    self.state.settings.clone(),
+                    self.state.color_correction.clone(),
+                    self.state.palette_sort_settings.clone(),
+                );
 
-                            // Apply loaded settings
-                            self.state.settings = settings_bundle.qualetize_settings;
-                            self.state.color_correction = settings_bundle.color_correction;
-                            self.state.palette_sort_settings = settings_bundle.sort_settings;
-
-                            self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                                time: std::time::Instant::now(),
-                            });
-
-                            if let Some(input_image) = &self.state.input_image {
-                                self.state.color_corrected_image = Some(
-                                    input_image.color_corrected(&self.state.color_correction, ctx),
-                                );
-                            } else {
-                                self.state.color_corrected_image = None;
-                            }
-
-                            // Update tracking
-                            self.state.update_color_correction_tracking();
-
-                            log::info!("Settings loaded successfully from: {path}");
-                        }
-                        Err(e) => {
-                            log::error!("Failed to load settings: {e}");
-                        }
+                match settings_bundle.save_to_file(&path) {
+                    Ok(()) => {
+                        log::info!("Settings saved successfully to: {path}");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to save settings: {e}");
                     }
                 }
+            }
+            AppStateRequest::LoadSettings { path } => {
+                match SettingsBundle::load_from_file(&path) {
+                    Ok(settings_bundle) => {
+                        // Cancel any existing processing
+                        if self.image_processor.is_processing() {
+                            self.image_processor.cancel_current_processing();
+                            self.image_processor = ImageProcessor::new();
+                        }
+
+                        // Apply loaded settings
+                        self.state.settings = settings_bundle.qualetize_settings;
+                        self.state.color_correction = settings_bundle.color_correction;
+                        self.state.palette_sort_settings = settings_bundle.sort_settings;
+
+                        self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                            time: std::time::Instant::now(),
+                        });
+
+                        if let Some(input_image) = &self.state.input_image {
+                            self.state.color_corrected_image = Some(
+                                input_image.color_corrected(&self.state.color_correction, ctx),
+                            );
+                        } else {
+                            self.state.color_corrected_image = None;
+                        }
+
+                        // Update tracking
+                        self.state.update_color_correction_tracking();
+
+                        log::info!("Settings loaded successfully from: {path}");
+                    }
+                    Err(e) => {
+                        log::error!("Failed to load settings: {e}");
+                    }
+                }
+            }
+            AppStateRequest::OpenImageDialog => {
+                let sender = self.state.app_state_request_sender.clone();
+                let dialog_flag = self.state.file_dialog_open.clone();
+                std::thread::spawn(move || {
+                    let _guard = FileDialogGuard::new(dialog_flag);
+                    let dialog = FileDialog::new()
+                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
+
+                    let Some(path) = dialog.pick_file() else {
+                        return;
+                    };
+                    _ = sender.send(AppStateRequest::LoadImage {
+                        path: path.display().to_string(),
+                    });
+                });
+            }
+            AppStateRequest::ExportImageDialog { format, suffix } => {
+                let sender = self.state.app_state_request_sender.clone();
+                let Some(input_path) = self.state.input_path.clone() else {
+                    return;
+                };
+                let default_path = get_export_path(input_path, &format, suffix.clone());
+                let format_clone = format.clone();
+
+                let dialog_flag = self.state.file_dialog_open.clone();
+                std::thread::spawn(move || {
+                    let _guard = FileDialogGuard::new(dialog_flag);
+                    let mut dialog = FileDialog::new().add_filter(
+                        format!("{} files", format_clone.display_name()),
+                        &[format_clone.extension()],
+                    );
+                    if let Some(filename) = default_path.file_name() {
+                        dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
+                    }
+                    if let Some(parent) = default_path.parent() {
+                        dialog = dialog.set_directory(parent);
+                    }
+                    let Some(file) = dialog.save_file() else {
+                        return;
+                    };
+                    let export_request = match format_clone {
+                        crate::types::ExportFormat::Png => AppStateRequest::ColorCorrectedPng {
+                            output_path: file.display().to_string(),
+                        },
+                        _ => AppStateRequest::QualetizedIndexed {
+                            output_path: file.display().to_string(),
+                            format: format_clone,
+                        },
+                    };
+                    _ = sender.send(export_request);
+                });
+            }
+            AppStateRequest::SaveSettingsDialog => {
+                let sender = self.state.app_state_request_sender.clone();
+                let dialog_flag = self.state.file_dialog_open.clone();
+                std::thread::spawn(move || {
+                    let _guard = FileDialogGuard::new(dialog_flag);
+                    let mut dialog = FileDialog::new()
+                        .add_filter(
+                            "QualetizeGUI Settings",
+                            &[SettingsBundle::get_settings_file_extension()],
+                        )
+                        .set_file_name("qualetize_settings.qset");
+
+                    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
+                        dialog = dialog.set_directory(&settings_dir);
+                    }
+
+                    let Some(file) = dialog.pick_file() else {
+                        return;
+                    };
+                    _ = sender.send(AppStateRequest::SaveSettings {
+                        path: file.display().to_string(),
+                    });
+                });
+            }
+            AppStateRequest::LoadSettingsDialog => {
+                let sender = self.state.app_state_request_sender.clone();
+                let dialog_flag = self.state.file_dialog_open.clone();
+                std::thread::spawn(move || {
+                    let _guard = FileDialogGuard::new(dialog_flag);
+                    let mut dialog = FileDialog::new().add_filter(
+                        "QualetizeGUI Settings",
+                        &[SettingsBundle::get_settings_file_extension()],
+                    );
+                    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
+                        dialog = dialog.set_directory(&settings_dir);
+                    }
+                    let Some(file) = dialog.pick_file() else {
+                        return;
+                    };
+                    _ = sender.send(AppStateRequest::LoadSettings {
+                        path: file.display().to_string(),
+                    });
+                });
             }
         }
     }
@@ -380,7 +487,9 @@ impl eframe::App for QualetizeApp {
         self.apply_theme(ctx);
 
         // Handle drag and drop first
-        self.handle_dropped_files(ctx);
+        if !self.state.file_dialog_open.load(Ordering::Relaxed) {
+            self.handle_dropped_files(ctx);
+        }
 
         // Check preview completion
         self.check_preview_completion(ctx);
@@ -458,5 +567,40 @@ impl eframe::App for QualetizeApp {
         {
             ctx.request_repaint();
         }
+    }
+}
+
+fn get_export_path(
+    input_path: String,
+    format: &ExportFormat,
+    suffix: Option<String>,
+) -> std::path::PathBuf {
+    let path = Path::new(&input_path);
+
+    let parent = path.parent().unwrap_or(Path::new("."));
+    let stem = path.file_stem().unwrap_or(std::ffi::OsStr::new("output"));
+    let new_name = if let Some(suffix) = suffix {
+        format!("{}_{}", stem.to_string_lossy(), suffix)
+    } else {
+        stem.to_string_lossy().to_string()
+    };
+    parent.join(new_name).with_extension(format.extension())
+}
+
+pub struct FileDialogGuard {
+    flag: Arc<AtomicBool>,
+}
+
+impl FileDialogGuard {
+    pub fn new(flag: Arc<AtomicBool>) -> Self {
+        flag.store(true, Ordering::Relaxed);
+        Self { flag }
+    }
+}
+
+impl Drop for FileDialogGuard {
+    fn drop(&mut self) {
+        self.flag.store(false, Ordering::Relaxed);
+        log::debug!("FileDialogGuard dropped - dialog closed");
     }
 }
