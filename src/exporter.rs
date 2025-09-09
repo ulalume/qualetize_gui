@@ -51,7 +51,7 @@ pub fn save_indexed_bmp(
 ) -> Result<(), String> {
     // Create 8-bit indexed BMP with palette (always 256 entries)
     let palette_size = palette_data.len().min(256); // Max 256 colors for 8-bit
-    let row_size = ((width + 3) / 4) * 4; // 4-byte aligned for 8-bit data
+    let row_size = width.div_ceil(4) * 4; // 4-byte aligned for 8-bit data
     let image_size = row_size * height;
     let palette_bytes = 256 * 4; // Always 256 palette entries * 4 bytes each (BGRA)
     let data_offset = 54 + palette_bytes; // Header + palette

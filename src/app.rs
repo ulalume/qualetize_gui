@@ -254,7 +254,7 @@ impl QualetizeApp {
                     }
                     crate::types::ExportFormat::Bmp => {
                         match save_indexed_bmp(
-                            &output_path,
+                            output_path,
                             &indexed.indexed_pixels,
                             &indexed.palettes,
                             output_image.width,
@@ -270,7 +270,7 @@ impl QualetizeApp {
                     }
                     crate::types::ExportFormat::PngIndexed => {
                         match save_indexed_png(
-                            &output_path,
+                            output_path,
                             &indexed.indexed_pixels,
                             &indexed.palettes,
                             output_image.width,
@@ -293,7 +293,7 @@ impl QualetizeApp {
                     self.state.palette_sort_settings.clone(),
                 );
 
-                match settings_bundle.save_to_file(&path) {
+                match settings_bundle.save_to_file(path) {
                     Ok(()) => {
                         log::info!("Settings saved successfully to: {path}");
                     }
@@ -303,7 +303,7 @@ impl QualetizeApp {
                 }
             }
             AppStateRequest::LoadSettings { path } => {
-                match SettingsBundle::load_from_file(&path) {
+                match SettingsBundle::load_from_file(path) {
                     Ok(settings_bundle) => {
                         // Cancel any existing processing
                         if self.image_processor.is_processing() {
@@ -359,7 +359,7 @@ impl QualetizeApp {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
-                let default_path = get_export_path(input_path, &format, suffix.clone());
+                let default_path = get_export_path(input_path, format, suffix.clone());
                 let format_clone = format.clone();
 
                 let dialog_flag = self.state.file_dialog_open.clone();
