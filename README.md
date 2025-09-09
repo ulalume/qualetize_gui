@@ -12,16 +12,52 @@ This tool is designed for _Genesis_, _GBA/NDS_ graphics and can be adapted for c
 
 ## Installation
 
-### App Download (Windows/ macOS/ Linux)
+There are three ways:
+
+### 1. App Download (Windows/ macOS/ Linux)
 
 Download the latest app from [GitHub Releases](https://github.com/ulalume/qualetize_gui/releases/latest).
 
-### Cargo Installation
+> **Note:** The app is not currently notarized.\
+> On some systems you may encounter warnings or issues when downloading
+> or launching it.\
+> If that happens, please try the installation method below.
+
+### 2. Cargo Build
+
+You can also build an application bundle yourself using Cargo:
+
+```sh
+git clone --recursive https://github.com/ulalume/qualetize_gui
+cd qualetize_gui
+
+cargo bundle --release
+
+# for Windows
+cargo bundle --release --target x86_64-pc-windows-gnu
+```
+
+This will generate an application bundle (e.g. `.app` on macOS).
+It has only been tested on macOS. If you encounter issues, please use `cargo build --release` instead.
+
+> **Note (Windows):**\
+> Building with `x86_64-pc-windows-msvc` will fail.\
+> Please specify `--target x86_64-pc-windows-gnu` instead.
+
+> **Note (Linux):**\
+> Additionally, on Linux, building has only been tested with the GNU toolchain.
+
+### 3. Cargo Installation
 
 You can also install using Cargo:
 
 ```sh
 cargo install --git https://github.com/ulalume/qualetize_gui
+
+# for Windows
+cargo install --git https://github.com/ulalume/qualetize_gui --target x86_64-pc-windows-gnu
+
+# Launch app
 qualetize_gui
 ```
 
