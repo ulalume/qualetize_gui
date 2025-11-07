@@ -11,7 +11,6 @@
     "dither_level": 0.5,
     "tile_passes": 1000,
     "color_passes": 100,
-    "split_ratio": -1.0,
     "col0_is_clear": false,
     "clear_color": "None"
   },

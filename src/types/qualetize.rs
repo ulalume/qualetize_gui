@@ -25,7 +25,6 @@ pub struct QualetizePlan {
     pub premultiplied_alpha: u8,
     pub dither_type: u8,
     pub dither_level: f32,
-    pub split_ratio: f32,
     pub n_tile_cluster_passes: u32,
     pub n_color_cluster_passes: u32,
     pub color_depth: Vec4f,
@@ -93,7 +92,6 @@ pub struct QualetizeSettings {
     pub dither_level: f32,
     pub tile_passes: u32,
     pub color_passes: u32,
-    pub split_ratio: f32,
     pub col0_is_clear: bool,
     pub clear_color: ClearColor,
 }
@@ -150,7 +148,6 @@ impl QualetizeSettings {
             dither_level: 0.5,
             tile_passes: 1000,
             color_passes: 100,
-            split_ratio: -1.0,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
         }
@@ -175,7 +172,6 @@ impl QualetizeSettings {
             dither_level: 0.5,
             tile_passes: 1000,
             color_passes: 100,
-            split_ratio: -1.0,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
         }
@@ -203,7 +199,6 @@ impl Default for QualetizeSettings {
             dither_level: 0.5,
             tile_passes: 1000,
             color_passes: 100,
-            split_ratio: -1.0,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
         }
@@ -251,7 +246,6 @@ impl From<QualetizeSettings> for QualetizePlan {
             premultiplied_alpha: if settings.premul_alpha { 1 } else { 0 },
             dither_type: settings.dither_mode.to_id(),
             dither_level: settings.dither_level,
-            split_ratio: settings.split_ratio,
             n_tile_cluster_passes: settings.tile_passes,
             n_color_cluster_passes: settings.color_passes,
             color_depth: Vec4f {

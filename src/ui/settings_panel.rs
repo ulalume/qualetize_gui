@@ -344,18 +344,6 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         });
     });
 
-    ui.horizontal(|ui| {
-        ui.label("Split Ratio:")
-            .on_hover_text("Set the cluster splitting ratio\nClusters will stop splitting after splitting all clusters with a total distortion higher than this ratio times the global distortion.\nA value of 1.0 will split all clusters simultaneously (best performance, lower quality),\nwhile a value of 0.0 will split only one cluster at a time (worst performance, best quality).\nA value of -1 will set the ratio automatically based on the number of colors;\nRatio = 1 - 2^(1-k/16).");
-        if ui
-            .add(egui::DragValue::new(&mut state.settings.split_ratio).range(-1.0..=1.0))
-            .on_hover_text("Split Ratio (-1.0 to 1.0)")
-            .changed()
-        {
-            settings_changed = true;
-        }
-    });
-
     settings_changed
 }
 
