@@ -1,7 +1,7 @@
 # Qualetize GUI
 
 <p align="center">
-  <img width="240" height="240" src="https://raw.githubusercontent.com/ulalume/qualetize_gui/main/docs/icon.png" alt="app icon">
+  <img width="240" height="240" src="https://raw.githubusercontent.com/ulalume/qualetize_gui/main/assets/icon.png" alt="app icon">
 </p>
 
 **Qualetize GUI** is an unofficial GUI frontend for [Qualetize (by Aikku93)](https://github.com/Aikku93/qualetize/).
