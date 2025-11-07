@@ -152,6 +152,7 @@ jobs:
             # For Linux
             if [ -f "target/${{ github.event.inputs.target }}/release/QualetizeGUI" ]; then
               cp target/${{ github.event.inputs.target }}/release/QualetizeGUI "${RELEASE_DIR}/"
+              cp assets/icon.png "${RELEASE_DIR}/icon.png"
               echo "Copied Linux executable"
             else
               echo "ERROR: Linux executable not found"

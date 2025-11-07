@@ -145,6 +145,7 @@ jobs:
               cp target/${{ matrix.target }}/release/QualetizeGUI${{ matrix.executable_ext }} "${RELEASE_DIR}/"
             else
               cp target/${{ matrix.target }}/release/QualetizeGUI "${RELEASE_DIR}/"
+              cp assets/icon.png "${RELEASE_DIR}/icon.png"
             fi
           fi
 
