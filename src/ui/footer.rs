@@ -9,7 +9,7 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
         draw_view_controls(ui, state);
 
-        if width > 560.0 {
+        if width > 660.0 {
             ui.separator();
             ui.label("🖱 Drag to pan, scroll to zoom");
         }
@@ -22,11 +22,21 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_view_controls(ui: &mut egui::Ui, state: &mut AppState) {
-    if ui.button("🔄 Reset Zoom").clicked() {
+    let width = ui.available_width();
+    if ui
+        .button(if width > 360.0 {
+            "🔄 Reset Zoom"
+        } else {
+            "🔄"
+        })
+        .clicked()
+    {
         state.zoom = 1.0;
         state.pan_offset = Vec2::ZERO;
     }
-    ui.label(format!("🔍 Zoom: {:.1}x", state.zoom));
+    if width > 460.0 {
+        ui.label(format!("🔍 Zoom: {:.1}x", state.zoom));
+    }
 }
 
 fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
