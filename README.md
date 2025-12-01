@@ -71,8 +71,10 @@ qualetize_gui
 
 - Instant preview updates when parameters are changed
 - Color adjustment tools
-- Display palettes
+- Display palettes (hover to see palette/index and RGBA/hex)
 - Reorder palette colors
+- Tile count display (with flip/transparent handling)
+- Custom per-channel quantization levels (Genesis preset uses the real hardware brightness steps)
 - Save and load custom settings presets
 
 ## Settings Management
