@@ -1,6 +1,6 @@
 use super::styles::UiMarginExt;
 use crate::types::AppState;
-use egui::{Align2, Color32, FontId, Pos2, Rect, Vec2};
+use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {
     const HORIZONTAL_MARGIN: f32 = 4.0;
@@ -346,6 +346,10 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
         return;
     }
 
+    let ctx = painter.ctx();
+    let pointer_pos = ctx.pointer_hover_pos();
+    let mut hovered: Option<(usize, usize, egui::Color32)> = None;
+
     let palette_margin = 8.0;
     let palette_spacing = 1.0;
     let palette_size = calculate_palette_size(&rect, palettes, palette_margin, palette_spacing);
@@ -353,7 +357,7 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
     let start_x = rect.max.x - palette_margin;
     let mut current_y = rect.min.y + palette_margin;
 
-    for palette in palettes {
+    for (palette_idx, palette) in palettes.iter().enumerate() {
         draw_single_palette(
             painter,
             palette,
@@ -362,7 +366,49 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
             palette_size,
             palette_spacing,
         );
+
+        if let Some(pos) = pointer_pos {
+            let palette_width =
+                (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
+            for (color_idx, &color) in palette.iter().enumerate() {
+                let x =
+                    start_x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
+                let color_rect = Rect::from_min_size(
+                    Pos2::new(x, current_y),
+                    Vec2::new(palette_size, palette_size),
+                );
+                if color_rect.contains(pos) {
+                    hovered = Some((palette_idx, color_idx, color));
+                    break;
+                }
+            }
+        }
+
         current_y += palette_size + palette_spacing;
+    }
+
+    if let Some((palette_idx, color_idx, color)) = hovered {
+        let rgba = format!(
+            "RGBA({},{},{},{})",
+            color.r(),
+            color.g(),
+            color.b(),
+            color.a()
+        );
+
+        if let Some(pointer_pos) = pointer_pos {
+            egui::Tooltip::always_open(
+                ctx.clone(),
+                painter.layer_id(),
+                Id::new("palette_chip_tooltip"),
+                pointer_pos,
+            )
+            .show(|ui| {
+                ui.set_width(150.0);
+                ui.label(format!("Palette:{}, Index:{}", palette_idx, color_idx));
+                ui.label(rgba);
+            });
+        }
     }
 }
 
