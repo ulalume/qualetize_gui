@@ -822,7 +822,7 @@ fn draw_tile_count_settings(ui: &mut egui::Ui, state: &mut AppState) {
         if ui
             .checkbox(
                 &mut state.tile_count.settings.allow_flip_x,
-                "Allowed Flips: X",
+                "Allowed X Flips",
             )
             .clicked()
         {
@@ -831,7 +831,7 @@ fn draw_tile_count_settings(ui: &mut egui::Ui, state: &mut AppState) {
         if ui
             .checkbox(
                 &mut state.tile_count.settings.allow_flip_y,
-                "Allowed Flips: Y",
+                "Allowed Y Flips",
             )
             .clicked()
         {
