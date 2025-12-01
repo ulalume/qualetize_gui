@@ -12,7 +12,14 @@
     "tile_passes": 1000,
     "color_passes": 100,
     "col0_is_clear": false,
-    "clear_color": "None"
+    "clear_color": "None",
+    "use_custom_levels": true,
+    "custom_levels": [
+      "0,49,87,119,146,174,206,255",
+      "0,49,87,119,146,174,206,255",
+      "0,49,87,119,146,174,206,255",
+      "0,255"
+    ]
   },
   "color_correction": {
     "brightness": 0.0,
@@ -27,5 +34,5 @@
     "mode": "None",
     "order": "Ascending"
   },
-  "version": "0.3.2"
+  "version": "0.3.7"
 }

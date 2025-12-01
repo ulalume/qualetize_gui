@@ -2,6 +2,7 @@ use super::styles::UiMarginExt;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
+use crate::types::qualetize::validate_0_255_array;
 use crate::types::{
     AppState, ClearColor, ColorSpace, DitherMode,
     color_correction::ColorCorrection,
@@ -57,6 +58,9 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.add_space(4.0);
 
     settings_changed |= draw_tile_settings(ui, state);
+
+    ui.separator();
+    settings_changed |= draw_depth_settings(ui, state);
 
     ui.separator();
 
@@ -157,41 +161,113 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ui.label("(max: 256)");
     });
 
+    settings_changed
+}
+
+fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+    ui.label("Per-channel levels (0-255, comma separated, max 255 entries)");
+
+    let channel_labels = ["R", "G", "B", "A"];
+    for (idx, label) in channel_labels.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.label(format!("{label}:"));
+            let mut response = ui.add_sized(
+                [260.0, ui.spacing().interact_size.y],
+                egui::TextEdit::singleline(&mut state.settings.custom_levels[idx]),
+            );
+
+            let is_valid = validate_0_255_array(&state.settings.custom_levels[idx]);
+            if !is_valid {
+                response = response.highlight();
+                ui.painter().rect_stroke(
+                    response.rect,
+                    2.0,
+                    egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
+                    egui::StrokeKind::Outside,
+                );
+            }
+
+            response = response.on_hover_text(
+                "Comma-separated integers between 0 and 255 (e.g., 0,49,87,119,146,174,206,255)",
+            );
+            settings_changed |= response.changed();
+
+            if !is_valid {
+                ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
+                    .on_hover_text(
+                        "Enter comma-separated integers between 0 and 255 (max 255 entries)",
+                    );
+            }
+        });
+    }
+
+    settings_changed
+}
+
+fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
     ui.horizontal(|ui| {
         ui.label("RGBA Depth:")
             .on_hover_text("Set RGBA bit depth\nRGBA = 8888 is standard for BMP (24-bit color + 8-bit alpha)\nFor retro targets, RGBA = 5551 is common");
 
-        // Validate RGBA depth format before drawing
+        let mut mode_is_custom = state.settings.use_custom_levels;
+        egui::ComboBox::from_id_salt("quant_mode")
+            .selected_text(if mode_is_custom { "Custom" } else { "Linear" })
+            .show_ui(ui, |ui| {
+                if ui
+                    .selectable_value(&mut mode_is_custom, false, "Linear")
+                    .clicked()
+                {
+                    settings_changed = true;
+                }
+                if ui
+                    .selectable_value(&mut mode_is_custom, true, "Custom")
+                    .clicked()
+                {
+                    settings_changed = true;
+                }
+            })
+            .response
+            .on_hover_text("Choose Linear (bit depth) or Custom per-channel levels");
+
+        state.settings.use_custom_levels = mode_is_custom;
+    });
+
+    if state.settings.use_custom_levels {
+        settings_changed |= draw_custom_level_inputs(ui, state);
+    } else {
         let is_valid = validate_rgba_depth(&state.settings.rgba_depth);
         let is_empty = state.settings.rgba_depth.is_empty();
 
-        // Style the text input based on validation with fixed width
         let mut response = ui.add_sized(
             [60.0, ui.spacing().interact_size.y],
-            egui::TextEdit::singleline(&mut state.settings.rgba_depth)
+            egui::TextEdit::singleline(&mut state.settings.rgba_depth),
         );
 
-        // Apply visual feedback for invalid input
         if !is_valid && !is_empty {
             response = response.highlight();
             ui.painter().rect_stroke(
                 response.rect,
                 2.0,
                 egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
-                egui::StrokeKind::Outside
+                egui::StrokeKind::Outside,
             );
         }
 
-        response = response.on_hover_text("RGBA bit depth (e.g., 8888, 5551, 3331)\nR: 1-8, G: 1-8, B: 1-8, A: 1-8");
+        response = response.on_hover_text(
+            "RGBA bit depth (e.g., 8888, 5551, 3331)\nR: 1-8, G: 1-8, B: 1-8, A: 1-8",
+        );
 
-        settings_changed |=  response.changed();
+        if response.changed() {
+            settings_changed = true;
+        }
 
-        // Show validation feedback with detailed error messages
         if let Some(error) = get_rgba_depth_error(&state.settings.rgba_depth) {
             ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
                 .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
         }
-    });
+    }
 
     settings_changed
 }

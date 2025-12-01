@@ -1,6 +1,8 @@
 use super::color_space::ColorSpace;
 use super::dither::DitherMode;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::ptr;
 
 #[cfg(target_arch = "x86_64")]
 #[repr(C, align(16))]
@@ -29,6 +31,8 @@ pub struct QualetizePlan {
     pub n_color_cluster_passes: u32,
     pub color_depth: Vec4f,
     pub transparent_color: BGRA8,
+    pub custom_levels: [*const f32; 4],
+    pub custom_level_count: [u8; 4],
 }
 
 unsafe extern "C" {
@@ -94,6 +98,10 @@ pub struct QualetizeSettings {
     pub color_passes: u32,
     pub col0_is_clear: bool,
     pub clear_color: ClearColor,
+    #[serde(default)]
+    pub use_custom_levels: bool,
+    #[serde(default = "default_custom_level_strings")]
+    pub custom_levels: [String; 4],
 }
 
 #[derive(Default)]
@@ -136,12 +144,13 @@ impl QualetizePreset {
 
 impl QualetizeSettings {
     pub fn gba_nds() -> Self {
+        let rgba_depth = "5551".to_string();
         Self {
             tile_width: 8,
             tile_height: 8,
             n_palettes: 1,
             n_colors: 16,
-            rgba_depth: "5551".to_string(),
+            rgba_depth: rgba_depth.clone(),
             premul_alpha: false,
             color_space: ColorSpace::YcbcrPsy,
             dither_mode: DitherMode::Floyd,
@@ -150,6 +159,8 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            use_custom_levels: false,
+            custom_levels: default_level_strings_from_depth(&rgba_depth),
         }
     }
     pub fn gba_nds_full_palettes() -> Self {
@@ -160,12 +171,13 @@ impl QualetizeSettings {
         }
     }
     pub fn genesis() -> Self {
+        let rgba_depth = "3331".to_string();
         Self {
             tile_width: 8,
             tile_height: 8,
             n_palettes: 1,
             n_colors: 16,
-            rgba_depth: "3331".to_string(),
+            rgba_depth: rgba_depth.clone(),
             premul_alpha: false,
             color_space: ColorSpace::default(),
             dither_mode: DitherMode::default(),
@@ -174,6 +186,8 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            use_custom_levels: true,
+            custom_levels: genesis_custom_level_strings(),
         }
     }
     pub fn genesis_full_palettes() -> Self {
@@ -187,21 +201,7 @@ impl QualetizeSettings {
 
 impl Default for QualetizeSettings {
     fn default() -> Self {
-        Self {
-            tile_width: 8,
-            tile_height: 8,
-            n_palettes: 1,
-            n_colors: 16,
-            rgba_depth: "3331".to_string(),
-            premul_alpha: false,
-            color_space: ColorSpace::default(),
-            dither_mode: DitherMode::default(),
-            dither_level: 0.5,
-            tile_passes: 1000,
-            color_passes: 100,
-            col0_is_clear: false,
-            clear_color: ClearColor::default(),
-        }
+        Self::genesis()
     }
 }
 
@@ -232,11 +232,94 @@ fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
     }
 }
 
-impl From<QualetizeSettings> for QualetizePlan {
+const DEFAULT_RGBA_DEPTH: &str = "3331";
+
+fn depth_to_levels(depth: f32) -> Vec<u8> {
+    let clamped_depth = depth.clamp(1.0, 254.0);
+    let steps = clamped_depth.round() as u32;
+    (0..=steps)
+        .map(|i| ((i as f32 / clamped_depth) * 255.0).round() as u8)
+        .collect()
+}
+
+fn levels_to_string(levels: Vec<u8>) -> String {
+    levels
+        .iter()
+        .map(|v| v.to_string())
+        .collect::<Vec<String>>()
+        .join(",")
+}
+
+pub fn default_level_strings_from_depth(rgba_depth: &str) -> [String; 4] {
+    let depth = parse_rgba_depth(rgba_depth);
+    [
+        levels_to_string(depth_to_levels(depth[0])),
+        levels_to_string(depth_to_levels(depth[1])),
+        levels_to_string(depth_to_levels(depth[2])),
+        levels_to_string(depth_to_levels(depth[3])),
+    ]
+}
+
+fn genesis_custom_level_strings() -> [String; 4] {
+    [
+        "0,49,87,119,146,174,206,255".to_string(),
+        "0,49,87,119,146,174,206,255".to_string(),
+        "0,49,87,119,146,174,206,255".to_string(),
+        "0,255".to_string(),
+    ]
+}
+
+fn default_custom_level_strings() -> [String; 4] {
+    default_level_strings_from_depth(DEFAULT_RGBA_DEPTH)
+}
+
+pub fn validate_0_255_array(array_str: &str) -> bool {
+    if array_str.is_empty() {
+        return false;
+    }
+
+    let re = Regex::new(r"^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])(,(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]|[1-9][0-9]))*$").unwrap();
+
+    if !re.is_match(array_str) {
+        return false;
+    }
+
+    let count = array_str.split(',').count();
+    if count > 255 {
+        return false;
+    }
+
+    true
+}
+
+fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {
+    if !validate_0_255_array(array_str) {
+        return None;
+    }
+    let values: Vec<f32> = array_str
+        .split(',')
+        .filter_map(|s| s.trim().parse::<u32>().ok())
+        .map(|v| (v as f32) / 255.0)
+        .collect();
+    Some(values)
+}
+
+pub struct QualetizePlanOwned {
+    pub plan: QualetizePlan,
+    custom_level_storage: [Option<Box<[f32]>>; 4],
+}
+
+impl QualetizePlanOwned {
+    pub fn as_ptr(&self) -> *const QualetizePlan {
+        let _ = &self.custom_level_storage;
+        &self.plan
+    }
+}
+
+impl From<QualetizeSettings> for QualetizePlanOwned {
     fn from(settings: QualetizeSettings) -> Self {
         let rgba_depth = parse_rgba_depth(&settings.rgba_depth);
-
-        QualetizePlan {
+        let mut plan = QualetizePlan {
             tile_width: settings.tile_width,
             tile_height: settings.tile_height,
             n_palette_colors: settings.n_colors,
@@ -252,6 +335,27 @@ impl From<QualetizeSettings> for QualetizePlan {
                 f32: [rgba_depth[0], rgba_depth[1], rgba_depth[2], rgba_depth[3]],
             },
             transparent_color: settings.clear_color.to_bgra8(),
+            custom_levels: [ptr::null(); 4],
+            custom_level_count: [0; 4],
+        };
+
+        let mut custom_level_storage: [Option<Box<[f32]>>; 4] = [None, None, None, None];
+        if settings.use_custom_levels {
+            for (idx, level_str) in settings.custom_levels.iter().enumerate() {
+                if let Some(levels) = parse_custom_levels(level_str) {
+                    if let Ok(len) = u8::try_from(levels.len()) {
+                        let boxed = levels.into_boxed_slice();
+                        plan.custom_levels[idx] = boxed.as_ptr();
+                        plan.custom_level_count[idx] = len;
+                        custom_level_storage[idx] = Some(boxed);
+                    }
+                }
+            }
+        }
+
+        Self {
+            plan,
+            custom_level_storage,
         }
     }
 }
