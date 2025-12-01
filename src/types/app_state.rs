@@ -8,6 +8,7 @@ use super::{
     preferences::UserPreferences,
     qualetize::QualetizeSettings,
 };
+use crate::types::image::TileCountOptions;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
@@ -17,6 +18,44 @@ pub enum AppearanceMode {
     System,
     Light,
     Dark,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TileCountSettings {
+    pub visible_only: bool,
+    pub allow_flip_x: bool,
+    pub allow_flip_y: bool,
+}
+
+impl Default for TileCountSettings {
+    fn default() -> Self {
+        Self {
+            visible_only: true,
+            allow_flip_x: true,
+            allow_flip_y: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct TileCountState {
+    pub settings: TileCountSettings,
+    pub last_count: Option<usize>,
+    pub dirty: bool,
+}
+
+impl TileCountState {
+    pub fn options(&self) -> TileCountOptions {
+        TileCountOptions {
+            visible_only: self.settings.visible_only,
+            allow_flip_x: self.settings.allow_flip_x,
+            allow_flip_y: self.settings.allow_flip_y,
+        }
+    }
+
+    pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
 }
 
 // Export request types
@@ -80,6 +119,8 @@ pub struct AppState {
     pub palette_sort_settings: PaletteSortSettings,
     last_palette_sort_settings: PaletteSortSettings,
 
+    pub tile_count: TileCountState,
+
     // warning
     pub tile_size_warning: bool,
 
@@ -116,6 +157,8 @@ impl Default for AppState {
 
             palette_sort_settings: PaletteSortSettings::default(),
             last_palette_sort_settings: PaletteSortSettings::default(),
+
+            tile_count: TileCountState::default(),
 
             tile_size_warning: false,
 

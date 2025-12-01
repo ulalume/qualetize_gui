@@ -60,6 +60,10 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                     );
                 }
             });
+
+        if let Some(count) = state.tile_count.last_count {
+            ui.label(egui::RichText::new(format!("Tiles: {count}")).strong());
+        }
     });
 }
 

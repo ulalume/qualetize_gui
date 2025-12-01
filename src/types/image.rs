@@ -4,6 +4,7 @@ use crate::color_processor::ColorProcessor;
 use crate::image_processor::QualetizeResult;
 use egui::{Color32, ColorImage, TextureHandle};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct ImageData {
@@ -20,6 +21,13 @@ pub struct ImageDataIndexed {
     pub palettes_for_ui: Vec<Vec<egui::Color32>>,
     pub palettes: Vec<BGRA8>,
     pub indexed_pixels: Vec<u8>,
+}
+
+#[derive(Clone, Copy)]
+pub struct TileCountOptions {
+    pub visible_only: bool,
+    pub allow_flip_x: bool,
+    pub allow_flip_y: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
@@ -320,6 +328,99 @@ impl ImageData {
         palettes.truncate(n_palettes);
 
         palettes
+    }
+
+    pub fn count_unique_tiles(
+        indexed: &ImageDataIndexed,
+        width: u32,
+        height: u32,
+        tile_width: u16,
+        tile_height: u16,
+        options: TileCountOptions,
+    ) -> Option<usize> {
+        if tile_width == 0 || tile_height == 0 {
+            return None;
+        }
+        if width % tile_width as u32 != 0 || height % tile_height as u32 != 0 {
+            return None;
+        }
+
+        let tiles_x = width / tile_width as u32;
+        let tiles_y = height / tile_height as u32;
+        let stride = width as usize;
+        let tile_w = tile_width as usize;
+        let tile_h = tile_height as usize;
+        let tile_area = tile_w * tile_h;
+
+        let mut unique_tiles: HashSet<Vec<u8>> = HashSet::new();
+
+        for ty in 0..tiles_y {
+            for tx in 0..tiles_x {
+                let mut tile = Vec::with_capacity(tile_area);
+                let mut fully_transparent = true;
+
+                for y in 0..tile_h {
+                    let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
+                    let row = &indexed.indexed_pixels[offset..offset + tile_w];
+                    for &idx in row {
+                        if let Some(color) = indexed.palettes.get(idx as usize) {
+                            if color.a != 0 {
+                                fully_transparent = false;
+                            }
+                        } else {
+                            fully_transparent = false;
+                        }
+                    }
+                    tile.extend_from_slice(row);
+                }
+
+                if options.visible_only && fully_transparent {
+                    continue;
+                }
+
+                let base = tile;
+                let mut best = base.clone();
+
+                if options.allow_flip_x {
+                    let mut flipped = Vec::with_capacity(tile_area);
+                    for y in 0..tile_h {
+                        let row_start = y * tile_w;
+                        let row = &base[row_start..row_start + tile_w];
+                        flipped.extend(row.iter().rev());
+                    }
+                    if flipped < best {
+                        best = flipped;
+                    }
+                }
+
+                if options.allow_flip_y {
+                    let mut flipped = Vec::with_capacity(tile_area);
+                    for y in (0..tile_h).rev() {
+                        let row_start = y * tile_w;
+                        flipped.extend_from_slice(&base[row_start..row_start + tile_w]);
+                    }
+                    if flipped < best {
+                        best = flipped;
+                    }
+                }
+
+                if options.allow_flip_x && options.allow_flip_y {
+                    let mut flipped = Vec::with_capacity(tile_area);
+                    for y in (0..tile_h).rev() {
+                        let row_start = y * tile_w;
+                        let row = &base[row_start..row_start + tile_w];
+                        flipped.extend(row.iter().rev());
+                    }
+                    if flipped < best {
+                        best = flipped;
+                    }
+                }
+
+                unique_tiles.insert(best);
+            }
+        }
+
+        Some(unique_tiles.len())
     }
 
     pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {

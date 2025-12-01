@@ -2,6 +2,7 @@ use super::styles::UiMarginExt;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
+use crate::types::image::ImageData;
 use crate::types::qualetize::validate_0_255_array;
 use crate::types::{
     AppState, ClearColor, ColorSpace, DitherMode,
@@ -42,6 +43,8 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.separator();
 
     draw_palette_sort_settings(ui, state);
+    ui.separator();
+    draw_tile_count_settings(ui, state);
 
     if state.preferences.show_debug_info {
         // Debug information display
@@ -793,4 +796,75 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 });
         });
     });
+}
+
+fn draw_tile_count_settings(ui: &mut egui::Ui, state: &mut AppState) {
+    ui.heading_with_margin("Tile Count");
+
+    let mut options_changed = false;
+
+    ui.horizontal(|ui| {
+        if ui
+            .checkbox(
+                &mut state.tile_count.settings.visible_only,
+                "Ignore fully transparent tiles",
+            )
+            .on_hover_text(
+                "Treat fully transparent tiles as identical and exclude them from the count",
+            )
+            .clicked()
+        {
+            options_changed = true;
+        }
+    });
+
+    ui.horizontal(|ui| {
+        if ui
+            .checkbox(
+                &mut state.tile_count.settings.allow_flip_x,
+                "Allowed Flips: X",
+            )
+            .clicked()
+        {
+            options_changed = true;
+        }
+        if ui
+            .checkbox(
+                &mut state.tile_count.settings.allow_flip_y,
+                "Allowed Flips: Y",
+            )
+            .clicked()
+        {
+            options_changed = true;
+        }
+    });
+
+    if options_changed {
+        state.tile_count.mark_dirty();
+    }
+
+    compute_tile_count(state);
+}
+
+fn compute_tile_count(state: &mut AppState) -> Option<usize> {
+    let Some(output_image) = &state.output_image else {
+        return None;
+    };
+    let Some(indexed) = &output_image.indexed else {
+        return None;
+    };
+
+    if state.tile_count.dirty || state.tile_count.last_count.is_none() {
+        state.tile_count.last_count = ImageData::count_unique_tiles(
+            indexed,
+            output_image.width,
+            output_image.height,
+            state.settings.tile_width,
+            state.settings.tile_height,
+            state.tile_count.options(),
+        );
+        state.tile_count.dirty = false;
+    }
+
+    state.tile_count.last_count
 }

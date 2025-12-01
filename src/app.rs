@@ -127,6 +127,8 @@ impl QualetizeApp {
             self.state.tile_size_warning = true;
             self.state.output_image = None;
             self.state.output_palette_sorted_indexed_image = None;
+            self.state.tile_count.last_count = None;
+            self.state.tile_count.mark_dirty();
             log::warn!("Tile size warning");
             false
         } else {
@@ -152,11 +154,15 @@ impl QualetizeApp {
                 Ok(image_data) => {
                     self.state.output_image = Some(image_data);
                     self.state.output_palette_sorted_indexed_image = None;
+                    self.state.tile_count.last_count = None;
+                    self.state.tile_count.mark_dirty();
                 }
                 Err(e) => {
                     log::error!("Failed to generate preview image: {e}");
                     self.state.output_image = None;
                     self.state.output_palette_sorted_indexed_image = None;
+                    self.state.tile_count.last_count = None;
+                    self.state.tile_count.mark_dirty();
                 }
             }
         }
