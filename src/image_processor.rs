@@ -1,4 +1,4 @@
-use crate::types::qualetize::{Qualetize, QualetizePlan, Vec4f};
+use crate::types::qualetize::{Qualetize, QualetizePlanOwned, Vec4f};
 use crate::types::{BGRA8, ImageData, QualetizeSettings};
 use egui::Context;
 use std::sync::mpsc;
@@ -193,7 +193,7 @@ impl ImageProcessor {
         settings: QualetizeSettings,
     ) -> Result<QualetizeResult, String> {
         // Create qualetize plan
-        let plan: QualetizePlan = settings.clone().into();
+        let plan = QualetizePlanOwned::from(settings.clone());
 
         // Prepare output buffers
         let output_size = (width * height) as usize;
@@ -219,7 +219,7 @@ impl ImageProcessor {
                 std::ptr::null(),
                 width,
                 height,
-                &plan,
+                plan.as_ptr(),
                 &mut rmse,
             )
         };
