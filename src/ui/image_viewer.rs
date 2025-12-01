@@ -386,8 +386,7 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
             painter,
             palette_idx,
             palette,
-            start_x,
-            current_y,
+            Pos2::new(start_x, current_y),
             palette_size,
             palette_spacing,
             hovered,
@@ -396,45 +395,45 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
         current_y += palette_size + palette_spacing;
     }
 
-    if let Some((palette_idx, color_idx)) = hovered {
-        if let Some(color) = hovered_color {
-            let hex = if color.a() == 255 {
-                format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b())
-            } else {
-                format!(
-                    "#{:02X}{:02X}{:02X}{:02X}",
-                    color.a(),
-                    color.r(),
-                    color.g(),
-                    color.b()
-                )
-            };
-            let rgba = if color.a() == 255 {
-                format!("RGB({},{},{})", color.r(), color.g(), color.b())
-            } else {
-                format!(
-                    "RGBA({},{},{},{})",
-                    color.r(),
-                    color.g(),
-                    color.b(),
-                    color.a()
-                )
-            };
+    if let Some((palette_idx, color_idx)) = hovered
+        && let Some(color) = hovered_color
+    {
+        let hex = if color.a() == 255 {
+            format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b())
+        } else {
+            format!(
+                "#{:02X}{:02X}{:02X}{:02X}",
+                color.a(),
+                color.r(),
+                color.g(),
+                color.b()
+            )
+        };
+        let rgba = if color.a() == 255 {
+            format!("RGB({},{},{})", color.r(), color.g(), color.b())
+        } else {
+            format!(
+                "RGBA({},{},{},{})",
+                color.r(),
+                color.g(),
+                color.b(),
+                color.a()
+            )
+        };
 
-            if let Some(pointer_pos) = pointer_pos {
-                egui::Tooltip::always_open(
-                    ctx.clone(),
-                    painter.layer_id(),
-                    Id::new("palette_chip_tooltip"),
-                    pointer_pos,
-                )
-                .show(|ui| {
-                    ui.set_width(160.0);
-                    ui.label(format!("Palette {} / Index {}", palette_idx, color_idx));
-                    ui.label(hex);
-                    ui.label(rgba);
-                });
-            }
+        if let Some(pointer_pos) = pointer_pos {
+            egui::Tooltip::always_open(
+                ctx.clone(),
+                painter.layer_id(),
+                Id::new("palette_chip_tooltip"),
+                pointer_pos,
+            )
+            .show(|ui| {
+                ui.set_width(160.0);
+                ui.label(format!("Palette {} / Index {}", palette_idx, color_idx));
+                ui.label(hex);
+                ui.label(rgba);
+            });
         }
     }
 }
@@ -461,8 +460,7 @@ fn draw_single_palette(
     painter: &egui::Painter,
     palette_idx: usize,
     palette: &[egui::Color32],
-    start_x: f32,
-    y: f32,
+    origin: Pos2,
     palette_size: f32,
     palette_spacing: f32,
     hovered: Option<(usize, usize)>,
@@ -471,9 +469,11 @@ fn draw_single_palette(
     let highlight_color = painter.ctx().style().visuals.selection.stroke.color;
 
     for (color_idx, &color) in palette.iter().enumerate() {
-        let x = start_x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
-        let color_rect =
-            Rect::from_min_size(Pos2::new(x, y), Vec2::new(palette_size, palette_size));
+        let x = origin.x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
+        let color_rect = Rect::from_min_size(
+            Pos2::new(x, origin.y),
+            Vec2::new(palette_size, palette_size),
+        );
 
         painter.rect_filled(color_rect, 0.0, color);
         painter.rect_stroke(

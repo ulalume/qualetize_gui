@@ -341,7 +341,7 @@ impl ImageData {
         if tile_width == 0 || tile_height == 0 {
             return None;
         }
-        if width % tile_width as u32 != 0 || height % tile_height as u32 != 0 {
+        if !width.is_multiple_of(tile_width as u32) || !height.is_multiple_of(tile_height as u32) {
             return None;
         }
 

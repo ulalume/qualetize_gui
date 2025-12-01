@@ -342,13 +342,13 @@ impl From<QualetizeSettings> for QualetizePlanOwned {
         let mut custom_level_storage: [Option<Box<[f32]>>; 4] = [None, None, None, None];
         if settings.use_custom_levels {
             for (idx, level_str) in settings.custom_levels.iter().enumerate() {
-                if let Some(levels) = parse_custom_levels(level_str) {
-                    if let Ok(len) = u8::try_from(levels.len()) {
-                        let boxed = levels.into_boxed_slice();
-                        plan.custom_levels[idx] = boxed.as_ptr();
-                        plan.custom_level_count[idx] = len;
-                        custom_level_storage[idx] = Some(boxed);
-                    }
+                if let Some(levels) = parse_custom_levels(level_str)
+                    && let Ok(len) = u8::try_from(levels.len())
+                {
+                    let boxed = levels.into_boxed_slice();
+                    plan.custom_levels[idx] = boxed.as_ptr();
+                    plan.custom_level_count[idx] = len;
+                    custom_level_storage[idx] = Some(boxed);
                 }
             }
         }
