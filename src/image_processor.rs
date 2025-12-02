@@ -230,6 +230,23 @@ impl ImageProcessor {
 
         log::debug!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
 
+        if settings.tile_reduce_post_enabled && settings.tile_reduce_post_threshold > 0.0 {
+            let merged = Self::reduce_tiles_indexed(
+                &mut output_data,
+                &output_palette,
+                width,
+                height,
+                settings.tile_width,
+                settings.tile_height,
+                settings.tile_reduce_post_threshold,
+            );
+            if merged > 0 {
+                log::info!("Tile reduce post-process merged {merged} tiles");
+            } else {
+                log::debug!("Tile reduce post-process performed with no merges");
+            }
+        }
+
         Ok(QualetizeResult {
             indexed_data: output_data,
             palette_data: output_palette,
@@ -238,5 +255,105 @@ impl ImageProcessor {
             height,
             generation_id: 0, // Not needed for export
         })
+    }
+
+    fn reduce_tiles_indexed(
+        indexed: &mut [u8],
+        palette: &[BGRA8],
+        width: u32,
+        height: u32,
+        tile_width: u16,
+        tile_height: u16,
+        threshold: f32,
+    ) -> usize {
+        if tile_width == 0
+            || tile_height == 0
+            || !width.is_multiple_of(tile_width as u32)
+            || !height.is_multiple_of(tile_height as u32)
+        {
+            log::warn!("Tile reduce post-process skipped due to incompatible dimensions");
+            return 0;
+        }
+
+        let tiles_x = width / tile_width as u32;
+        let tiles_y = height / tile_height as u32;
+        let tile_w = tile_width as usize;
+        let tile_h = tile_height as usize;
+        let tile_area = tile_w * tile_h;
+        let stride = width as usize;
+
+        struct RepTile {
+            indices: Vec<u8>,
+            colors: Vec<[u8; 4]>,
+        }
+
+        let mut representatives: Vec<RepTile> = Vec::new();
+        let mut merged = 0usize;
+
+        for ty in 0..tiles_y {
+            for tx in 0..tiles_x {
+                let mut tile_indices = Vec::with_capacity(tile_area);
+                for y in 0..tile_h {
+                    let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
+                    tile_indices.extend_from_slice(&indexed[offset..offset + tile_w]);
+                }
+
+                let tile_colors = Self::expand_indices_to_colors(&tile_indices, palette);
+
+                let mut matched_idx: Option<usize> = None;
+                for (idx, rep) in representatives.iter().enumerate() {
+                    if Self::tile_mse_rgba(&rep.colors, &tile_colors) <= threshold {
+                        matched_idx = Some(idx);
+                        break;
+                    }
+                }
+
+                if let Some(rep_idx) = matched_idx {
+                    let rep = &representatives[rep_idx];
+                    for y in 0..tile_h {
+                        let offset =
+                            ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
+                        let start = y * tile_w;
+                        indexed[offset..offset + tile_w]
+                            .copy_from_slice(&rep.indices[start..start + tile_w]);
+                    }
+                    merged += 1;
+                } else {
+                    representatives.push(RepTile {
+                        indices: tile_indices,
+                        colors: tile_colors,
+                    });
+                }
+            }
+        }
+
+        merged
+    }
+
+    fn expand_indices_to_colors(indices: &[u8], palette: &[BGRA8]) -> Vec<[u8; 4]> {
+        indices
+            .iter()
+            .map(|&idx| {
+                if let Some(color) = palette.get(idx as usize) {
+                    [color.r, color.g, color.b, color.a]
+                } else {
+                    [0, 0, 0, 0]
+                }
+            })
+            .collect()
+    }
+
+    fn tile_mse_rgba(a: &[[u8; 4]], b: &[[u8; 4]]) -> f32 {
+        if a.len() != b.len() || a.is_empty() {
+            return f32::MAX;
+        }
+        let mut error = 0.0f64;
+        for (px_a, px_b) in a.iter().zip(b.iter()) {
+            for c in 0..4 {
+                let diff = px_a[c] as f64 - px_b[c] as f64;
+                error += diff * diff;
+            }
+        }
+        (error / (a.len() as f64 * 4.0)) as f32
     }
 }

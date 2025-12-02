@@ -42,6 +42,8 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed |= draw_color_correction_settings(ui, state);
     ui.separator();
 
+    settings_changed |= draw_tile_reduce_settings(ui, state);
+    ui.separator();
     draw_palette_sort_settings(ui, state);
     ui.separator();
     draw_tile_count_settings(ui, state);
@@ -377,6 +379,53 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         {
             settings_changed = true;
         }
+    });
+
+    settings_changed
+}
+
+fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+    ui.heading_with_margin("Tile Reduce");
+
+    if ui
+        .checkbox(&mut state.settings.tile_reduce_post_enabled, "Enable")
+        .on_hover_text(
+            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.",
+        )
+        .changed()
+    {
+        settings_changed = true;
+    }
+
+    ui.add_enabled_ui(state.settings.tile_reduce_post_enabled, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Threshold:")
+                .on_hover_text("Average per-channel MSE per pixel after quantization.");
+
+            let slider =
+                egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 0.0..=2000.0)
+                    .logarithmic(false)
+                    .show_value(false);
+            if ui
+                .add(slider)
+                .on_hover_text("Average per-channel MSE per pixel after quantization.")
+                .changed()
+            {
+                settings_changed = true;
+            }
+
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
+                        .range(0.0..=2000.0)
+                        .speed(1.0),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
+        });
     });
 
     settings_changed

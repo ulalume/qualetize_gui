@@ -99,6 +99,10 @@ pub struct QualetizeSettings {
     pub col0_is_clear: bool,
     pub clear_color: ClearColor,
     #[serde(default)]
+    pub tile_reduce_post_enabled: bool,
+    #[serde(default = "default_tile_reduce_post_threshold")]
+    pub tile_reduce_post_threshold: f32,
+    #[serde(default)]
     pub use_custom_levels: bool,
     #[serde(default = "default_custom_level_strings")]
     pub custom_levels: [String; 4],
@@ -159,6 +163,8 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            tile_reduce_post_enabled: false,
+            tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
             use_custom_levels: false,
             custom_levels: default_level_strings_from_depth(&rgba_depth),
         }
@@ -186,6 +192,8 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            tile_reduce_post_enabled: false,
+            tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
             use_custom_levels: true,
             custom_levels: genesis_custom_level_strings(),
         }
@@ -217,6 +225,10 @@ fn char_to_depth(c: char) -> f32 {
         '8' => 255.0,
         _ => 255.0,
     }
+}
+
+fn default_tile_reduce_post_threshold() -> f32 {
+    24.0
 }
 fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
     if rgba_depth.len() == 4 {
