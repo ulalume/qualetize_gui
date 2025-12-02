@@ -263,14 +263,10 @@ impl ImageProcessor {
         allow_flip_x: bool,
         allow_flip_y: bool,
         use_blur: bool,
-        high_quality: bool,
     ) -> usize {
         // Quality/speed tuning
-        let (medoid_recompute_interval, max_members_tracked) = if high_quality {
-            (8, 64)
-        } else {
-            (32, 32)
-        };
+        let medoid_recompute_interval = 8;
+        let max_members_tracked = 64;
 
         if tile_width == 0
             || tile_height == 0

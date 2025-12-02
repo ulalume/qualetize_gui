@@ -229,7 +229,6 @@ impl QualetizeApp {
                 self.state.settings.tile_reduce_allow_flip_x,
                 self.state.settings.tile_reduce_allow_flip_y,
                 true,
-                self.state.settings.tile_reduce_high_quality,
             );
             if merged > 0 {
                 log::info!("Tile reduce post-process merged {merged} tiles");
@@ -658,6 +657,8 @@ impl eframe::App for QualetizeApp {
         {
             ctx.request_repaint();
         }
+
+        // enforce high quality always
     }
 }
 

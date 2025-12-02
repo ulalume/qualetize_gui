@@ -387,9 +387,9 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.heading_with_margin("Tile Reduce");
 
     if ui
-        .checkbox(&mut state.settings.tile_reduce_post_enabled, "Enable")
+        .checkbox(&mut state.settings.tile_reduce_post_enabled, "Enable (heavy)")
         .on_hover_text(
-            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.",
+            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis option increases processing time.",
         )
         .changed()
     {
@@ -397,19 +397,6 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     }
 
     ui.add_enabled_ui(state.settings.tile_reduce_post_enabled, |ui| {
-        ui.horizontal(|ui| {
-            if ui
-                .checkbox(
-                    &mut state.settings.tile_reduce_high_quality,
-                    "High quality (slower)",
-                )
-                .on_hover_text("More frequent medoid updates and larger sample pool (slower).")
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
-
         ui.horizontal(|ui| {
             if ui
                 .checkbox(
@@ -439,22 +426,22 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
                     .logarithmic(false)
                     .show_value(false);
-            let slider_response = ui
+            if ui
                 .add(slider)
-                .on_hover_text("Average per-channel MSE per pixel after quantization.");
+                .on_hover_text("Average per-channel MSE per pixel after quantization.")
+                .changed()
+            {
+                settings_changed = true;
+            }
 
-            let drag_response = ui.add(
-                egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
-                    .range(1.0..=500.0)
-                    .speed(5.0),
-            );
-
-            let slider_released =
-                slider_response.drag_stopped() || (!slider_response.dragged() && slider_response.changed());
-            let drag_released =
-                drag_response.drag_stopped() || (!drag_response.dragged() && drag_response.changed());
-
-            if slider_released || drag_released {
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
+                        .range(1.0..=500.0)
+                        .speed(5.0),
+                )
+                .changed()
+            {
                 settings_changed = true;
             }
         });

@@ -107,8 +107,6 @@ pub struct QualetizeSettings {
     #[serde(default = "default_tile_reduce_allow_flip")]
     pub tile_reduce_allow_flip_y: bool,
     #[serde(default)]
-    pub tile_reduce_high_quality: bool,
-    #[serde(default)]
     pub use_custom_levels: bool,
     #[serde(default = "default_custom_level_strings")]
     pub custom_levels: [String; 4],
@@ -173,7 +171,6 @@ impl QualetizeSettings {
             tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
             tile_reduce_allow_flip_x: default_tile_reduce_allow_flip(),
             tile_reduce_allow_flip_y: default_tile_reduce_allow_flip(),
-            tile_reduce_high_quality: false,
             use_custom_levels: false,
             custom_levels: default_level_strings_from_depth(&rgba_depth),
         }
@@ -205,7 +202,6 @@ impl QualetizeSettings {
             tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
             tile_reduce_allow_flip_x: default_tile_reduce_allow_flip(),
             tile_reduce_allow_flip_y: default_tile_reduce_allow_flip(),
-            tile_reduce_high_quality: false,
             use_custom_levels: true,
             custom_levels: genesis_custom_level_strings(),
         }
