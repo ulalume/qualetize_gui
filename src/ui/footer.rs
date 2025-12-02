@@ -1,5 +1,9 @@
 use super::styles;
-use crate::types::{AppState, ExportFormat, app_state::AppStateRequest};
+use crate::types::{
+    AppState, ExportFormat,
+    app_state::AppStateRequest,
+    image::ImageData,
+};
 use egui::{Color32, Vec2};
 
 pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -70,11 +74,74 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                     );
                 }
             });
+                let _ = compute_tile_count(state);
+        let count_label = match state.tile_count.last_count {
+            Some(count) => format!("Tiles: {count}"),
+            None => "Tiles: --".to_string(),
+        };
+        ui.menu_button(egui::RichText::new(count_label).strong(), |ui| {
+            let mut options_changed = false;
 
-        if let Some(count) = state.tile_count.last_count {
-            ui.label(egui::RichText::new(format!("Tiles: {count}")).strong());
-        }
+            if ui
+                .checkbox(
+                    &mut state.tile_count.settings.allow_flip_x,
+                    "Allowed X Flips",
+                )
+                .clicked()
+            {
+                options_changed = true;
+            }
+            if ui
+                .checkbox(
+                    &mut state.tile_count.settings.allow_flip_y,
+                    "Allowed Y Flips",
+                )
+                .clicked()
+            {
+                options_changed = true;
+            }
+
+            ui.separator();
+
+            if ui
+                .checkbox(
+                    &mut state.tile_count.settings.visible_only,
+                    "Ignore fully transparent tiles",
+                )
+                .clicked()
+            {
+                options_changed = true;
+            }
+
+            if options_changed {
+                state.tile_count.mark_dirty();
+                let _ = compute_tile_count(state);
+            }
+        });
     });
+}
+
+fn compute_tile_count(state: &mut AppState) -> Option<usize> {
+    let Some(output_image) = &state.output_image else {
+        return None;
+    };
+    let Some(indexed) = &output_image.indexed else {
+        return None;
+    };
+
+    if state.tile_count.dirty || state.tile_count.last_count.is_none() {
+        state.tile_count.last_count = ImageData::count_unique_tiles(
+            indexed,
+            output_image.width,
+            output_image.height,
+            state.settings.tile_width,
+            state.settings.tile_height,
+            state.tile_count.options(),
+        );
+        state.tile_count.dirty = false;
+    }
+
+    state.tile_count.last_count
 }
 
 fn apply_export_button_style(ui: &mut egui::Ui) {
