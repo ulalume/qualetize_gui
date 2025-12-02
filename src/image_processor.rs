@@ -287,9 +287,15 @@ impl ImageProcessor {
         let tile_h = tile_height as usize;
         let tile_area = tile_w * tile_h;
         let stride = width as usize;
+        let orientation_maps = Orientation::maps(tile_w, tile_h, allow_flip_x, allow_flip_y);
+
+        let mut tile_indices_buf = vec![0u8; tile_area];
+        let mut tile_colors_buf = vec![[0u8; 4]; tile_area];
+        let mut tile_blur_buf = vec![[0u8; 4]; tile_area];
 
         let mut representatives: Vec<ClusterRep> = Vec::new();
         let mut merged = 0usize;
+        let mut oriented_tiles: Vec<Vec<[u8; 4]>> = Vec::with_capacity(orientation_maps.len());
 
         let mut coords: Vec<(u32, u32, f32)> = Vec::with_capacity((tiles_x * tiles_y) as usize);
         let center_x = tiles_x as f32 / 2.0;
@@ -305,24 +311,30 @@ impl ImageProcessor {
         coords.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
         for (tx, ty, _) in coords {
-            let mut tile_indices = Vec::with_capacity(tile_area);
+            let tile_indices = &mut tile_indices_buf;
             for y in 0..tile_h {
                 let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
-                tile_indices.extend_from_slice(&indexed[offset..offset + tile_w]);
+                tile_indices[y * tile_w..(y + 1) * tile_w]
+                    .copy_from_slice(&indexed[offset..offset + tile_w]);
             }
 
-            let tile_colors = Self::expand_indices_to_colors(&tile_indices, palette);
-            let tile_blurred = if use_blur {
-                Self::blur_tile_colors(&tile_colors, tile_w, tile_h)
+            Self::expand_indices_to_colors_into(&tile_indices, palette, &mut tile_colors_buf);
+            if use_blur {
+                Self::blur_tile_colors_into(&tile_colors_buf, &mut tile_blur_buf, tile_w, tile_h);
             } else {
-                tile_colors.clone()
-            };
+                tile_blur_buf.copy_from_slice(&tile_colors_buf);
+            }
+
+            oriented_tiles.clear();
+            for map in &orientation_maps {
+                let oriented = Self::orient_tile_to_rep(&tile_blur_buf, &map.map);
+                oriented_tiles.push(oriented);
+            }
 
             let mut matched: Option<(usize, Orientation)> = None;
-            let orientations = Orientation::available(allow_flip_x, allow_flip_y);
             for (idx, rep) in representatives.iter().enumerate() {
                 let (best_mse, best_orient) =
-                    Self::best_orientation_mse(&rep.blurred_colors, &tile_blurred, tile_w, tile_h, &orientations);
+                    Self::best_orientation_mse_preoriented(&rep.blurred_colors, &oriented_tiles, &orientation_maps);
                 if best_mse <= threshold {
                     matched = Some((idx, best_orient));
                     break;
@@ -331,6 +343,11 @@ impl ImageProcessor {
 
             if let Some((rep_idx, orientation)) = matched {
                 let rep = &representatives[rep_idx];
+                let map = orientation_maps
+                    .iter()
+                    .find(|m| m.orientation == orientation)
+                    .map(|m| &m.map)
+                    .unwrap_or(&orientation_maps[0].map);
                 for y in 0..tile_h {
                     let offset =
                         ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
@@ -340,14 +357,14 @@ impl ImageProcessor {
                         tile_w,
                         tile_h,
                         y,
-                        orientation,
+                        map,
                     );
                 }
                 // add member and update representative by medoid
                 if let Some(rep) = representatives.get_mut(rep_idx) {
                     let member = ClusterMember {
-                        indices: tile_indices.clone(),
-                        blurred_colors: tile_blurred.clone(),
+                        indices: tile_indices.to_vec(),
+                        blurred_colors: tile_blur_buf.to_vec(),
                     };
                     if rep.members.len() < max_members_tracked {
                         rep.members.push(member);
@@ -358,17 +375,17 @@ impl ImageProcessor {
                     }
 
                     if rep.members.len() % medoid_recompute_interval == 0 {
-                        Self::recompute_medoid(rep, tile_w, tile_h, &orientations);
+                        Self::recompute_medoid(rep, tile_w, tile_h, &orientation_maps);
                     }
                 }
                 merged += 1;
             } else {
                 representatives.push(ClusterRep {
-                    indices: tile_indices.clone(),
-                    blurred_colors: tile_blurred.clone(),
+                    indices: tile_indices.to_vec(),
+                    blurred_colors: tile_blur_buf.to_vec(),
                     members: vec![ClusterMember {
-                        indices: tile_indices,
-                        blurred_colors: tile_blurred,
+                        indices: tile_indices.to_vec(),
+                        blurred_colors: tile_blur_buf.to_vec(),
                     }],
                     insert_cursor: 1,
                 });
@@ -378,72 +395,96 @@ impl ImageProcessor {
         merged
     }
 
-    fn expand_indices_to_colors(indices: &[u8], palette: &[BGRA8]) -> Vec<[u8; 4]> {
-        indices
-            .iter()
-            .map(|&idx| {
-                if let Some(color) = palette.get(idx as usize) {
-                    [color.r, color.g, color.b, color.a]
-                } else {
-                    [0, 0, 0, 0]
-                }
-            })
-            .collect()
+    fn expand_indices_to_colors_into(indices: &[u8], palette: &[BGRA8], out: &mut [[u8; 4]]) {
+        for (dst, &idx) in out.iter_mut().zip(indices.iter()) {
+            if let Some(color) = palette.get(idx as usize) {
+                *dst = [color.r, color.g, color.b, color.a];
+            } else {
+                *dst = [0, 0, 0, 0];
+            }
+        }
     }
 
-    fn best_orientation_mse(
+    fn best_orientation_mse_maps(
         rep_colors: &[[u8; 4]],
         tile_colors: &[[u8; 4]],
-        tile_w: usize,
-        tile_h: usize,
-        orientations: &[Orientation],
+        maps: &[OrientationMap],
     ) -> (f32, Orientation) {
         let mut best = f32::MAX;
         let mut best_orientation = Orientation::None;
-        for &orientation in orientations {
-            let mse = Self::tile_mse_rgba_with_orientation(
-                rep_colors,
-                tile_colors,
-                tile_w,
-                tile_h,
-                orientation,
-            );
+        for map in maps {
+            let mse = Self::tile_mse_rgba_with_map(rep_colors, tile_colors, &map.map);
             if mse < best {
                 best = mse;
-                best_orientation = orientation;
+                best_orientation = map.orientation;
             }
         }
         (best, best_orientation)
     }
 
-    fn tile_mse_rgba_with_orientation(
-        rep_colors: &[[u8; 4]],
-        tile_colors: &[[u8; 4]],
-        tile_w: usize,
-        tile_h: usize,
-        orientation: Orientation,
-    ) -> f32 {
-        if rep_colors.len() != tile_colors.len() || rep_colors.is_empty() {
+    fn tile_mse_rgba_with_map(rep_colors: &[[u8; 4]], tile_colors: &[[u8; 4]], map: &[usize]) -> f32 {
+        if rep_colors.len() != tile_colors.len() || rep_colors.is_empty() || map.len() != rep_colors.len() {
             return f32::MAX;
         }
         let mut error = 0.0f64;
-        for y in 0..tile_h {
-            for x in 0..tile_w {
-                let rep_idx = orientation.map_index(x, y, tile_w, tile_h);
-                let tile_idx = y * tile_w + x;
-                let rep_px = &rep_colors[rep_idx];
-                let tile_px = &tile_colors[tile_idx];
-                for c in 0..4 {
-                    let diff = rep_px[c] as f64 - tile_px[c] as f64;
-                    error += diff * diff;
-                }
+        for (dst_idx, &src_idx) in map.iter().enumerate() {
+            let rep_px = &rep_colors[src_idx];
+            let tile_px = &tile_colors[dst_idx];
+            for c in 0..4 {
+                let diff = rep_px[c] as f64 - tile_px[c] as f64;
+                error += diff * diff;
             }
         }
         (error / (rep_colors.len() as f64 * 4.0)) as f32
     }
 
-    fn blur_tile_colors(src: &[[u8; 4]], tile_w: usize, tile_h: usize) -> Vec<[u8; 4]> {
-        let mut dst = vec![[0u8; 4]; src.len()];
+    fn best_orientation_mse_preoriented(
+        rep_colors: &[[u8; 4]],
+        oriented_tiles: &[Vec<[u8; 4]>],
+        maps: &[OrientationMap],
+    ) -> (f32, Orientation) {
+        let mut best = f32::MAX;
+        let mut best_orientation = Orientation::None;
+        for (orient_buf, map) in oriented_tiles.iter().zip(maps.iter()) {
+            if orient_buf.len() != rep_colors.len() {
+                continue;
+            }
+            let mse = Self::tile_mse_rgba_fast(rep_colors, orient_buf, best);
+            if mse < best {
+                best = mse;
+                best_orientation = map.orientation;
+            }
+        }
+        (best, best_orientation)
+    }
+
+    fn tile_mse_rgba_fast(rep_colors: &[[u8; 4]], tile_colors: &[[u8; 4]], stop_if_over: f32) -> f32 {
+        if rep_colors.len() != tile_colors.len() || rep_colors.is_empty() {
+            return f32::MAX;
+        }
+        let mut error = 0.0f64;
+        let stop = (stop_if_over as f64) * (rep_colors.len() as f64 * 4.0);
+        for (rep_px, tile_px) in rep_colors.iter().zip(tile_colors.iter()) {
+            for c in 0..4 {
+                let diff = rep_px[c] as f64 - tile_px[c] as f64;
+                error += diff * diff;
+            }
+            if error > stop {
+                return f32::MAX;
+            }
+        }
+        (error / (rep_colors.len() as f64 * 4.0)) as f32
+    }
+
+    fn orient_tile_to_rep(tile: &[[u8; 4]], map: &[usize]) -> Vec<[u8; 4]> {
+        let mut oriented = vec![[0u8; 4]; tile.len()];
+        for (dst_idx, &rep_idx) in map.iter().enumerate() {
+            oriented[rep_idx] = tile[dst_idx];
+        }
+        oriented
+    }
+
+    fn blur_tile_colors_into(src: &[[u8; 4]], dst: &mut [[u8; 4]], tile_w: usize, tile_h: usize) {
         let idx = |x: usize, y: usize| y * tile_w + x;
         for y in 0..tile_h {
             for x in 0..tile_w {
@@ -464,10 +505,9 @@ impl ImageProcessor {
                 }
             }
         }
-        dst
     }
 
-    fn recompute_medoid(rep: &mut ClusterRep, tile_w: usize, tile_h: usize, orientations: &[Orientation]) {
+    fn recompute_medoid(rep: &mut ClusterRep, tile_w: usize, tile_h: usize, maps: &[OrientationMap]) {
         if rep.members.len() <= 1 {
             return;
         }
@@ -480,12 +520,10 @@ impl ImageProcessor {
                 if i == j {
                     continue;
                 }
-                let (mse, _) = Self::best_orientation_mse(
+                let (mse, _) = Self::best_orientation_mse_maps(
                     &a.blurred_colors,
                     &b.blurred_colors,
-                    tile_w,
-                    tile_h,
-                    orientations,
+                    maps,
                 );
                 sum += mse;
             }
@@ -505,18 +543,19 @@ impl ImageProcessor {
         dest_row: &mut [u8],
         rep_indices: &[u8],
         tile_w: usize,
-        tile_h: usize,
+        _tile_h: usize,
         y: usize,
-        orientation: Orientation,
+        orientation_map: &[usize],
     ) {
+        let row_offset = y * tile_w;
         for x in 0..tile_w {
-            let src_idx = orientation.map_index(x, y, tile_w, tile_h);
+            let src_idx = orientation_map[row_offset + x];
             dest_row[x] = rep_indices[src_idx];
         }
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Orientation {
     None,
     FlipX,
@@ -539,12 +578,30 @@ impl Orientation {
         v
     }
 
-    fn map_index(&self, x: usize, y: usize, w: usize, h: usize) -> usize {
-        match self {
-            Orientation::None => y * w + x,
-            Orientation::FlipX => y * w + (w - 1 - x),
-            Orientation::FlipY => (h - 1 - y) * w + x,
-            Orientation::FlipXY => (h - 1 - y) * w + (w - 1 - x),
-        }
+    fn maps(tile_w: usize, tile_h: usize, allow_flip_x: bool, allow_flip_y: bool) -> Vec<OrientationMap> {
+        let orientations = Orientation::available(allow_flip_x, allow_flip_y);
+        orientations
+            .into_iter()
+            .map(|orientation| {
+                let mut map = Vec::with_capacity(tile_w * tile_h);
+                for y in 0..tile_h {
+                    for x in 0..tile_w {
+                        let idx = match orientation {
+                            Orientation::None => y * tile_w + x,
+                            Orientation::FlipX => y * tile_w + (tile_w - 1 - x),
+                            Orientation::FlipY => (tile_h - 1 - y) * tile_w + x,
+                            Orientation::FlipXY => (tile_h - 1 - y) * tile_w + (tile_w - 1 - x),
+                        };
+                        map.push(idx);
+                    }
+                }
+                OrientationMap { orientation, map }
+            })
+            .collect()
     }
+}
+
+struct OrientationMap {
+    orientation: Orientation,
+    map: Vec<usize>,
 }
