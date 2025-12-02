@@ -34,6 +34,15 @@ struct ClusterRep {
     insert_cursor: usize,
 }
 
+pub struct TileReduceOptions {
+    pub tile_width: u16,
+    pub tile_height: u16,
+    pub threshold: f32,
+    pub allow_flip_x: bool,
+    pub allow_flip_y: bool,
+    pub use_blur: bool,
+}
+
 impl ImageProcessor {
     pub fn new() -> Self {
         Self::default()
@@ -257,33 +266,29 @@ impl ImageProcessor {
         palette: &[BGRA8],
         width: u32,
         height: u32,
-        tile_width: u16,
-        tile_height: u16,
-        threshold: f32,
-        allow_flip_x: bool,
-        allow_flip_y: bool,
-        use_blur: bool,
+        opts: &TileReduceOptions,
     ) -> usize {
         // Quality/speed tuning
         let medoid_recompute_interval = 8;
         let max_members_tracked = 64;
 
-        if tile_width == 0
-            || tile_height == 0
-            || !width.is_multiple_of(tile_width as u32)
-            || !height.is_multiple_of(tile_height as u32)
+        if opts.tile_width == 0
+            || opts.tile_height == 0
+            || !width.is_multiple_of(opts.tile_width as u32)
+            || !height.is_multiple_of(opts.tile_height as u32)
         {
             log::warn!("Tile reduce post-process skipped due to incompatible dimensions");
             return 0;
         }
 
-        let tiles_x = width / tile_width as u32;
-        let tiles_y = height / tile_height as u32;
-        let tile_w = tile_width as usize;
-        let tile_h = tile_height as usize;
+        let tiles_x = width / opts.tile_width as u32;
+        let tiles_y = height / opts.tile_height as u32;
+        let tile_w = opts.tile_width as usize;
+        let tile_h = opts.tile_height as usize;
         let tile_area = tile_w * tile_h;
         let stride = width as usize;
-        let orientation_maps = Orientation::maps(tile_w, tile_h, allow_flip_x, allow_flip_y);
+        let orientation_maps =
+            Orientation::maps(tile_w, tile_h, opts.allow_flip_x, opts.allow_flip_y);
 
         let mut tile_indices_buf = vec![0u8; tile_area];
         let mut tile_colors_buf = vec![[0u8; 4]; tile_area];
@@ -314,8 +319,8 @@ impl ImageProcessor {
                     .copy_from_slice(&indexed[offset..offset + tile_w]);
             }
 
-            Self::expand_indices_to_colors_into(&tile_indices, palette, &mut tile_colors_buf);
-            if use_blur {
+            Self::expand_indices_to_colors_into(tile_indices, palette, &mut tile_colors_buf);
+            if opts.use_blur {
                 Self::blur_tile_colors_into(&tile_colors_buf, &mut tile_blur_buf, tile_w, tile_h);
             } else {
                 tile_blur_buf.copy_from_slice(&tile_colors_buf);
@@ -331,7 +336,7 @@ impl ImageProcessor {
             for (idx, rep) in representatives.iter().enumerate() {
                 let (best_mse, best_orient) =
                     Self::best_orientation_mse_preoriented(&rep.blurred_colors, &oriented_tiles, &orientation_maps);
-                if best_mse <= threshold {
+                if best_mse <= opts.threshold {
                     matched = Some((idx, best_orient));
                     break;
                 }
@@ -503,7 +508,7 @@ impl ImageProcessor {
         }
     }
 
-    fn recompute_medoid(rep: &mut ClusterRep, tile_w: usize, tile_h: usize, maps: &[OrientationMap]) {
+    fn recompute_medoid(rep: &mut ClusterRep, _tile_w: usize, _tile_h: usize, maps: &[OrientationMap]) {
         if rep.members.len() <= 1 {
             return;
         }

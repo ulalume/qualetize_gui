@@ -223,12 +223,14 @@ impl QualetizeApp {
                 &indexed.palettes,
                 base.width,
                 base.height,
-                self.state.settings.tile_width,
-                self.state.settings.tile_height,
-                self.state.settings.tile_reduce_post_threshold,
-                self.state.settings.tile_reduce_allow_flip_x,
-                self.state.settings.tile_reduce_allow_flip_y,
-                true,
+                &crate::image_processor::TileReduceOptions {
+                    tile_width: self.state.settings.tile_width,
+                    tile_height: self.state.settings.tile_height,
+                    threshold: self.state.settings.tile_reduce_post_threshold,
+                    allow_flip_x: self.state.settings.tile_reduce_allow_flip_x,
+                    allow_flip_y: self.state.settings.tile_reduce_allow_flip_y,
+                    use_blur: true,
+                },
             );
             if merged > 0 {
                 log::info!("Tile reduce post-process merged {merged} tiles");
