@@ -11,8 +11,9 @@ use crate::types::{
 use egui::Color32;
 use regex::Regex;
 
-pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
+    let mut tile_reduce_changed = false;
 
     // Basic settings
     settings_changed |= draw_basic_settings(ui, state);
@@ -41,7 +42,7 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed |= draw_color_correction_settings(ui, state);
     ui.separator();
 
-    settings_changed |= draw_tile_reduce_settings(ui, state);
+    tile_reduce_changed |= draw_tile_reduce_settings(ui, state);
     ui.separator();
     draw_palette_sort_settings(ui, state);
 
@@ -50,7 +51,7 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ui.separator();
         draw_status_section(ui, state);
     }
-    settings_changed
+    (settings_changed, tile_reduce_changed)
 }
 
 fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {

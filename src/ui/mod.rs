@@ -9,7 +9,7 @@ use crate::types::AppState;
 pub struct UI;
 
 impl UI {
-    pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
         settings_panel::draw_settings_panel(ui, state)
     }
 

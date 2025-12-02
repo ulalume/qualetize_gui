@@ -97,6 +97,7 @@ pub struct AppState {
     pub input_path: Option<String>,
     pub input_image: Option<ImageData>,
     pub color_corrected_image: Option<ImageData>,
+    pub base_output_image: Option<ImageData>,
     pub output_image: Option<ImageData>,
     pub output_palette_sorted_indexed_image: Option<ImageDataIndexed>,
 
@@ -109,6 +110,7 @@ pub struct AppState {
     // Qualetize Settings
     pub settings: QualetizeSettings,
     pub request_update_qualetized_image: Option<QualetizeRequest>,
+    pub request_update_tile_reduce: bool,
     pub debounce_delay: std::time::Duration,
 
     // Color Correction Settings
@@ -140,6 +142,7 @@ impl Default for AppState {
             input_path: None,
             input_image: None,
             color_corrected_image: None,
+            base_output_image: None,
             output_image: None,
             output_palette_sorted_indexed_image: None,
 
@@ -150,6 +153,7 @@ impl Default for AppState {
 
             settings: QualetizeSettings::default(),
             request_update_qualetized_image: None,
+            request_update_tile_reduce: false,
             debounce_delay: std::time::Duration::from_millis(100),
 
             last_color_correction: ColorCorrection::default(),

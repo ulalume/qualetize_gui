@@ -5,11 +5,11 @@ use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
-use crate::types::image::SortMode;
+use crate::types::image::{ImageDataIndexed, SortMode};
 use crate::types::{AppState, ExportFormat};
 use crate::ui::UI;
 use eframe::egui;
-use egui::Margin;
+use egui::{ColorImage, Margin};
 use rfd::FileDialog;
 use std::sync::{
     Arc,
@@ -67,6 +67,7 @@ impl QualetizeApp {
                 self.state.input_path = Some(path.clone());
                 self.state.input_image = Some(image_data);
                 self.state.color_corrected_image = None;
+                self.state.base_output_image = None;
 
                 // Check tile size compatibility
                 self.check_tile_size_compatibility();
@@ -79,6 +80,7 @@ impl QualetizeApp {
                 self.state.input_path = None;
                 self.state.input_image = Default::default();
                 self.state.color_corrected_image = None;
+                self.state.base_output_image = None;
             }
         }
     }
@@ -152,7 +154,8 @@ impl QualetizeApp {
         if let Some(result) = self.image_processor.check_preview_complete(ctx) {
             match result {
                 Ok(image_data) => {
-                    self.state.output_image = Some(image_data);
+                    self.state.base_output_image = Some(image_data.clone());
+                    self.apply_tile_reduce_from_cache(ctx);
                     self.state.output_palette_sorted_indexed_image = None;
                     self.state.tile_count.last_count = None;
                     self.state.tile_count.mark_dirty();
@@ -160,6 +163,7 @@ impl QualetizeApp {
                 Err(e) => {
                     log::error!("Failed to generate preview image: {e}");
                     self.state.output_image = None;
+                    self.state.base_output_image = None;
                     self.state.output_palette_sorted_indexed_image = None;
                     self.state.tile_count.last_count = None;
                     self.state.tile_count.mark_dirty();
@@ -187,6 +191,74 @@ impl QualetizeApp {
             let color_corrected_image = image.color_corrected(&self.state.color_correction, ctx);
             self.state.color_corrected_image = Some(color_corrected_image);
         }
+    }
+
+    fn handle_tile_reduce_changes(&mut self, ctx: &egui::Context) {
+        if self.state.request_update_tile_reduce {
+            self.apply_tile_reduce_from_cache(ctx);
+            self.state.request_update_tile_reduce = false;
+        }
+    }
+
+    fn apply_tile_reduce_from_cache(&mut self, ctx: &egui::Context) {
+        let Some(base) = &self.state.base_output_image else {
+            return;
+        };
+
+        let mut output = base.clone();
+
+        let Some(indexed) = &base.indexed else {
+            self.state.output_image = Some(output);
+            self.state.output_palette_sorted_indexed_image = None;
+            self.state.tile_count.mark_dirty();
+            return;
+        };
+
+        if self.state.settings.tile_reduce_post_enabled
+            && self.state.settings.tile_reduce_post_threshold > 0.0
+        {
+            let mut indexed_pixels = indexed.indexed_pixels.clone();
+            let merged = ImageProcessor::reduce_tiles_indexed(
+                &mut indexed_pixels,
+                &indexed.palettes,
+                base.width,
+                base.height,
+                self.state.settings.tile_width,
+                self.state.settings.tile_height,
+                self.state.settings.tile_reduce_post_threshold,
+            );
+            if merged > 0 {
+                log::info!("Tile reduce post-process merged {merged} tiles");
+            }
+
+            let mut pixels = Vec::with_capacity((base.width * base.height * 4) as usize);
+            for &pixel_index in &indexed_pixels {
+                let palette_index = pixel_index as usize;
+                if let Some(color) = indexed.palettes.get(palette_index) {
+                    pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
+                } else {
+                    pixels.extend_from_slice(&[0, 0, 0, 255]);
+                }
+            }
+
+            let size = [base.width as usize, base.height as usize];
+            let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
+            let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
+
+            output.texture = texture;
+            output.rgba_data = pixels;
+            output.indexed = Some(ImageDataIndexed {
+                palettes_for_ui: indexed.palettes_for_ui.clone(),
+                palettes: indexed.palettes.clone(),
+                indexed_pixels,
+            });
+        } else {
+            log::debug!("Tile reduce disabled or threshold <= 0, using base output");
+        }
+
+        self.state.output_image = Some(output);
+        self.state.output_palette_sorted_indexed_image = None;
+        self.state.tile_count.mark_dirty();
     }
 
     fn handle_requests(&mut self, ctx: &egui::Context) {
@@ -506,6 +578,9 @@ impl eframe::App for QualetizeApp {
         // Handle settings changes after checking completion
         self.handle_settings_changes();
 
+        // Apply tile reduce changes without re-qualetizing
+        self.handle_tile_reduce_changes(ctx);
+
         self.update_palette_sort_settings();
 
         // Handle export requests
@@ -515,6 +590,7 @@ impl eframe::App for QualetizeApp {
         self.state.check_and_save_preferences();
 
         let mut settings_changed = false;
+        let mut tile_reduce_changed = false;
         // Top（Menu）
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             egui::Frame::NONE
@@ -530,7 +606,9 @@ impl eframe::App for QualetizeApp {
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    settings_changed |= UI::draw_settings_panel(ui, &mut self.state);
+                    let (settings, tile_reduce) = UI::draw_settings_panel(ui, &mut self.state);
+                    settings_changed |= settings;
+                    tile_reduce_changed |= tile_reduce;
                 });
             });
 
@@ -565,6 +643,9 @@ impl eframe::App for QualetizeApp {
             self.state.request_update_qualetized_image = Some(QualetizeRequest {
                 time: std::time::Instant::now(),
             });
+        }
+        if tile_reduce_changed {
+            self.state.request_update_tile_reduce = true;
         }
 
         // Repaint drawing while updating image

@@ -230,23 +230,6 @@ impl ImageProcessor {
 
         log::debug!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
 
-        if settings.tile_reduce_post_enabled && settings.tile_reduce_post_threshold > 0.0 {
-            let merged = Self::reduce_tiles_indexed(
-                &mut output_data,
-                &output_palette,
-                width,
-                height,
-                settings.tile_width,
-                settings.tile_height,
-                settings.tile_reduce_post_threshold,
-            );
-            if merged > 0 {
-                log::info!("Tile reduce post-process merged {merged} tiles");
-            } else {
-                log::debug!("Tile reduce post-process performed with no merges");
-            }
-        }
-
         Ok(QualetizeResult {
             indexed_data: output_data,
             palette_data: output_palette,
@@ -257,7 +240,7 @@ impl ImageProcessor {
         })
     }
 
-    fn reduce_tiles_indexed(
+    pub fn reduce_tiles_indexed(
         indexed: &mut [u8],
         palette: &[BGRA8],
         width: u32,
