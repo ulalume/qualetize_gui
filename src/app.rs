@@ -5,7 +5,7 @@ use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
-use crate::types::image::{ImageDataIndexed, SortMode};
+use crate::types::image::{ImageDataIndexed, SortMode, TileCountOptions};
 use crate::types::{AppState, ExportFormat};
 use crate::ui::UI;
 use eframe::egui;
@@ -155,6 +155,12 @@ impl QualetizeApp {
             match result {
                 Ok(image_data) => {
                     self.state.base_output_image = Some(image_data.clone());
+                    self.state.base_tile_count = Self::count_tiles(
+                        &image_data,
+                        self.state.settings.tile_width,
+                        self.state.settings.tile_height,
+                        self.state.tile_count.options(),
+                    );
                     self.apply_tile_reduce_from_cache(ctx);
                     self.state.output_palette_sorted_indexed_image = None;
                     self.state.tile_count.last_count = None;
@@ -164,6 +170,8 @@ impl QualetizeApp {
                     log::error!("Failed to generate preview image: {e}");
                     self.state.output_image = None;
                     self.state.base_output_image = None;
+                    self.state.base_tile_count = None;
+                    self.state.reduced_tile_count = None;
                     self.state.output_palette_sorted_indexed_image = None;
                     self.state.tile_count.last_count = None;
                     self.state.tile_count.mark_dirty();
@@ -263,7 +271,26 @@ impl QualetizeApp {
 
         self.state.output_image = Some(output);
         self.state.output_palette_sorted_indexed_image = None;
+        self.state.reduced_tile_count =
+            self.state.output_image.as_ref().and_then(|img| {
+                Self::count_tiles(
+                    img,
+                    self.state.settings.tile_width,
+                    self.state.settings.tile_height,
+                    self.state.tile_count.options(),
+                )
+            });
         self.state.tile_count.mark_dirty();
+    }
+
+    fn count_tiles(
+        image: &ImageData,
+        tile_w: u16,
+        tile_h: u16,
+        options: TileCountOptions,
+    ) -> Option<usize> {
+        let indexed = image.indexed.as_ref()?;
+        ImageData::count_unique_tiles(indexed, image.width, image.height, tile_w, tile_h, options)
     }
 
     fn handle_requests(&mut self, ctx: &egui::Context) {

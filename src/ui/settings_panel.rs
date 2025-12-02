@@ -428,7 +428,6 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     .show_value(false);
             if ui
                 .add(slider)
-                .on_hover_text("Average per-channel MSE per pixel after quantization.")
                 .changed()
             {
                 settings_changed = true;
@@ -445,6 +444,16 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 settings_changed = true;
             }
         });
+
+        let reduced_text = if let (Some(base), Some(reduced)) =
+            (state.base_tile_count, state.reduced_tile_count)
+        {
+            let diff = base.saturating_sub(reduced);
+            format!("Reduced {} tiles", diff)
+        } else {
+            "Reduced -- tiles".to_string()
+        };
+        ui.label(reduced_text);
     });
 
     settings_changed

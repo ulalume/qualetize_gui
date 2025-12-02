@@ -100,6 +100,8 @@ pub struct AppState {
     pub base_output_image: Option<ImageData>,
     pub output_image: Option<ImageData>,
     pub output_palette_sorted_indexed_image: Option<ImageDataIndexed>,
+    pub base_tile_count: Option<usize>,
+    pub reduced_tile_count: Option<usize>,
 
     // View Settings
     pub zoom: f32,
@@ -145,6 +147,8 @@ impl Default for AppState {
             base_output_image: None,
             output_image: None,
             output_palette_sorted_indexed_image: None,
+            base_tile_count: None,
+            reduced_tile_count: None,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,

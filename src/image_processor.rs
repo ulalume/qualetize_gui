@@ -376,7 +376,7 @@ impl ImageProcessor {
                     }
 
                     if rep.members.len() % medoid_recompute_interval == 0 {
-                        Self::recompute_medoid(rep, tile_w, tile_h, &orientation_maps);
+                        Self::recompute_medoid(rep, &orientation_maps);
                     }
                 }
                 merged += 1;
@@ -508,7 +508,7 @@ impl ImageProcessor {
         }
     }
 
-    fn recompute_medoid(rep: &mut ClusterRep, _tile_w: usize, _tile_h: usize, maps: &[OrientationMap]) {
+    fn recompute_medoid(rep: &mut ClusterRep, maps: &[OrientationMap]) {
         if rep.members.len() <= 1 {
             return;
         }
