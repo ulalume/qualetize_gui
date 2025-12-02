@@ -398,29 +398,63 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.add_enabled_ui(state.settings.tile_reduce_post_enabled, |ui| {
         ui.horizontal(|ui| {
-            ui.label("Threshold:")
-                .on_hover_text("Average per-channel MSE per pixel after quantization.");
-
-            let slider =
-                egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 0.0..=2000.0)
-                    .logarithmic(false)
-                    .show_value(false);
             if ui
-                .add(slider)
-                .on_hover_text("Average per-channel MSE per pixel after quantization.")
+                .checkbox(
+                    &mut state.settings.tile_reduce_high_quality,
+                    "High quality (slower)",
+                )
+                .on_hover_text("More frequent medoid updates and larger sample pool (slower).")
                 .changed()
             {
                 settings_changed = true;
             }
+        });
 
+        ui.horizontal(|ui| {
             if ui
-                .add(
-                    egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
-                        .range(0.0..=2000.0)
-                        .speed(1.0),
+                .checkbox(
+                    &mut state.settings.tile_reduce_allow_flip_x,
+                    "Allowed X Flips",
                 )
                 .changed()
             {
+                settings_changed = true;
+            }
+            if ui
+                .checkbox(
+                    &mut state.settings.tile_reduce_allow_flip_y,
+                    "Allowed Y Flips",
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Threshold:")
+                .on_hover_text("Average per-channel MSE per pixel after quantization.");
+
+            let slider =
+                egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
+                    .logarithmic(false)
+                    .show_value(false);
+            let slider_response = ui
+                .add(slider)
+                .on_hover_text("Average per-channel MSE per pixel after quantization.");
+
+            let drag_response = ui.add(
+                egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
+                    .range(1.0..=500.0)
+                    .speed(5.0),
+            );
+
+            let slider_released =
+                slider_response.drag_stopped() || (!slider_response.dragged() && slider_response.changed());
+            let drag_released =
+                drag_response.drag_stopped() || (!drag_response.dragged() && drag_response.changed());
+
+            if slider_released || drag_released {
                 settings_changed = true;
             }
         });

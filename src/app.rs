@@ -226,6 +226,10 @@ impl QualetizeApp {
                 self.state.settings.tile_width,
                 self.state.settings.tile_height,
                 self.state.settings.tile_reduce_post_threshold,
+                self.state.settings.tile_reduce_allow_flip_x,
+                self.state.settings.tile_reduce_allow_flip_y,
+                true,
+                self.state.settings.tile_reduce_high_quality,
             );
             if merged > 0 {
                 log::info!("Tile reduce post-process merged {merged} tiles");
