@@ -230,8 +230,7 @@ impl QualetizeApp {
                         }
                     }
                     let size = [base.width as usize, base.height as usize];
-                    let color_image =
-                        ColorImage::from_rgba_unmultiplied(size, &pixels);
+                    let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
                     let texture =
                         ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
@@ -255,7 +254,11 @@ impl QualetizeApp {
                     let diff = self
                         .state
                         .base_tile_count
-                        .and_then(|base| self.state.reduced_tile_count.map(|reduced| base.saturating_sub(reduced)))
+                        .and_then(|base| {
+                            self.state
+                                .reduced_tile_count
+                                .map(|reduced| base.saturating_sub(reduced))
+                        })
                         .unwrap_or(res.merged);
                     self.state.tile_reduce_toast = Some(crate::types::app_state::TileReduceToast {
                         message: format!("Reduced {} tiles", diff),

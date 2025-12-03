@@ -32,13 +32,13 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
             if state.preferences.show_original_image {
                 let settings = ImagePanelSettings {
                     width: split_x,
-                height: split_y,
-                zoom,
-                pan_offset,
-                title: "Original".into(),
-                has_spinner: false,
-                overlay_text: None,
-            };
+                    height: split_y,
+                    zoom,
+                    pan_offset,
+                    title: "Original".into(),
+                    has_spinner: false,
+                    overlay_text: None,
+                };
                 draw_image_panel(
                     ui,
                     state,
@@ -51,13 +51,13 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
             if state.preferences.show_color_corrected_image {
                 let settings = ImagePanelSettings {
                     width: split_x,
-                height: split_y,
-                zoom,
-                pan_offset,
-                title: "Color Corrected".into(),
-                has_spinner: state.color_corrected_image.is_none(),
-                overlay_text: None,
-            };
+                    height: split_y,
+                    zoom,
+                    pan_offset,
+                    title: "Color Corrected".into(),
+                    has_spinner: state.color_corrected_image.is_none(),
+                    overlay_text: None,
+                };
                 draw_image_panel(
                     ui,
                     state,
@@ -258,39 +258,21 @@ fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
     }
 }
 
-fn draw_overlay_text(
-    painter: &egui::Painter,
-    canvas: Rect,
-    ui_ctx: &egui::Context,
-    text: &str,
-) {
+fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context, text: &str) {
     let visuals = &ui_ctx.style().visuals;
     let window_color = visuals.window_fill();
-    let bg_color = Color32::from_rgba_unmultiplied(
-        window_color.r(),
-        window_color.g(),
-        window_color.b(),
-        178,
-    );
+    let bg_color =
+        Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
     let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
 
-    let galley = ui_ctx.fonts(|f| {
-        f.layout_no_wrap(
-            text.to_string(),
-            FontId::proportional(14.0),
-            text_color,
-        )
-    });
+    let galley = ui_ctx
+        .fonts(|f| f.layout_no_wrap(text.to_string(), FontId::proportional(14.0), text_color));
     let rect = Align2::CENTER_CENTER.align_size_within_rect(
         galley.size() + egui::vec2(12.0, 6.0),
         Rect::from_center_size(canvas.center(), galley.size() + egui::vec2(12.0, 6.0)),
     );
     painter.rect_filled(rect, 4.0, bg_color);
-    painter.galley(
-        rect.center() - galley.size() * 0.5,
-        galley,
-        text_color,
-    );
+    painter.galley(rect.center() - galley.size() * 0.5, galley, text_color);
 }
 
 fn draw_image_panel(

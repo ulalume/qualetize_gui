@@ -405,9 +405,10 @@ impl ImageProcessor {
 
         for (tx, ty, _) in coords {
             if let Some(flag) = &cancel_flag
-                && flag.load(std::sync::atomic::Ordering::Relaxed) {
-                    return usize::MAX;
-                }
+                && flag.load(std::sync::atomic::Ordering::Relaxed)
+            {
+                return usize::MAX;
+            }
             let tile_indices = &mut tile_indices_buf;
             for y in 0..tile_h {
                 let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
@@ -430,8 +431,11 @@ impl ImageProcessor {
 
             let mut matched: Option<(usize, Orientation)> = None;
             for (idx, rep) in representatives.iter().enumerate() {
-                let (best_mse, best_orient) =
-                    Self::best_orientation_mse_preoriented(&rep.blurred_colors, &oriented_tiles, &orientation_maps);
+                let (best_mse, best_orient) = Self::best_orientation_mse_preoriented(
+                    &rep.blurred_colors,
+                    &oriented_tiles,
+                    &orientation_maps,
+                );
                 if best_mse <= opts.threshold {
                     matched = Some((idx, best_orient));
                     break;
@@ -446,8 +450,7 @@ impl ImageProcessor {
                     .map(|m| &m.map)
                     .unwrap_or(&orientation_maps[0].map);
                 for y in 0..tile_h {
-                    let offset =
-                        ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
+                    let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
                     Self::write_rep_with_orientation(
                         &mut indexed[offset..offset + tile_w],
                         &rep.indices,
@@ -519,8 +522,15 @@ impl ImageProcessor {
         (best, best_orientation)
     }
 
-    fn tile_mse_rgba_with_map(rep_colors: &[[u8; 4]], tile_colors: &[[u8; 4]], map: &[usize]) -> f32 {
-        if rep_colors.len() != tile_colors.len() || rep_colors.is_empty() || map.len() != rep_colors.len() {
+    fn tile_mse_rgba_with_map(
+        rep_colors: &[[u8; 4]],
+        tile_colors: &[[u8; 4]],
+        map: &[usize],
+    ) -> f32 {
+        if rep_colors.len() != tile_colors.len()
+            || rep_colors.is_empty()
+            || map.len() != rep_colors.len()
+        {
             return f32::MAX;
         }
         let mut error = 0.0f64;
@@ -555,7 +565,11 @@ impl ImageProcessor {
         (best, best_orientation)
     }
 
-    fn tile_mse_rgba_fast(rep_colors: &[[u8; 4]], tile_colors: &[[u8; 4]], stop_if_over: f32) -> f32 {
+    fn tile_mse_rgba_fast(
+        rep_colors: &[[u8; 4]],
+        tile_colors: &[[u8; 4]],
+        stop_if_over: f32,
+    ) -> f32 {
         if rep_colors.len() != tile_colors.len() || rep_colors.is_empty() {
             return f32::MAX;
         }
@@ -617,11 +631,8 @@ impl ImageProcessor {
                 if i == j {
                     continue;
                 }
-                let (mse, _) = Self::best_orientation_mse_maps(
-                    &a.blurred_colors,
-                    &b.blurred_colors,
-                    maps,
-                );
+                let (mse, _) =
+                    Self::best_orientation_mse_maps(&a.blurred_colors, &b.blurred_colors, maps);
                 sum += mse;
             }
             if sum < best_sum {
@@ -675,7 +686,12 @@ impl Orientation {
         v
     }
 
-    fn maps(tile_w: usize, tile_h: usize, allow_flip_x: bool, allow_flip_y: bool) -> Vec<OrientationMap> {
+    fn maps(
+        tile_w: usize,
+        tile_h: usize,
+        allow_flip_x: bool,
+        allow_flip_y: bool,
+    ) -> Vec<OrientationMap> {
         let orientations = Orientation::available(allow_flip_x, allow_flip_y);
         orientations
             .into_iter()

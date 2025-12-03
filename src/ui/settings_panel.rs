@@ -426,10 +426,7 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
                     .logarithmic(false)
                     .show_value(false);
-            if ui
-                .add(slider)
-                .changed()
-            {
+            if ui.add(slider).changed() {
                 settings_changed = true;
             }
 

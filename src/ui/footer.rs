@@ -1,9 +1,5 @@
 use super::styles;
-use crate::types::{
-    AppState, ExportFormat,
-    app_state::AppStateRequest,
-    image::ImageData,
-};
+use crate::types::{AppState, ExportFormat, app_state::AppStateRequest, image::ImageData};
 use egui::{Color32, Vec2};
 
 pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -74,7 +70,7 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                     );
                 }
             });
-                let _ = compute_tile_count(state);
+        let _ = compute_tile_count(state);
         let count_label = match state.tile_count.last_count {
             Some(count) => format!("Tiles: {count}"),
             None => "Tiles: --".to_string(),
