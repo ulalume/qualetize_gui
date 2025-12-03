@@ -2,7 +2,6 @@ use super::styles::UiMarginExt;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
-use crate::types::image::ImageData;
 use crate::types::qualetize::validate_0_255_array;
 use crate::types::{
     AppState, ClearColor, ColorSpace, DitherMode,
@@ -12,8 +11,9 @@ use crate::types::{
 use egui::Color32;
 use regex::Regex;
 
-pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
+    let mut tile_reduce_changed = false;
 
     // Basic settings
     settings_changed |= draw_basic_settings(ui, state);
@@ -42,16 +42,16 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed |= draw_color_correction_settings(ui, state);
     ui.separator();
 
-    draw_palette_sort_settings(ui, state);
+    tile_reduce_changed |= draw_tile_reduce_settings(ui, state);
     ui.separator();
-    draw_tile_count_settings(ui, state);
+    draw_palette_sort_settings(ui, state);
 
     if state.preferences.show_debug_info {
         // Debug information display
         ui.separator();
         draw_status_section(ui, state);
     }
-    settings_changed
+    (settings_changed, tile_reduce_changed)
 }
 
 fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -377,6 +377,83 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         {
             settings_changed = true;
         }
+    });
+
+    settings_changed
+}
+
+fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+    ui.heading_with_margin("Tile Reduction");
+
+    if ui
+        .checkbox(&mut state.settings.tile_reduce_post_enabled, "Enable (heavy)")
+        .on_hover_text(
+            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis option increases processing time.",
+        )
+        .changed()
+    {
+        settings_changed = true;
+    }
+
+    ui.add_enabled_ui(state.settings.tile_reduce_post_enabled, |ui| {
+        ui.horizontal(|ui| {
+            if ui
+                .checkbox(
+                    &mut state.settings.tile_reduce_allow_flip_x,
+                    "Allowed X Flips",
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
+            if ui
+                .checkbox(
+                    &mut state.settings.tile_reduce_allow_flip_y,
+                    "Allowed Y Flips",
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Threshold:")
+                .on_hover_text("Average per-channel MSE per pixel after quantization.");
+
+            let slider =
+                egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
+                    .logarithmic(false)
+                    .show_value(false);
+            if ui
+                .add(slider)
+                .changed()
+            {
+                settings_changed = true;
+            }
+
+            if ui
+                .add(
+                    egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
+                        .range(1.0..=500.0)
+                        .speed(5.0),
+                )
+                .changed()
+            {
+                settings_changed = true;
+            }
+        });
+
+        let reduced_text = if let (Some(base), Some(reduced)) =
+            (state.base_tile_count, state.reduced_tile_count)
+        {
+            let diff = base.saturating_sub(reduced);
+            format!("Reduced {} tiles", diff)
+        } else {
+            "Reduced -- tiles".to_string()
+        };
+        ui.label(reduced_text);
     });
 
     settings_changed
@@ -796,75 +873,4 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 });
         });
     });
-}
-
-fn draw_tile_count_settings(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.heading_with_margin("Tile Count");
-
-    let mut options_changed = false;
-
-    ui.horizontal(|ui| {
-        if ui
-            .checkbox(
-                &mut state.tile_count.settings.visible_only,
-                "Ignore fully transparent tiles",
-            )
-            .on_hover_text(
-                "Treat fully transparent tiles as identical and exclude them from the count",
-            )
-            .clicked()
-        {
-            options_changed = true;
-        }
-    });
-
-    ui.horizontal(|ui| {
-        if ui
-            .checkbox(
-                &mut state.tile_count.settings.allow_flip_x,
-                "Allowed X Flips",
-            )
-            .clicked()
-        {
-            options_changed = true;
-        }
-        if ui
-            .checkbox(
-                &mut state.tile_count.settings.allow_flip_y,
-                "Allowed Y Flips",
-            )
-            .clicked()
-        {
-            options_changed = true;
-        }
-    });
-
-    if options_changed {
-        state.tile_count.mark_dirty();
-    }
-
-    compute_tile_count(state);
-}
-
-fn compute_tile_count(state: &mut AppState) -> Option<usize> {
-    let Some(output_image) = &state.output_image else {
-        return None;
-    };
-    let Some(indexed) = &output_image.indexed else {
-        return None;
-    };
-
-    if state.tile_count.dirty || state.tile_count.last_count.is_none() {
-        state.tile_count.last_count = ImageData::count_unique_tiles(
-            indexed,
-            output_image.width,
-            output_image.height,
-            state.settings.tile_width,
-            state.settings.tile_height,
-            state.tile_count.options(),
-        );
-        state.tile_count.dirty = false;
-    }
-
-    state.tile_count.last_count
 }

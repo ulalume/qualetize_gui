@@ -99,6 +99,14 @@ pub struct QualetizeSettings {
     pub col0_is_clear: bool,
     pub clear_color: ClearColor,
     #[serde(default)]
+    pub tile_reduce_post_enabled: bool,
+    #[serde(default = "default_tile_reduce_post_threshold")]
+    pub tile_reduce_post_threshold: f32,
+    #[serde(default = "default_tile_reduce_allow_flip")]
+    pub tile_reduce_allow_flip_x: bool,
+    #[serde(default = "default_tile_reduce_allow_flip")]
+    pub tile_reduce_allow_flip_y: bool,
+    #[serde(default)]
     pub use_custom_levels: bool,
     #[serde(default = "default_custom_level_strings")]
     pub custom_levels: [String; 4],
@@ -159,6 +167,10 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            tile_reduce_post_enabled: false,
+            tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
+            tile_reduce_allow_flip_x: default_tile_reduce_allow_flip(),
+            tile_reduce_allow_flip_y: default_tile_reduce_allow_flip(),
             use_custom_levels: false,
             custom_levels: default_level_strings_from_depth(&rgba_depth),
         }
@@ -186,6 +198,10 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            tile_reduce_post_enabled: false,
+            tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
+            tile_reduce_allow_flip_x: default_tile_reduce_allow_flip(),
+            tile_reduce_allow_flip_y: default_tile_reduce_allow_flip(),
             use_custom_levels: true,
             custom_levels: genesis_custom_level_strings(),
         }
@@ -218,6 +234,15 @@ fn char_to_depth(c: char) -> f32 {
         _ => 255.0,
     }
 }
+
+fn default_tile_reduce_post_threshold() -> f32 {
+    25.0
+}
+
+fn default_tile_reduce_allow_flip() -> bool {
+    true
+}
+
 fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
     if rgba_depth.len() == 4 {
         let chars: Vec<char> = rgba_depth.chars().collect();

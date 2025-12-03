@@ -9,6 +9,7 @@ use super::{
     qualetize::QualetizeSettings,
 };
 use crate::types::image::TileCountOptions;
+use std::time::Instant;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
@@ -97,8 +98,14 @@ pub struct AppState {
     pub input_path: Option<String>,
     pub input_image: Option<ImageData>,
     pub color_corrected_image: Option<ImageData>,
+    pub base_output_image: Option<ImageData>,
     pub output_image: Option<ImageData>,
     pub output_palette_sorted_indexed_image: Option<ImageDataIndexed>,
+    pub base_tile_count: Option<usize>,
+    pub reduced_tile_count: Option<usize>,
+    pub tile_reduce_processing: bool,
+    pub tile_reduce_generation_id: u64,
+    pub tile_reduce_toast: Option<TileReduceToast>,
 
     // View Settings
     pub zoom: f32,
@@ -109,6 +116,7 @@ pub struct AppState {
     // Qualetize Settings
     pub settings: QualetizeSettings,
     pub request_update_qualetized_image: Option<QualetizeRequest>,
+    pub request_update_tile_reduce: bool,
     pub debounce_delay: std::time::Duration,
 
     // Color Correction Settings
@@ -131,6 +139,12 @@ pub struct AppState {
     pub file_dialog_open: Arc<AtomicBool>,
 }
 
+#[derive(Clone)]
+pub struct TileReduceToast {
+    pub message: String,
+    pub time: Instant,
+}
+
 impl Default for AppState {
     fn default() -> Self {
         let preferences = UserPreferences::load();
@@ -140,8 +154,14 @@ impl Default for AppState {
             input_path: None,
             input_image: None,
             color_corrected_image: None,
+            base_output_image: None,
             output_image: None,
             output_palette_sorted_indexed_image: None,
+            base_tile_count: None,
+            reduced_tile_count: None,
+            tile_reduce_processing: false,
+            tile_reduce_generation_id: 0,
+            tile_reduce_toast: None,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
@@ -150,6 +170,7 @@ impl Default for AppState {
 
             settings: QualetizeSettings::default(),
             request_update_qualetized_image: None,
+            request_update_tile_reduce: false,
             debounce_delay: std::time::Duration::from_millis(100),
 
             last_color_correction: ColorCorrection::default(),
