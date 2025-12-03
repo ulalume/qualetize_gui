@@ -404,11 +404,10 @@ impl ImageProcessor {
         coords.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
         for (tx, ty, _) in coords {
-            if let Some(flag) = &cancel_flag {
-                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+            if let Some(flag) = &cancel_flag
+                && flag.load(std::sync::atomic::Ordering::Relaxed) {
                     return usize::MAX;
                 }
-            }
             let tile_indices = &mut tile_indices_buf;
             for y in 0..tile_h {
                 let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);

@@ -93,19 +93,15 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
             } else {
                 None
             };
-            if toast.is_none() {
-                if state.tile_reduce_toast.is_some()
-                    && state
-                        .tile_reduce_toast
-                        .as_ref()
-                        .map(|t| t.time.elapsed() >= std::time::Duration::from_secs(3))
-                        .unwrap_or(false)
-                {
-                    // safe to clear stale toast
-                    let _ = state.tile_reduce_toast.take();
-                }
+            if toast.is_none()
+                && state
+                    .tile_reduce_toast
+                    .as_ref()
+                    .map(|t| t.time.elapsed() >= std::time::Duration::from_secs(3))
+                    .unwrap_or(false)
+            {
+                let _ = state.tile_reduce_toast.take();
             }
-            let toast = toast;
 
             let settings = ImagePanelSettings {
                 width: split_x,
