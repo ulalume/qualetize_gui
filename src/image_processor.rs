@@ -20,6 +20,10 @@ pub struct ImageProcessor {
     cancel_sender: Option<mpsc::Sender<()>>,
     current_generation_id: u64,
     active_threads: Vec<std::thread::JoinHandle<()>>,
+    tile_reduce_thread: Option<std::thread::JoinHandle<()>>,
+    tile_reduce_receiver: Option<mpsc::Receiver<Result<TileReduceResult, String>>>,
+    tile_reduce_generation_id: u64,
+    tile_reduce_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 struct ClusterMember {
@@ -43,9 +47,21 @@ pub struct TileReduceOptions {
     pub use_blur: bool,
 }
 
+pub struct TileReduceResult {
+    pub indexed_pixels: Vec<u8>,
+    pub merged: usize,
+    pub generation_id: u64,
+}
+
 impl ImageProcessor {
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            tile_reduce_thread: None,
+            tile_reduce_receiver: None,
+            tile_reduce_generation_id: 0,
+            tile_reduce_cancel: None,
+            ..Default::default()
+        }
     }
 
     pub fn start_qualetize(
@@ -155,6 +171,17 @@ impl ImageProcessor {
         self.preview_thread.is_some()
     }
 
+    pub fn cancel_tile_reduce(&mut self) {
+        if let Some(cancel) = &self.tile_reduce_cancel {
+            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        if let Some(old_thread) = self.tile_reduce_thread.take() {
+            self.active_threads.push(old_thread);
+        }
+        self.tile_reduce_receiver = None;
+        self.tile_reduce_cancel = None;
+    }
+
     pub fn cancel_current_processing(&mut self) {
         if let Some(cancel_sender) = &self.cancel_sender {
             let _ = cancel_sender.send(()); // キャンセル信号を送信
@@ -179,6 +206,70 @@ impl ImageProcessor {
 
     fn cleanup_finished_threads(&mut self) {
         self.active_threads.retain(|thread| !thread.is_finished());
+    }
+
+    pub fn start_tile_reduce(
+        &mut self,
+        indexed: Vec<u8>,
+        palettes: Vec<BGRA8>,
+        width: u32,
+        height: u32,
+        opts: TileReduceOptions,
+    ) -> u64 {
+        // cancel previous
+        self.cancel_tile_reduce();
+        let cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.tile_reduce_cancel = Some(cancel_flag.clone());
+        self.tile_reduce_generation_id = self.tile_reduce_generation_id.wrapping_add(1);
+
+        let (sender, receiver) = mpsc::channel();
+        self.tile_reduce_receiver = Some(receiver);
+
+        let generation_id = self.tile_reduce_generation_id;
+        let thread = std::thread::spawn(move || {
+            let mut indexed_pixels = indexed;
+            let merged = Self::reduce_tiles_indexed(
+                &mut indexed_pixels,
+                &palettes,
+                width,
+                height,
+                &opts,
+                Some(cancel_flag),
+            );
+            if merged == usize::MAX {
+                return;
+            }
+            let result = TileReduceResult {
+                indexed_pixels,
+                merged,
+                generation_id,
+            };
+            let _ = sender.send(Ok(result));
+        });
+        self.tile_reduce_thread = Some(thread);
+        generation_id
+    }
+
+    pub fn check_tile_reduce_complete(&mut self) -> Option<Result<TileReduceResult, String>> {
+        self.cleanup_finished_threads();
+        if let Some(receiver) = &mut self.tile_reduce_receiver {
+            match receiver.try_recv() {
+                Ok(result) => {
+                    self.tile_reduce_thread = None;
+                    self.tile_reduce_receiver = None;
+                    self.tile_reduce_cancel = None;
+                    return Some(result);
+                }
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    self.tile_reduce_thread = None;
+                    self.tile_reduce_receiver = None;
+                    self.tile_reduce_cancel = None;
+                    return Some(Err("Tile reduce cancelled".to_string()));
+                }
+                Err(mpsc::TryRecvError::Empty) => {}
+            }
+        }
+        None
     }
 
     fn generate_preview(
@@ -267,6 +358,7 @@ impl ImageProcessor {
         width: u32,
         height: u32,
         opts: &TileReduceOptions,
+        cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
     ) -> usize {
         // Quality/speed tuning
         let medoid_recompute_interval = 8;
@@ -312,6 +404,11 @@ impl ImageProcessor {
         coords.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
 
         for (tx, ty, _) in coords {
+            if let Some(flag) = &cancel_flag {
+                if flag.load(std::sync::atomic::Ordering::Relaxed) {
+                    return usize::MAX;
+                }
+            }
             let tile_indices = &mut tile_indices_buf;
             for y in 0..tile_h {
                 let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);

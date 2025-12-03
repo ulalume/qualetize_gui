@@ -32,12 +32,13 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
             if state.preferences.show_original_image {
                 let settings = ImagePanelSettings {
                     width: split_x,
-                    height: split_y,
-                    zoom,
-                    pan_offset,
-                    title: "Original".into(),
-                    has_spinner: false,
-                };
+                height: split_y,
+                zoom,
+                pan_offset,
+                title: "Original".into(),
+                has_spinner: false,
+                overlay_text: None,
+            };
                 draw_image_panel(
                     ui,
                     state,
@@ -50,12 +51,13 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
             if state.preferences.show_color_corrected_image {
                 let settings = ImagePanelSettings {
                     width: split_x,
-                    height: split_y,
-                    zoom,
-                    pan_offset,
-                    title: "Color Corrected".into(),
-                    has_spinner: state.color_corrected_image.is_none(),
-                };
+                height: split_y,
+                zoom,
+                pan_offset,
+                title: "Color Corrected".into(),
+                has_spinner: state.color_corrected_image.is_none(),
+                overlay_text: None,
+            };
                 draw_image_panel(
                     ui,
                     state,
@@ -80,13 +82,43 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
                 } else {
                     None
                 };
+            let tile_reduced = state.settings.tile_reduce_post_enabled
+                && (state.tile_reduce_processing || state.reduced_tile_count.is_some());
+            let toast = if let Some(toast) = &state.tile_reduce_toast {
+                if toast.time.elapsed() < std::time::Duration::from_secs(3) {
+                    Some(toast.message.clone())
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            if toast.is_none() {
+                if state.tile_reduce_toast.is_some()
+                    && state
+                        .tile_reduce_toast
+                        .as_ref()
+                        .map(|t| t.time.elapsed() >= std::time::Duration::from_secs(3))
+                        .unwrap_or(false)
+                {
+                    // safe to clear stale toast
+                    let _ = state.tile_reduce_toast.take();
+                }
+            }
+            let toast = toast;
+
             let settings = ImagePanelSettings {
                 width: split_x,
                 height: available_size.y,
                 zoom,
                 pan_offset,
-                title: "Qualetized".into(),
+                title: if tile_reduced {
+                    "Qualetized + Tile Reduced".into()
+                } else {
+                    "Qualetized".into()
+                },
                 has_spinner: image_processing,
+                overlay_text: toast,
             };
             draw_image_panel(
                 ui,
@@ -131,6 +163,7 @@ struct ImagePanelSettings {
     pub pan_offset: Vec2,
     pub title: String,
     pub has_spinner: bool,
+    pub overlay_text: Option<String>,
 }
 
 fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color: Color32) {
@@ -229,6 +262,41 @@ fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
     }
 }
 
+fn draw_overlay_text(
+    painter: &egui::Painter,
+    canvas: Rect,
+    ui_ctx: &egui::Context,
+    text: &str,
+) {
+    let visuals = &ui_ctx.style().visuals;
+    let window_color = visuals.window_fill();
+    let bg_color = Color32::from_rgba_unmultiplied(
+        window_color.r(),
+        window_color.g(),
+        window_color.b(),
+        178,
+    );
+    let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
+
+    let galley = ui_ctx.fonts(|f| {
+        f.layout_no_wrap(
+            text.to_string(),
+            FontId::proportional(14.0),
+            text_color,
+        )
+    });
+    let rect = Align2::CENTER_CENTER.align_size_within_rect(
+        galley.size() + egui::vec2(12.0, 6.0),
+        Rect::from_center_size(canvas.center(), galley.size() + egui::vec2(12.0, 6.0)),
+    );
+    painter.rect_filled(rect, 4.0, bg_color);
+    painter.galley(
+        rect.center() - galley.size() * 0.5,
+        galley,
+        text_color,
+    );
+}
+
 fn draw_image_panel(
     ui: &mut egui::Ui,
     state: &AppState,
@@ -272,6 +340,9 @@ fn draw_image_panel(
 
             if settings.has_spinner {
                 draw_spinner(&painter, canvas, ui.ctx());
+            }
+            if let Some(text) = &settings.overlay_text {
+                draw_overlay_text(&painter, canvas, ui.ctx(), text);
             }
 
             // パン操作の処理

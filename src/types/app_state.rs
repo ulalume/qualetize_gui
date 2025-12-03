@@ -9,6 +9,7 @@ use super::{
     qualetize::QualetizeSettings,
 };
 use crate::types::image::TileCountOptions;
+use std::time::Instant;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
@@ -102,6 +103,9 @@ pub struct AppState {
     pub output_palette_sorted_indexed_image: Option<ImageDataIndexed>,
     pub base_tile_count: Option<usize>,
     pub reduced_tile_count: Option<usize>,
+    pub tile_reduce_processing: bool,
+    pub tile_reduce_generation_id: u64,
+    pub tile_reduce_toast: Option<TileReduceToast>,
 
     // View Settings
     pub zoom: f32,
@@ -135,6 +139,12 @@ pub struct AppState {
     pub file_dialog_open: Arc<AtomicBool>,
 }
 
+#[derive(Clone)]
+pub struct TileReduceToast {
+    pub message: String,
+    pub time: Instant,
+}
+
 impl Default for AppState {
     fn default() -> Self {
         let preferences = UserPreferences::load();
@@ -149,6 +159,9 @@ impl Default for AppState {
             output_palette_sorted_indexed_image: None,
             base_tile_count: None,
             reduced_tile_count: None,
+            tile_reduce_processing: false,
+            tile_reduce_generation_id: 0,
+            tile_reduce_toast: None,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
