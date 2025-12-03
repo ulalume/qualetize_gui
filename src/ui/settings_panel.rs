@@ -384,7 +384,7 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
 fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-    ui.heading_with_margin("Tile Reduce");
+    ui.heading_with_margin("Tile Reduction");
 
     if ui
         .checkbox(&mut state.settings.tile_reduce_post_enabled, "Enable (heavy)")
