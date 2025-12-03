@@ -321,11 +321,12 @@ fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {
     if !validate_0_255_array(array_str) {
         return None;
     }
-    let values: Vec<f32> = array_str
+    let mut values: Vec<f32> = array_str
         .split(',')
         .filter_map(|s| s.trim().parse::<u32>().ok())
         .map(|v| (v as f32) / 255.0)
         .collect();
+    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     Some(values)
 }
 
