@@ -745,7 +745,9 @@ impl eframe::App for QualetizeApp {
 
         // Repaint drawing while updating image
         if self.image_processor.is_processing()
+            || self.state.tile_reduce_processing
             || self.state.request_update_qualetized_image.is_some()
+            || self.state.request_update_tile_reduce
         {
             ctx.request_repaint();
         }
