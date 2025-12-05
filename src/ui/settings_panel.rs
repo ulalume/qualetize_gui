@@ -450,7 +450,7 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         } else {
             "Reduced -- tiles".to_string()
         };
-        ui.label(reduced_text);
+        ui.label(egui::RichText::new(reduced_text).strong());
     });
 
     settings_changed
