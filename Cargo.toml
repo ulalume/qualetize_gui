@@ -1,6 +1,6 @@
 [package]
 name = "qualetize_gui"
-version = "0.4.1"
+version = "0.4.2"
 edition = "2024"
 build = "build.rs"
 
