@@ -262,13 +262,11 @@ fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Conte
     let visuals = &ui_ctx.style().visuals;
     let panel = visuals.panel_fill;
     // Use theme-aware background with slight translucency
-    let bg_color =
-        Color32::from_rgba_unmultiplied(panel.r(), panel.g(), panel.b(), 200);
+    let bg_color = Color32::from_rgba_unmultiplied(panel.r(), panel.g(), panel.b(), 200);
     let text_color = visuals.strong_text_color();
     let font_id = egui::FontId::proportional(15.0); // slightly larger to emphasize toast text
 
-    let galley = ui_ctx
-        .fonts(|f| f.layout_no_wrap(text.to_string(), font_id, text_color));
+    let galley = ui_ctx.fonts(|f| f.layout_no_wrap(text.to_string(), font_id, text_color));
     let rect = Align2::CENTER_CENTER.align_size_within_rect(
         galley.size() + egui::vec2(12.0, 6.0),
         Rect::from_center_size(canvas.center(), galley.size() + egui::vec2(12.0, 6.0)),
