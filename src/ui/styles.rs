@@ -30,13 +30,12 @@ pub fn init_styles(ctx: &egui::Context) {
 
     ctx.set_fonts(fonts);
 
-    let mut style = (*ctx.style()).clone();
-    style.text_styles.insert(
-        egui::TextStyle::Name("Subheading".into()),
-        egui::FontId::new(12.0, egui::FontFamily::Name("extra_bold".into())),
-    );
-
-    ctx.set_style(style);
+    ctx.all_styles_mut(|style| {
+        style.text_styles.insert(
+            egui::TextStyle::Name("Subheading".into()),
+            egui::FontId::new(12.0, egui::FontFamily::Name("extra_bold".into())),
+        );
+    });
 }
 
 pub trait RichTextExt {
