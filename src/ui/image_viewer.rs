@@ -1,5 +1,5 @@
 use super::styles::UiMarginExt;
-use crate::types::{AppState, ImageData};
+use crate::types::{AppState, ImageData, app_state::Toast};
 use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
 
 /// Gap between the image panels.
@@ -8,19 +8,27 @@ const PANEL_MARGIN: f32 = 4.0;
 /// Everything one image panel needs to draw itself.
 struct ImagePanel<'a> {
     title: &'a str,
-    image: &'a Option<ImageData>,
+    image: Option<&'a ImageData>,
     size: Vec2,
     zoom: f32,
     pan_offset: Vec2,
     background: Color32,
     has_spinner: bool,
     overlay_text: Option<&'a str>,
+    /// Persistent warning drawn in the top left corner of the panel.
+    notice: Option<&'a str>,
     palettes: Option<&'a Vec<Vec<Color32>>>,
 }
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_processing: bool) {
     let available_size = ui.available_size();
-    let toast = live_toast(state, ui.ctx());
+    let toast = live_toast(&mut state.tile_reduce_toast, ui.ctx());
+    let fit_toast = live_toast(&mut state.tile_fit_toast, ui.ctx());
+    let fit_notice = state.tile_fit_notice();
+    // The Original view shows what the pipeline actually consumes, so the added
+    // border is visible right next to the notice explaining it, and all four
+    // panels share the same dimensions at a given zoom.
+    let original_image = state.processing_input();
 
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;
@@ -64,13 +72,14 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                 ui,
                 ImagePanel {
                     title: "Original",
-                    image: &state.input_image,
+                    image: original_image,
                     size: Vec2::new(column_width, input_height),
                     zoom,
                     pan_offset,
                     background,
                     has_spinner: false,
-                    overlay_text: None,
+                    overlay_text: fit_toast.as_deref(),
+                    notice: fit_notice.as_deref(),
                     palettes: None,
                 },
                 &mut pan_changed,
@@ -81,13 +90,14 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                     ui,
                     ImagePanel {
                         title: "Color Corrected",
-                        image: &state.color_corrected_image,
+                        image: state.color_corrected_image.as_ref(),
                         size: Vec2::new(column_width, input_height),
                         zoom,
                         pan_offset,
                         background,
                         has_spinner: state.color_corrected_image.is_none(),
                         overlay_text: None,
+                        notice: None,
                         palettes: None,
                     },
                     &mut pan_changed,
@@ -95,12 +105,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
             }
         });
 
-        // Outputs, or the warning that replaces them
-        if state.tile_size_warning {
-            draw_status_panel(ui, state, column_width, available_size.y);
-            return;
-        }
-
+        // Outputs
         ui.vertical(|ui| {
             ui.style_mut().spacing.item_spacing = egui::vec2(0.0, PANEL_MARGIN);
 
@@ -108,13 +113,14 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                 ui,
                 ImagePanel {
                     title: "Qualetized",
-                    image: &state.base_output_image,
+                    image: state.base_output_image.as_ref(),
                     size: Vec2::new(column_width, output_height),
                     zoom,
                     pan_offset,
                     background,
                     has_spinner: qualetize_processing,
                     overlay_text: None,
+                    notice: None,
                     palettes,
                 },
                 &mut pan_changed,
@@ -125,7 +131,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                     ui,
                     ImagePanel {
                         title: "Tile Reduced",
-                        image: &state.output_image,
+                        image: state.output_image.as_ref(),
                         size: Vec2::new(column_width, output_height),
                         zoom,
                         pan_offset,
@@ -133,6 +139,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                         // A new quantization invalidates the reduced result too.
                         has_spinner: qualetize_processing || state.tile_reduce_processing,
                         overlay_text: toast.as_deref(),
+                        notice: None,
                         palettes: None,
                     },
                     &mut pan_changed,
@@ -162,12 +169,12 @@ fn column_height(available_height: f32, panel_count: usize) -> f32 {
 
 const TOAST_DURATION: std::time::Duration = std::time::Duration::from_secs(3);
 
-/// Return the tile reduce toast while it is still within its display window,
-/// dropping it once it has expired. Schedules the repaint that makes it vanish.
-fn live_toast(state: &mut AppState, ctx: &egui::Context) -> Option<String> {
-    let toast = state.tile_reduce_toast.as_ref()?;
+/// Return a toast while it is still within its display window, dropping it once
+/// it has expired. Schedules the repaint that makes it vanish.
+fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
+    let toast = slot.as_ref()?;
     let Some(remaining) = TOAST_DURATION.checked_sub(toast.time.elapsed()) else {
-        state.tile_reduce_toast = None;
+        *slot = None;
         return None;
     };
 
@@ -220,7 +227,7 @@ fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color:
 fn draw_main_image(
     painter: &egui::Painter,
     canvas: Rect,
-    image_data: &Option<ImageData>,
+    image_data: Option<&ImageData>,
     zoom: f32,
     pan_offset: Vec2,
 ) {
@@ -237,31 +244,48 @@ fn draw_main_image(
     }
 }
 
+/// Warning color, matching the one used by the settings panel.
+const NOTICE_COLOR: Color32 = Color32::from_rgb(255, 180, 0);
+
+/// A small text chip drawn over the image, used for titles and notices.
+fn draw_label_chip(
+    painter: &egui::Painter,
+    ui_ctx: &egui::Context,
+    top_left: Pos2,
+    text: &str,
+    text_color: Color32,
+) {
+    let window_color = ui_ctx.global_style().visuals.window_fill();
+    let bg_color =
+        Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
+
+    let galley =
+        ui_ctx.fonts_mut(|f| f.layout_no_wrap(text.to_string(), FontId::default(), text_color));
+    let rect = Rect::from_min_size(
+        top_left - egui::vec2(2.0, 1.0),
+        galley.size() + egui::vec2(4.0, 2.0),
+    );
+
+    painter.rect_filled(rect, 0.0, bg_color);
+    painter.galley(top_left, galley, text_color);
+}
+
 fn draw_title(painter: &egui::Painter, canvas: Rect, title: &str, ui_ctx: &egui::Context) {
     if title.is_empty() {
         return;
     }
 
-    let style = ui_ctx.global_style();
-    let visuals = &style.visuals;
-    let window_color = visuals.window_fill();
-    let bg_color =
-        Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
+    let visuals = ui_ctx.global_style().visuals.clone();
     let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
-
-    let galley =
-        ui_ctx.fonts_mut(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
-
     let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
-    let rect = Align2::LEFT_TOP.align_size_within_rect(
-        galley.size() + egui::vec2(4.0, 2.0),
-        Rect::from_min_size(
-            pos - egui::vec2(2.0, 1.0),
-            galley.size() + egui::vec2(4.0, 2.0),
-        ),
-    );
-    painter.rect_filled(rect, 0.0, bg_color);
-    painter.galley(pos, galley, text_color);
+    draw_label_chip(painter, ui_ctx, pos, title, text_color);
+}
+
+/// Persistent notice in the top left corner, for state the user should keep
+/// seeing rather than a toast that fades.
+fn draw_notice(painter: &egui::Painter, canvas: Rect, text: &str, ui_ctx: &egui::Context) {
+    let pos = canvas.left_top() + Vec2::new(4.0, 4.0);
+    draw_label_chip(painter, ui_ctx, pos, text, NOTICE_COLOR);
 }
 
 fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
@@ -308,6 +332,9 @@ fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, pan_changed: &mut Vec2
             draw_background_and_pixels(&painter, canvas, panel.background);
             draw_main_image(&painter, canvas, panel.image, panel.zoom, panel.pan_offset);
             draw_title(&painter, canvas, panel.title, ui.ctx());
+            if let Some(notice) = panel.notice {
+                draw_notice(&painter, canvas, notice, ui.ctx());
+            }
 
             if let Some(palettes) = panel.palettes {
                 draw_palettes_overlay(&painter, canvas, palettes);
@@ -324,54 +351,6 @@ fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, pan_changed: &mut Vec2
                 *pan_changed += response.drag_delta();
             }
         },
-    );
-}
-
-fn draw_status_panel(ui: &mut egui::Ui, state: &AppState, width: f32, height: f32) {
-    ui.allocate_ui_with_layout(
-        Vec2::new(width, height),
-        egui::Layout::top_down(egui::Align::Center),
-        |ui| {
-            let (_, painter) = ui.allocate_painter(Vec2::new(width, height), egui::Sense::hover());
-
-            // Draw background
-            painter.rect_filled(painter.clip_rect(), 0.0, Color32::from_gray(64));
-
-            ui.scope_builder(
-                egui::UiBuilder::new().max_rect(Rect::from_center_size(
-                    painter.clip_rect().center(),
-                    Vec2::new(300.0, 150.0),
-                )),
-                |ui| {
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                        if state.tile_size_warning {
-                            draw_warning_message(ui, state);
-                        }
-                    });
-                },
-            );
-        },
-    );
-}
-
-fn draw_warning_message(ui: &mut egui::Ui, state: &AppState) {
-    ui.label(egui::RichText::new("⚠").size(32.0).color(Color32::YELLOW));
-    ui.label(
-        egui::RichText::new("Tile Size Warning")
-            .size(16.0)
-            .color(Color32::YELLOW),
-    );
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new(state.tile_size_warning_message())
-            .size(12.0)
-            .color(Color32::WHITE),
-    );
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new("Adjust tile width/height in settings to match image dimensions.")
-            .size(11.0)
-            .color(Color32::LIGHT_GRAY),
     );
 }
 

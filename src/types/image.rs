@@ -195,6 +195,45 @@ impl ImageDataIndexed {
 }
 
 impl ImageData {
+    /// RGBA of the top-left pixel, used as the fill when extending the image.
+    pub fn top_left_pixel(&self) -> [u8; 4] {
+        self.rgba_data
+            .get(0..4)
+            .map_or([0, 0, 0, 0], |px| [px[0], px[1], px[2], px[3]])
+    }
+
+    /// Copy this image into a larger `width` x `height` canvas anchored at the
+    /// top left, filling the added area with `fill`.
+    pub fn extended_to(
+        &self,
+        width: u32,
+        height: u32,
+        fill: [u8; 4],
+        ctx: &egui::Context,
+    ) -> ImageData {
+        let rgba_data = extend_pixels(
+            &self.rgba_data,
+            self.width,
+            self.height,
+            width,
+            height,
+            fill,
+        );
+
+        let size = [width as usize, height as usize];
+        let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
+        let texture =
+            ctx.load_texture("input_extended", color_image, egui::TextureOptions::NEAREST);
+
+        ImageData {
+            texture,
+            width,
+            height,
+            rgba_data,
+            indexed: None,
+        }
+    }
+
     /// Get the color of the top-left pixel (0, 0)
     pub fn get_top_left_pixel_color(&self) -> Option<Color32> {
         if self.rgba_data.len() >= 4 && self.width > 0 && self.height > 0 {
@@ -420,9 +459,65 @@ impl ImageData {
     }
 }
 
+/// Place `src` at the top left of a `width` x `height` RGBA buffer, filling the
+/// rest with `fill`. Split out from [`ImageData::extended_to`] so it can be
+/// tested without an egui context.
+fn extend_pixels(
+    src: &[u8],
+    src_width: u32,
+    src_height: u32,
+    width: u32,
+    height: u32,
+    fill: [u8; 4],
+) -> Vec<u8> {
+    let copied_width = src_width.min(width);
+    let mut out = Vec::with_capacity((width * height * 4) as usize);
+
+    for y in 0..height {
+        if y < src_height {
+            let row_start = (y * src_width * 4) as usize;
+            let row_end = row_start + (copied_width * 4) as usize;
+            out.extend_from_slice(&src[row_start..row_end]);
+        }
+
+        let already_written = if y < src_height { copied_width } else { 0 };
+        for _ in already_written..width {
+            out.extend_from_slice(&fill);
+        }
+    }
+
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `extended_to` needs a Context for the texture, so the pixel layout is
+    /// covered by a standalone helper that both share.
+    #[test]
+    fn extending_keeps_the_original_at_the_top_left() {
+        // 2x1 image: red, green
+        let src = vec![255, 0, 0, 255, 0, 255, 0, 255];
+        let fill = [1, 2, 3, 4];
+        let out = extend_pixels(&src, 2, 1, 4, 3, fill);
+
+        assert_eq!(out.len(), 4 * 3 * 4);
+        assert_eq!(&out[0..4], &[255, 0, 0, 255], "original pixel (0,0)");
+        assert_eq!(&out[4..8], &[0, 255, 0, 255], "original pixel (1,0)");
+        assert_eq!(&out[8..12], &fill, "padding to the right");
+        assert_eq!(&out[12..16], &fill, "padding to the right");
+        assert!(
+            out[16..].chunks_exact(4).all(|px| px == fill),
+            "every added row is filled"
+        );
+    }
+
+    #[test]
+    fn extending_to_the_same_size_is_a_copy() {
+        let src = vec![9, 8, 7, 6, 5, 4, 3, 2];
+        assert_eq!(extend_pixels(&src, 2, 1, 2, 1, [0; 4]), src);
+    }
 
     fn bgra(r: u8, g: u8, b: u8, a: u8) -> BGRA8 {
         BGRA8 { b, g, r, a }

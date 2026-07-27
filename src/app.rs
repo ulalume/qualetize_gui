@@ -4,7 +4,9 @@ use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
 use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
-use crate::types::app_state::{AppStateRequest, AppearanceMode, ExportSource, QualetizeRequest};
+use crate::types::app_state::{
+    AppStateRequest, AppearanceMode, ExportSource, FittedInput, QualetizeRequest, Toast,
+};
 use crate::types::image::{ImageDataIndexed, SortMode, TileCountOptions};
 use crate::types::{AppState, ExportFormat};
 use crate::ui::{
@@ -72,9 +74,6 @@ impl QualetizeApp {
                 self.state.input_path = Some(path);
                 self.state.input_image = Some(image_data);
 
-                // Check tile size compatibility
-                self.check_tile_size_compatibility();
-
                 self.state.zoom = 1.0;
                 self.state.pan_offset = egui::Vec2::ZERO;
             }
@@ -86,9 +85,6 @@ impl QualetizeApp {
     }
 
     fn handle_settings_changes(&mut self) {
-        if !self.check_tile_size_compatibility() {
-            return;
-        }
         let Some(color_corrected_image) = &self.state.color_corrected_image else {
             return;
         };
@@ -113,35 +109,47 @@ impl QualetizeApp {
         self.state.request_update_tile_reduce = self.state.settings.tile_reduce_post_enabled;
     }
 
-    fn check_tile_size_compatibility(&mut self) -> bool {
-        let Some(input_image) = &self.state.input_image else {
-            return true;
+    /// Extend the input image so both sides are a multiple of the tile size,
+    /// filling the added area with the top-left pixel color.
+    ///
+    /// The loaded image is never modified, so changing the tile size later
+    /// re-derives the extension from it instead of compounding.
+    /// Returns true when the image the pipeline runs on changed.
+    fn update_tile_fit(&mut self, ctx: &egui::Context) -> bool {
+        let Some(input) = &self.state.input_image else {
+            return self.state.tile_fitted_input.take().is_some();
         };
 
-        let image_width = input_image.width as u16;
-        let image_height = input_image.height as u16;
-        let tile_width = self.state.settings.tile_width;
-        let tile_height = self.state.settings.tile_height;
-
-        let width_divisible = image_width.is_multiple_of(tile_width);
-        let height_divisible = image_height.is_multiple_of(tile_height);
-
-        log::debug!(
-            "Tile size check: image {image_width}×{image_height}, tile {tile_width}×{tile_height}, divisible: width={width_divisible}, height={height_divisible}"
+        let target = tile_fit_target(
+            (input.width, input.height),
+            self.state.settings.tile_width,
+            self.state.settings.tile_height,
         );
 
-        if !width_divisible || !height_divisible {
-            self.state.tile_size_warning = true;
-            self.state.output_image = None;
-            self.state.invalidate_palette_sort();
-            self.state.tile_count.reset();
-            log::warn!("Tile size warning");
-            false
-        } else {
-            self.state.tile_size_warning = false;
-            log::debug!("No warning - sizes are compatible");
-            true
+        if target == (input.width, input.height) {
+            return self.state.tile_fitted_input.take().is_some();
         }
+        if let Some(fitted) = &self.state.tile_fitted_input
+            && (fitted.image.width, fitted.image.height) == target
+        {
+            return false;
+        }
+
+        log::info!(
+            "Extending {}×{} to {}×{} to fit the tile grid",
+            input.width,
+            input.height,
+            target.0,
+            target.1
+        );
+        let image = input.extended_to(target.0, target.1, input.top_left_pixel(), ctx);
+        self.state.tile_fitted_input = Some(FittedInput {
+            image,
+            original_size: (input.width, input.height),
+        });
+        self.state.tile_fit_toast =
+            Some(Toast::new(format!("Extended to {}×{}", target.0, target.1)));
+        true
     }
 
     fn update_color_corrected_image(&mut self, ctx: &egui::Context) {
@@ -241,10 +249,8 @@ impl QualetizeApp {
                                 .map(|reduced| base.saturating_sub(reduced))
                         })
                         .unwrap_or(res.merged);
-                    self.state.tile_reduce_toast = Some(crate::types::app_state::TileReduceToast {
-                        message: format!("Reduced {} tiles", diff),
-                        time: std::time::Instant::now(),
-                    });
+                    self.state.tile_reduce_toast =
+                        Some(Toast::new(format!("Reduced {diff} tiles")));
                     self.state.tile_count.mark_dirty();
                     log::info!("Tile reduce completed: merged {}", res.merged);
                 }
@@ -271,7 +277,7 @@ impl QualetizeApp {
     }
 
     fn apply_color_correct_image(&mut self, ctx: &egui::Context) {
-        let Some(image) = &self.state.input_image else {
+        let Some(image) = self.state.processing_input() else {
             return;
         };
 
@@ -420,6 +426,7 @@ impl QualetizeApp {
         match app_state_request {
             AppStateRequest::LoadImage { path } => {
                 self.load_image_file(path.clone(), ctx);
+                self.update_tile_fit(ctx);
                 self.apply_color_correct_image(ctx);
                 self.state.request_update_qualetized_image = Some(QualetizeRequest {
                     time: std::time::Instant::now(),
@@ -468,6 +475,7 @@ impl QualetizeApp {
                         });
 
                         if self.state.input_image.is_some() {
+                            self.update_tile_fit(ctx);
                             self.apply_color_correct_image(ctx);
                         } else {
                             self.state.color_corrected_image = None;
@@ -594,7 +602,13 @@ impl eframe::App for QualetizeApp {
         // Check tile reduce completion
         self.check_tile_reduce_completion(ctx);
 
-        // Update color corrected image if needed
+        // Re-extend if the tile size changed, then update the corrected image
+        if self.update_tile_fit(ctx) {
+            self.apply_color_correct_image(ctx);
+            self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                time: std::time::Instant::now(),
+            });
+        }
         self.update_color_corrected_image(ctx);
 
         // Handle settings changes after checking completion
@@ -684,6 +698,14 @@ impl eframe::App for QualetizeApp {
     }
 }
 
+/// Smallest size at or above `size` whose sides are multiples of the tile size.
+fn tile_fit_target(size: (u32, u32), tile_width: u16, tile_height: u16) -> (u32, u32) {
+    (
+        size.0.next_multiple_of(tile_width.max(1) as u32),
+        size.1.next_multiple_of(tile_height.max(1) as u32),
+    )
+}
+
 /// Build the default export path for `input_path`.
 ///
 /// The extension is appended rather than set via [`std::path::Path::with_extension`],
@@ -747,6 +769,30 @@ mod tests {
         get_export_path(input, &format, suffix)
             .to_string_lossy()
             .into_owned()
+    }
+
+    #[test]
+    fn a_size_already_on_the_tile_grid_is_left_alone() {
+        assert_eq!(tile_fit_target((96, 96), 8, 8), (96, 96));
+        assert_eq!(tile_fit_target((64, 32), 16, 16), (64, 32));
+    }
+
+    #[test]
+    fn a_size_off_the_grid_grows_to_the_next_multiple() {
+        assert_eq!(tile_fit_target((100, 100), 8, 8), (104, 104));
+        assert_eq!(tile_fit_target((100, 100), 7, 7), (105, 105));
+        assert_eq!(tile_fit_target((17, 3), 8, 8), (24, 8));
+    }
+
+    #[test]
+    fn each_axis_uses_its_own_tile_size() {
+        assert_eq!(tile_fit_target((100, 100), 8, 16), (104, 112));
+    }
+
+    /// An image smaller than one tile still has to grow to a full tile.
+    #[test]
+    fn an_image_smaller_than_a_tile_grows_to_one_tile() {
+        assert_eq!(tile_fit_target((3, 5), 8, 8), (8, 8));
     }
 
     #[test]

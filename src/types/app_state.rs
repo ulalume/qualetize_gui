@@ -132,7 +132,12 @@ pub struct AppState {
     pub reduced_tile_count: Option<usize>,
     pub tile_reduce_processing: bool,
     pub tile_reduce_generation_id: u64,
-    pub tile_reduce_toast: Option<TileReduceToast>,
+    pub tile_reduce_toast: Option<Toast>,
+
+    /// Set only while the loaded image needs extending; the input image itself
+    /// is never modified, so a later tile size change re-derives this from it.
+    pub tile_fitted_input: Option<FittedInput>,
+    pub tile_fit_toast: Option<Toast>,
 
     // View Settings
     pub zoom: f32,
@@ -160,9 +165,6 @@ pub struct AppState {
 
     pub tile_count: TileCountState,
 
-    // warning
-    pub tile_size_warning: bool,
-
     // Export requests
     pub app_state_request_receiver: mpsc::Receiver<AppStateRequest>,
     pub app_state_request_sender: mpsc::Sender<AppStateRequest>,
@@ -170,10 +172,27 @@ pub struct AppState {
     pub file_dialog_open: Arc<AtomicBool>,
 }
 
+/// A short lived message drawn over an image panel.
 #[derive(Clone)]
-pub struct TileReduceToast {
+pub struct Toast {
     pub message: String,
     pub time: Instant,
+}
+
+impl Toast {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            time: Instant::now(),
+        }
+    }
+}
+
+/// The input image extended so its size is a multiple of the tile size.
+pub struct FittedInput {
+    pub image: ImageData,
+    /// Size of the image as it was loaded, for the notice in the Original view.
+    pub original_size: (u32, u32),
 }
 
 impl Default for AppState {
@@ -193,6 +212,8 @@ impl Default for AppState {
             tile_reduce_processing: false,
             tile_reduce_generation_id: 0,
             tile_reduce_toast: None,
+            tile_fitted_input: None,
+            tile_fit_toast: None,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
@@ -213,8 +234,6 @@ impl Default for AppState {
 
             tile_count: TileCountState::default(),
 
-            tile_size_warning: false,
-
             app_state_request_receiver: receiver,
             app_state_request_sender: sender,
 
@@ -224,17 +243,28 @@ impl Default for AppState {
 }
 
 impl AppState {
-    pub fn tile_size_warning_message(&self) -> String {
-        let Some(input_image) = &self.input_image else {
-            return String::new();
-        };
-        format!(
-            "Image size ({}×{}) is not divisible by tile size ({}×{}). Qualetize processing cannot proceed.",
-            input_image.width,
-            input_image.height,
+    /// The image the pipeline actually runs on: the extended one when the
+    /// loaded image does not line up with the tile grid, otherwise the input.
+    pub fn processing_input(&self) -> Option<&ImageData> {
+        self.tile_fitted_input
+            .as_ref()
+            .map(|fitted| &fitted.image)
+            .or(self.input_image.as_ref())
+    }
+
+    /// Notice shown in the Original view while the image is being extended.
+    pub fn tile_fit_notice(&self) -> Option<String> {
+        let fitted = self.tile_fitted_input.as_ref()?;
+        let (from_w, from_h) = fitted.original_size;
+        Some(format!(
+            "⚠ Extended {}×{} → {}×{} to fit {}×{} tiles",
+            from_w,
+            from_h,
+            fitted.image.width,
+            fitted.image.height,
             self.settings.tile_width,
             self.settings.tile_height,
-        )
+        ))
     }
 
     pub fn check_and_save_preferences(&mut self) {
@@ -330,6 +360,8 @@ impl AppState {
     pub fn reset_all_images(&mut self) {
         self.input_path = None;
         self.input_image = None;
+        self.tile_fitted_input = None;
+        self.tile_fit_toast = None;
         self.color_corrected_image = None;
         self.reset_qualetize_outputs();
     }
