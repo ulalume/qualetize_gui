@@ -27,7 +27,7 @@ png = "0.18"
 regex = "1.11"
 
 [build-dependencies]
-cc = "*"
+cc = "1.4"
 
 [profile.dev]
 opt-level = 1

@@ -4,7 +4,7 @@ use std::sync::{Arc, atomic::AtomicBool, mpsc};
 use super::{
     color_correction::ColorCorrection,
     export::ExportFormat,
-    image::{ImageData, ImageDataIndexed, PaletteSortSettings},
+    image::{ImageData, ImageDataIndexed, PaletteSortSettings, SortMode},
     preferences::UserPreferences,
     qualetize::QualetizeSettings,
 };
@@ -66,18 +66,38 @@ impl TileCountState {
     }
 }
 
+/// Which stage of the pipeline an export refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportSource {
+    /// The input image after color correction, in full color.
+    ColorCorrected,
+    /// The indexed quantization result, before tile reduction.
+    Qualetized,
+    /// The indexed result after the tile reduction pass.
+    TileReduced,
+}
+
+impl ExportSource {
+    /// Appended to the input file name to build the default export name.
+    pub fn file_suffix(self) -> &'static str {
+        match self {
+            Self::ColorCorrected => "color_corrected",
+            Self::Qualetized => "qualetized",
+            Self::TileReduced => "tile_reduced",
+        }
+    }
+}
+
 // Export request types
 #[derive(Debug, Clone)]
 pub enum AppStateRequest {
     LoadImage {
         path: String,
     },
-    ColorCorrectedPng {
-        output_path: String,
-    },
-    QualetizedIndexed {
-        output_path: String,
+    ExportImage {
+        source: ExportSource,
         format: ExportFormat,
+        output_path: String,
     },
     SaveSettings {
         path: String,
@@ -88,8 +108,8 @@ pub enum AppStateRequest {
 
     OpenImageDialog,
     ExportImageDialog {
+        source: ExportSource,
         format: ExportFormat,
-        suffix: Option<String>,
     },
     SaveSettingsDialog,
     LoadSettingsDialog,
@@ -267,6 +287,43 @@ impl AppState {
         self.request_update_tile_reduce = false;
         self.invalidate_palette_sort();
         self.tile_count.reset();
+    }
+
+    /// Whether `source` currently has something to export. The optional passes
+    /// are only offered while they are enabled, so the menu entry matches the
+    /// view it refers to.
+    pub fn can_export(&self, source: ExportSource) -> bool {
+        match source {
+            ExportSource::ColorCorrected => {
+                self.color_correction.enabled && self.color_corrected_image.is_some()
+            }
+            ExportSource::Qualetized => self.base_output_image.is_some(),
+            ExportSource::TileReduced => {
+                self.settings.tile_reduce_post_enabled && self.output_image.is_some()
+            }
+        }
+    }
+
+    /// The indexed image to export for `source`, with the current palette sort
+    /// applied. Sorting is redone here rather than reusing
+    /// `output_palette_sorted_indexed_image`, which only ever describes the
+    /// final image and would be wrong for the pre-reduction export.
+    pub fn indexed_for_export(&self, source: ExportSource) -> Option<(ImageDataIndexed, u32, u32)> {
+        let image = match source {
+            ExportSource::Qualetized => self.base_output_image.as_ref()?,
+            ExportSource::TileReduced => self.output_image.as_ref()?,
+            ExportSource::ColorCorrected => return None,
+        };
+        let indexed = image.indexed.as_ref()?;
+
+        let sort = self.palette_sort_settings;
+        let indexed = if sort.mode == SortMode::None {
+            indexed.clone()
+        } else {
+            indexed.sorted(sort.mode, sort.order, self.settings.col0_is_clear)
+        };
+
+        Some((indexed, image.width, image.height))
     }
 
     /// Drop the loaded image together with everything derived from it.

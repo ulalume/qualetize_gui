@@ -1,4 +1,4 @@
-use crate::types::app_state::AppStateRequest;
+use crate::types::app_state::{AppStateRequest, ExportSource};
 use crate::types::{
     AppState, ExportFormat, QualetizePreset, app_state::AppearanceMode,
     color_correction::ColorCorrectionPreset,
@@ -20,37 +20,45 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.menu_button("Export Image", |ui| {
-                ui.add_enabled_ui(state.color_corrected_image.is_some(), |ui| {
-                    if ui.button("Color Corrected PNG").clicked() {
-                        _ = state.app_state_request_sender.send(
-                            AppStateRequest::ExportImageDialog {
-                                format: ExportFormat::Png,
-                                suffix: Some("color_corrected".to_string()),
-                            },
-                        );
+                // Passes that are switched off have nothing to export, so their
+                // entries stay visible but disabled.
+                const ENTRIES: [(ExportSource, ExportFormat, &str); 5] = [
+                    (
+                        ExportSource::ColorCorrected,
+                        ExportFormat::Png,
+                        "Color Corrected PNG",
+                    ),
+                    (
+                        ExportSource::Qualetized,
+                        ExportFormat::PngIndexed,
+                        "Qualetized PNG",
+                    ),
+                    (
+                        ExportSource::Qualetized,
+                        ExportFormat::Bmp,
+                        "Qualetized BMP",
+                    ),
+                    (
+                        ExportSource::TileReduced,
+                        ExportFormat::PngIndexed,
+                        "Tile Reduced PNG",
+                    ),
+                    (
+                        ExportSource::TileReduced,
+                        ExportFormat::Bmp,
+                        "Tile Reduced BMP",
+                    ),
+                ];
+
+                for (source, format, label) in ENTRIES {
+                    let enabled = state.can_export(source);
+                    if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                        _ = state
+                            .app_state_request_sender
+                            .send(AppStateRequest::ExportImageDialog { source, format });
                         ui.close();
                     }
-                });
-                ui.add_enabled_ui(state.output_image.is_some(), |ui| {
-                    if ui.button("Qualetized Indexed PNG").clicked() {
-                        _ = state.app_state_request_sender.send(
-                            AppStateRequest::ExportImageDialog {
-                                format: ExportFormat::PngIndexed,
-                                suffix: Some("qualetized".to_string()),
-                            },
-                        );
-                        ui.close();
-                    }
-                    if ui.button("Qualetized Indexed BMP").clicked() {
-                        _ = state.app_state_request_sender.send(
-                            AppStateRequest::ExportImageDialog {
-                                format: ExportFormat::Bmp,
-                                suffix: Some("qualetized".to_string()),
-                            },
-                        );
-                        ui.close();
-                    }
-                });
+                }
             });
 
             ui.separator();

@@ -4,7 +4,7 @@ use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
 use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
-use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
+use crate::types::app_state::{AppStateRequest, AppearanceMode, ExportSource, QualetizeRequest};
 use crate::types::image::{ImageDataIndexed, SortMode, TileCountOptions};
 use crate::types::{AppState, ExportFormat};
 use crate::ui::{
@@ -349,6 +349,49 @@ impl QualetizeApp {
         ImageData::count_unique_tiles(indexed, image.width, image.height, tile_w, tile_h, options)
     }
 
+    /// Write `source` to `output_path` on a worker thread.
+    fn export_image(&self, source: ExportSource, format: ExportFormat, output_path: String) {
+        if source == ExportSource::ColorCorrected {
+            let Some(image) = &self.state.color_corrected_image else {
+                log::error!("Export failed: no color corrected image in memory");
+                return;
+            };
+            let rgba_data = image.rgba_data.clone();
+            let (width, height) = (image.width, image.height);
+
+            std::thread::spawn(move || {
+                match save_rgba_image(&output_path, &rgba_data, width, height, format) {
+                    Ok(()) => log::info!("Color corrected export completed: {output_path}"),
+                    Err(e) => log::error!("Color corrected export failed: {e}"),
+                }
+            });
+            return;
+        }
+
+        let Some((indexed, width, height)) = self.state.indexed_for_export(source) else {
+            log::error!("Export failed: no indexed image available for {source:?}");
+            return;
+        };
+
+        std::thread::spawn(move || {
+            let pixels = &indexed.indexed_pixels;
+            let palettes = &indexed.palettes;
+            let result = match format {
+                ExportFormat::Bmp => {
+                    save_indexed_bmp(&output_path, pixels, palettes, width, height)
+                }
+                ExportFormat::PngIndexed => {
+                    save_indexed_png(&output_path, pixels, palettes, width, height)
+                }
+                ExportFormat::Png => Err("indexed export needs an indexed format".to_string()),
+            };
+            match result {
+                Ok(()) => log::info!("Indexed export completed: {output_path}"),
+                Err(e) => log::error!("Indexed export failed: {e}"),
+            }
+        });
+    }
+
     /// Run a native file dialog on a worker thread so the UI keeps repainting,
     /// and feed whatever the user picked back into the request channel.
     ///
@@ -383,92 +426,12 @@ impl QualetizeApp {
                 });
                 self.state.update_color_correction_tracking();
             }
-            AppStateRequest::ColorCorrectedPng { output_path } => {
-                // Use ImageData pixels directly
-                let Some(color_corrected_image) = &self.state.color_corrected_image else {
-                    log::error!("No color corrected image data available in memory");
-                    return;
-                };
-
-                let output_path = output_path.clone();
-                let rgba_data = color_corrected_image.rgba_data.clone();
-                let width = color_corrected_image.width;
-                let height = color_corrected_image.height;
-                std::thread::spawn(move || {
-                    match save_rgba_image(
-                        &output_path,
-                        &rgba_data,
-                        width,
-                        height,
-                        crate::types::ExportFormat::Png,
-                    ) {
-                        Ok(()) => {
-                            log::info!(
-                                "Color corrected PNG export completed successfully (from memory)"
-                            );
-                        }
-                        Err(e) => {
-                            log::error!("Color corrected PNG export failed: {e}");
-                        }
-                    }
-                });
-            }
-            AppStateRequest::QualetizedIndexed {
-                output_path,
+            AppStateRequest::ExportImage {
+                source,
                 format,
+                output_path,
             } => {
-                let Some(output_image) = &self.state.output_image else {
-                    log::error!("Qualetized export failed: output image is None");
-                    return;
-                };
-
-                // Prefer the sorted palette when one is active.
-                let Some(indexed) = self
-                    .state
-                    .output_palette_sorted_indexed_image
-                    .as_ref()
-                    .or(output_image.indexed.as_ref())
-                else {
-                    return;
-                };
-
-                match format {
-                    crate::types::ExportFormat::Png => {
-                        log::error!("Qualetized export failed: Unexpected format");
-                    }
-                    crate::types::ExportFormat::Bmp => {
-                        match save_indexed_bmp(
-                            output_path,
-                            &indexed.indexed_pixels,
-                            &indexed.palettes,
-                            output_image.width,
-                            output_image.height,
-                        ) {
-                            Ok(()) => {
-                                log::info!("Qualetized indexed BMP export completed successfully");
-                            }
-                            Err(e) => {
-                                log::error!("Qualetized indexed export failed: {e}");
-                            }
-                        }
-                    }
-                    crate::types::ExportFormat::PngIndexed => {
-                        match save_indexed_png(
-                            output_path,
-                            &indexed.indexed_pixels,
-                            &indexed.palettes,
-                            output_image.width,
-                            output_image.height,
-                        ) {
-                            Ok(()) => {
-                                log::info!("Qualetized indexed PNG export completed successfully");
-                            }
-                            Err(e) => {
-                                log::error!("Qualetized indexed export failed: {e}");
-                            }
-                        }
-                    }
-                }
+                self.export_image(*source, *format, output_path.clone());
             }
             AppStateRequest::SaveSettings { path } => {
                 let settings_bundle = SettingsBundle::new(
@@ -530,12 +493,13 @@ impl QualetizeApp {
                     })
                 });
             }
-            AppStateRequest::ExportImageDialog { format, suffix } => {
+            AppStateRequest::ExportImageDialog { source, format } => {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
-                let default_path = get_export_path(&input_path, format, suffix.as_deref());
-                let format = *format;
+                let (source, format) = (*source, *format);
+                let default_path =
+                    get_export_path(&input_path, &format, Some(source.file_suffix()));
 
                 self.spawn_file_dialog(move |dialog| {
                     let mut dialog = dialog.add_filter(
@@ -549,13 +513,10 @@ impl QualetizeApp {
                         dialog = dialog.set_directory(parent);
                     }
 
-                    let output_path = dialog.save_file()?.display().to_string();
-                    Some(match format {
-                        ExportFormat::Png => AppStateRequest::ColorCorrectedPng { output_path },
-                        _ => AppStateRequest::QualetizedIndexed {
-                            output_path,
-                            format,
-                        },
+                    Some(AppStateRequest::ExportImage {
+                        source,
+                        format,
+                        output_path: dialog.save_file()?.display().to_string(),
                     })
                 });
             }

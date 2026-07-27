@@ -1,5 +1,9 @@
 use super::styles;
-use crate::types::{AppState, ExportFormat, app_state::AppStateRequest, image::ImageData};
+use crate::types::{
+    AppState, ExportFormat,
+    app_state::{AppStateRequest, ExportSource},
+    image::ImageData,
+};
 use egui::{Color32, Vec2};
 
 pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) {
@@ -45,11 +49,18 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 egui::Button::new("💾 Export Image"),
             );
             if response.clicked() {
+                // The button exports whatever the last enabled pass produced,
+                // i.e. the image shown in the bottom right view.
+                let source = if state.settings.tile_reduce_post_enabled {
+                    ExportSource::TileReduced
+                } else {
+                    ExportSource::Qualetized
+                };
                 _ = state
                     .app_state_request_sender
                     .send(AppStateRequest::ExportImageDialog {
+                        source,
                         format: state.preferences.selected_export_format,
-                        suffix: Some("qualetized".to_string()),
                     });
             }
         });
