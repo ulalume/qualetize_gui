@@ -48,7 +48,7 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 _ = state
                     .app_state_request_sender
                     .send(AppStateRequest::ExportImageDialog {
-                        format: state.preferences.selected_export_format.clone(),
+                        format: state.preferences.selected_export_format,
                         suffix: Some("qualetized".to_string()),
                     });
             }
@@ -62,7 +62,7 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
                 for format in ExportFormat::indexed_list() {
                     ui.selectable_value(
                         &mut state.preferences.selected_export_format,
-                        format.clone(),
+                        *format,
                         format.display_name(),
                     );
                 }
@@ -142,16 +142,16 @@ fn apply_export_button_style(ui: &mut egui::Ui) {
     let style = &mut ui.style_mut();
 
     // Inactive state
-    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, Color32::WHITE);
     style.visuals.widgets.inactive.weak_bg_fill = styles::COLOR_TINT;
 
     // Hovered state
-    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, styles::COLOR_TINT_ACTIVE);
-    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    style.visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0_f32, styles::COLOR_TINT_ACTIVE);
+    style.visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.0_f32, Color32::WHITE);
     style.visuals.widgets.hovered.weak_bg_fill = styles::COLOR_TINT;
 
     // Active state
-    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0, styles::COLOR_TINT_ACTIVE);
-    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);
+    style.visuals.widgets.active.bg_stroke = egui::Stroke::new(1.0_f32, styles::COLOR_TINT_ACTIVE);
+    style.visuals.widgets.active.fg_stroke = egui::Stroke::new(1.0_f32, Color32::WHITE);
     style.visuals.widgets.active.weak_bg_fill = styles::COLOR_TINT;
 }

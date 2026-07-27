@@ -97,7 +97,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     if ui
                         .selectable_value(
                             &mut state.preferences.selected_export_format,
-                            format.clone(),
+                            *format,
                             format.display_name(),
                         )
                         .clicked()

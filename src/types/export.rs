@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ExportFormat {
     #[default]
     PngIndexed,

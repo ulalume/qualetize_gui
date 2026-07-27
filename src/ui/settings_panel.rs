@@ -186,7 +186,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 ui.painter().rect_stroke(
                     response.rect,
                     2.0,
-                    egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
+                    egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 150, 150)),
                     egui::StrokeKind::Outside,
                 );
             }
@@ -253,7 +253,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.painter().rect_stroke(
                 response.rect,
                 2.0,
-                egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
+                egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 150, 150)),
                 egui::StrokeKind::Outside,
             );
         }
@@ -330,7 +330,7 @@ fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .show_ui(ui, |ui| {
             for color_space in ColorSpace::all() {
                 if ui
-                    .selectable_value(&mut state.settings.color_space, color_space.clone(), color_space.display_name())
+                    .selectable_value(&mut state.settings.color_space, *color_space, color_space.display_name())
                     .on_hover_text(color_space.description())
                     .clicked()
                 {
@@ -353,7 +353,7 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .show_ui(ui, |ui| {
             for dither_mode in DitherMode::all() {
                 if ui
-                    .selectable_value(&mut state.settings.dither_mode, dither_mode.clone(), dither_mode.display_name())
+                    .selectable_value(&mut state.settings.dither_mode, *dither_mode, dither_mode.display_name())
                     .on_hover_text(dither_mode.description())
                     .clicked()
                 {
@@ -778,7 +778,7 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 for sort_mode in SortMode::all() {
                     ui.selectable_value(
                         &mut state.palette_sort_settings.mode,
-                        sort_mode.clone(),
+                        *sort_mode,
                         sort_mode.display_name(),
                     );
                 }
@@ -790,7 +790,7 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                     for sort_order in SortOrder::all() {
                         ui.selectable_value(
                             &mut state.palette_sort_settings.order,
-                            sort_order.clone(),
+                            *sort_order,
                             sort_order.display_name(),
                         );
                     }

@@ -239,7 +239,7 @@ impl AppState {
 
     /// Mark the sorted palette as up to date with the current settings.
     pub fn clear_palette_sort_dirty(&mut self) {
-        self.last_palette_sort_settings = self.palette_sort_settings.clone();
+        self.last_palette_sort_settings = self.palette_sort_settings;
         self.palette_sort_dirty = false;
     }
 

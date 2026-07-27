@@ -62,7 +62,7 @@ pub struct BGRA8 {
     pub a: u8,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ClearColor {
     #[default]
     None,
@@ -70,7 +70,7 @@ pub enum ClearColor {
 }
 
 impl ClearColor {
-    pub fn to_bgra8(&self) -> BGRA8 {
+    pub fn to_bgra8(self) -> BGRA8 {
         match self {
             ClearColor::None => BGRA8 {
                 b: 0,
@@ -78,12 +78,7 @@ impl ClearColor {
                 r: 0,
                 a: 0,
             },
-            ClearColor::Rgb(r, g, b) => BGRA8 {
-                b: *b,
-                g: *g,
-                r: *r,
-                a: 0xFF,
-            },
+            ClearColor::Rgb(r, g, b) => BGRA8 { b, g, r, a: 0xFF },
         }
     }
 }

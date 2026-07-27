@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum DitherMode {
     None,
     #[default]
@@ -44,7 +44,7 @@ impl DitherMode {
         }
     }
 
-    pub fn to_id(&self) -> u8 {
+    pub fn to_id(self) -> u8 {
         match self {
             DitherMode::None => 0,
             DitherMode::Floyd => 0xFE,

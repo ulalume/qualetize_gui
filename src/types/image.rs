@@ -30,13 +30,13 @@ pub struct TileCountOptions {
     pub allow_flip_y: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct PaletteSortSettings {
     pub mode: SortMode,
     pub order: SortOrder,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SortOrder {
     #[default]
     Ascending,
@@ -55,7 +55,7 @@ impl SortOrder {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SortMode {
     #[default]
     None,

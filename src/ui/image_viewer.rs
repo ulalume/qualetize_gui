@@ -529,7 +529,7 @@ fn draw_single_palette(
             color_rect,
             0.0,
             egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 if hovered
                     .map(|(p_idx, c_idx)| p_idx == palette_idx && c_idx == color_idx)
                     .unwrap_or(false)

@@ -445,7 +445,7 @@ impl QualetizeApp {
                 let settings_bundle = SettingsBundle::new(
                     self.state.settings.clone(),
                     self.state.color_correction.clone(),
-                    self.state.palette_sort_settings.clone(),
+                    self.state.palette_sort_settings,
                 );
 
                 match settings_bundle.save_to_file(path) {
@@ -515,7 +515,7 @@ impl QualetizeApp {
                     return;
                 };
                 let default_path = get_export_path(&input_path, format, suffix.as_deref());
-                let format_clone = format.clone();
+                let format_clone = *format;
 
                 let dialog_flag = self.state.file_dialog_open.clone();
                 std::thread::spawn(move || {
@@ -598,7 +598,7 @@ impl QualetizeApp {
         }
         self.state.clear_palette_sort_dirty();
 
-        let settings = self.state.palette_sort_settings.clone();
+        let settings = self.state.palette_sort_settings;
         if settings.mode == SortMode::None {
             self.state.output_palette_sorted_indexed_image = None;
             return;
