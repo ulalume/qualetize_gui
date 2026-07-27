@@ -146,7 +146,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
     }
 
     if ui.ui_contains_pointer() {
-        let scroll_delta = ui.ctx().input(|i| i.raw_scroll_delta.y);
+        let scroll_delta = ui.ctx().input(|i| i.smooth_scroll_delta.y);
         if scroll_delta != 0.0 {
             let zoom_factor = 1.0 + scroll_delta * 0.001;
             state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
@@ -242,14 +242,15 @@ fn draw_title(painter: &egui::Painter, canvas: Rect, title: &str, ui_ctx: &egui:
         return;
     }
 
-    let visuals = &ui_ctx.style().visuals;
+    let style = ui_ctx.global_style();
+    let visuals = &style.visuals;
     let window_color = visuals.window_fill();
     let bg_color =
         Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
     let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
 
     let galley =
-        ui_ctx.fonts(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
+        ui_ctx.fonts_mut(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
 
     let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
     let rect = Align2::LEFT_TOP.align_size_within_rect(
@@ -278,14 +279,15 @@ fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
 }
 
 fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context, text: &str) {
-    let visuals = &ui_ctx.style().visuals;
+    let style = ui_ctx.global_style();
+    let visuals = &style.visuals;
     let panel = visuals.panel_fill;
     // Use theme-aware background with slight translucency
     let bg_color = Color32::from_rgba_unmultiplied(panel.r(), panel.g(), panel.b(), 200);
     let text_color = visuals.strong_text_color();
     let font_id = egui::FontId::proportional(15.0); // slightly larger to emphasize toast text
 
-    let galley = ui_ctx.fonts(|f| f.layout_no_wrap(text.to_string(), font_id, text_color));
+    let galley = ui_ctx.fonts_mut(|f| f.layout_no_wrap(text.to_string(), font_id, text_color));
     let rect = Align2::CENTER_CENTER.align_size_within_rect(
         galley.size() + egui::vec2(12.0, 6.0),
         Rect::from_center_size(canvas.center(), galley.size() + egui::vec2(12.0, 6.0)),
@@ -509,7 +511,7 @@ fn draw_single_palette(
     hovered: Option<(usize, usize)>,
 ) {
     let palette_width = (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
-    let highlight_color = painter.ctx().style().visuals.selection.stroke.color;
+    let highlight_color = painter.ctx().global_style().visuals.selection.stroke.color;
 
     for (color_idx, &color) in palette.iter().enumerate() {
         let x = origin.x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);

@@ -14,8 +14,8 @@ identifier = "io.github.ulalume.qualetize_gui"
 icon = ["assets/icon.icns"]
 
 [dependencies]
-eframe = "0.32"
-egui = "0.32"
+eframe = "0.35"
+egui = "0.35"
 image = "0.25"
 rfd = "0.17"
 env_logger = "0.11"

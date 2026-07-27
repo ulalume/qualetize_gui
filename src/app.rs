@@ -265,7 +265,7 @@ impl QualetizeApp {
                 None => egui::Visuals::dark(),
             },
         };
-        if ctx.style().visuals != visuals {
+        if ctx.global_style().visuals != visuals {
             ctx.set_visuals(visuals);
         }
     }
@@ -613,7 +613,9 @@ impl Drop for QualetizeApp {
 }
 
 impl eframe::App for QualetizeApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
         // The Qualetized and Tile Reduced panels show their own spinners, so the
         // two stages are tracked separately (`state.tile_reduce_processing`).
         let qualetize_processing = self.image_processor.is_processing();
@@ -655,7 +657,7 @@ impl eframe::App for QualetizeApp {
         // central panel is sized as if they were not there.
 
         // Top (menu)
-        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+        egui::Panel::top("menu_panel").show(ui, |ui| {
             egui::Frame::NONE
                 .inner_margin(Margin::symmetric(0, 4))
                 .show(ui, |ui| {
@@ -665,7 +667,7 @@ impl eframe::App for QualetizeApp {
 
         // Bottom (zoom / export / tile count)
         if self.state.input_image.is_some() {
-            egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
+            egui::Panel::bottom("footer").show(ui, |ui| {
                 egui::Frame::NONE
                     .inner_margin(Margin::symmetric(0, 4))
                     .show(ui, |ui| {
@@ -675,10 +677,10 @@ impl eframe::App for QualetizeApp {
         }
 
         // Left (settings)
-        egui::SidePanel::left("settings_panel")
-            .default_width(260.0)
+        egui::Panel::left("settings_panel")
+            .default_size(260.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     let (settings, tile_reduce) = draw_settings_panel(ui, &mut self.state);
                     settings_changed |= settings;
@@ -687,13 +689,13 @@ impl eframe::App for QualetizeApp {
             });
 
         // Center (images)
-        egui::CentralPanel::default()
+        egui::CentralPanel::default_margins()
             .frame(
                 egui::Frame::default()
                     .inner_margin(0.0)
-                    .fill(ctx.style().visuals.window_fill()),
+                    .fill(ctx.global_style().visuals.window_fill()),
             )
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 if self.state.input_path.is_none() {
                     draw_main_content(ui);
                 } else {
