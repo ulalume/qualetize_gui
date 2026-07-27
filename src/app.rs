@@ -536,7 +536,7 @@ impl QualetizeApp {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
-                let default_path = get_export_path(input_path, format, suffix.clone());
+                let default_path = get_export_path(&input_path, format, suffix.as_deref());
                 let format_clone = format.clone();
 
                 let dialog_flag = self.state.file_dialog_open.clone();
@@ -753,21 +753,29 @@ impl eframe::App for QualetizeApp {
     }
 }
 
+/// Build the default export path for `input_path`.
+///
+/// The extension is appended rather than set via [`std::path::Path::with_extension`],
+/// which would treat everything after the last dot of the *new* name as an extension
+/// and silently truncate it (`hero.idle.png` -> `hero.png`).
 fn get_export_path(
-    input_path: String,
+    input_path: &str,
     format: &ExportFormat,
-    suffix: Option<String>,
+    suffix: Option<&str>,
 ) -> std::path::PathBuf {
-    let path = Path::new(&input_path);
+    let path = Path::new(input_path);
 
     let parent = path.parent().unwrap_or(Path::new("."));
-    let stem = path.file_stem().unwrap_or(std::ffi::OsStr::new("output"));
-    let new_name = if let Some(suffix) = suffix {
-        format!("{}_{}", stem.to_string_lossy(), suffix)
-    } else {
-        stem.to_string_lossy().to_string()
+    let stem = path
+        .file_stem()
+        .unwrap_or(std::ffi::OsStr::new("output"))
+        .to_string_lossy();
+    let extension = format.extension();
+    let file_name = match suffix {
+        Some(suffix) => format!("{stem}_{suffix}.{extension}"),
+        None => format!("{stem}.{extension}"),
     };
-    parent.join(new_name).with_extension(format.extension())
+    parent.join(file_name)
 }
 
 pub struct FileDialogGuard {
@@ -785,5 +793,66 @@ impl Drop for FileDialogGuard {
     fn drop(&mut self) {
         self.flag.store(false, Ordering::Relaxed);
         log::debug!("FileDialogGuard dropped - dialog closed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn export_path(input: &str, format: ExportFormat, suffix: Option<&str>) -> String {
+        get_export_path(input, &format, suffix)
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn export_path_appends_suffix_and_extension() {
+        assert_eq!(
+            export_path(
+                "/img/hero.png",
+                ExportFormat::PngIndexed,
+                Some("qualetized")
+            ),
+            "/img/hero_qualetized.png"
+        );
+        assert_eq!(
+            export_path("/img/hero.png", ExportFormat::Bmp, Some("qualetized")),
+            "/img/hero_qualetized.bmp"
+        );
+    }
+
+    #[test]
+    fn export_path_without_suffix_keeps_stem() {
+        assert_eq!(
+            export_path("/img/hero.png", ExportFormat::Bmp, None),
+            "/img/hero.bmp"
+        );
+    }
+
+    /// Regression: `with_extension` used to reduce `hero.idle.png` to `hero.png`,
+    /// dropping both the suffix and part of the original file name.
+    #[test]
+    fn export_path_preserves_dots_in_file_name() {
+        assert_eq!(
+            export_path(
+                "/img/hero.idle.png",
+                ExportFormat::PngIndexed,
+                Some("qualetized")
+            ),
+            "/img/hero.idle_qualetized.png"
+        );
+        assert_eq!(
+            export_path("/img/tile.v2.bmp", ExportFormat::Bmp, None),
+            "/img/tile.v2.bmp"
+        );
+    }
+
+    #[test]
+    fn export_path_handles_missing_extension_and_parent() {
+        assert_eq!(
+            export_path("hero", ExportFormat::Bmp, Some("qualetized")),
+            "hero_qualetized.bmp"
+        );
     }
 }

@@ -865,3 +865,30 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
         });
     });
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_rgba_depths_report_no_error() {
+        for depth in ["8888", "5551", "3331", "1111"] {
+            assert!(validate_rgba_depth(depth), "{depth} should be valid");
+            assert_eq!(get_rgba_depth_error(depth), None, "{depth}");
+        }
+    }
+
+    #[test]
+    fn invalid_rgba_depths_report_an_error() {
+        for depth in ["", "888", "88888", "8x88", "0888", "8898"] {
+            assert!(!validate_rgba_depth(depth), "{depth} should be invalid");
+            assert!(get_rgba_depth_error(depth).is_some(), "{depth}");
+        }
+    }
+
+    #[test]
+    fn rgba_depth_error_names_the_offending_channel() {
+        assert!(get_rgba_depth_error("88x8").unwrap().starts_with('B'));
+        assert!(get_rgba_depth_error("0888").unwrap().starts_with('R'));
+    }
+}

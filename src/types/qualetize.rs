@@ -389,3 +389,86 @@ impl From<QualetizeSettings> for QualetizePlanOwned {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_0_255_array_accepts_well_formed_lists() {
+        assert!(validate_0_255_array("0"));
+        assert!(validate_0_255_array("0,255"));
+        assert!(validate_0_255_array("0,49,87,119,146,174,206,255"));
+    }
+
+    #[test]
+    fn validate_0_255_array_rejects_malformed_lists() {
+        assert!(!validate_0_255_array(""), "empty");
+        assert!(!validate_0_255_array("256"), "out of range");
+        assert!(!validate_0_255_array("0, 255"), "whitespace");
+        assert!(!validate_0_255_array("0,"), "trailing comma");
+        assert!(!validate_0_255_array("00"), "leading zero");
+        assert!(!validate_0_255_array("0;255"), "wrong separator");
+    }
+
+    #[test]
+    fn validate_0_255_array_rejects_more_entries_than_the_plan_can_hold() {
+        let at_limit = vec!["1"; MAX_CUSTOM_LEVELS].join(",");
+        let over_limit = vec!["1"; MAX_CUSTOM_LEVELS + 1].join(",");
+        assert!(validate_0_255_array(&at_limit));
+        assert!(!validate_0_255_array(&over_limit));
+    }
+
+    #[test]
+    fn parse_custom_levels_normalizes_and_sorts() {
+        let levels = parse_custom_levels("255,0,128").expect("valid list");
+        assert_eq!(levels.len(), 3);
+        assert!(levels[0] < levels[1] && levels[1] < levels[2]);
+        assert_eq!(levels[0], 0.0);
+        assert_eq!(levels[2], 1.0);
+    }
+
+    #[test]
+    fn parse_custom_levels_rejects_invalid_input() {
+        assert!(parse_custom_levels("0,256").is_none());
+        assert!(parse_custom_levels("").is_none());
+    }
+
+    /// A full 8-bit channel needs 256 steps but the plan stores the count in a `u8`,
+    /// so `depth_to_levels` clamps to 254 steps (255 entries) and stays valid.
+    #[test]
+    fn generated_levels_always_fit_the_plan() {
+        for depth in ["3331", "5551", "8888"] {
+            for (channel, levels) in default_level_strings_from_depth(depth).iter().enumerate() {
+                let count = levels.split(',').count();
+                assert!(
+                    count <= MAX_CUSTOM_LEVELS,
+                    "{depth} channel {channel} produced {count} levels"
+                );
+                assert!(
+                    validate_0_255_array(levels),
+                    "{depth} channel {channel} is not accepted by its own validator"
+                );
+                assert!(u8::try_from(count).is_ok());
+            }
+        }
+    }
+
+    #[test]
+    fn genesis_preset_uses_the_documented_levels() {
+        let settings = QualetizeSettings::genesis();
+        assert!(settings.use_custom_levels);
+        assert_eq!(settings.custom_levels[0], "0,49,87,119,146,174,206,255");
+        assert_eq!(settings.custom_levels[3], "0,255");
+    }
+
+    #[test]
+    fn full_palette_presets_only_change_palette_layout() {
+        let base = QualetizeSettings::genesis();
+        let full = QualetizeSettings::genesis_full_palettes();
+        assert_eq!(full.n_palettes, 4);
+        assert!(full.col0_is_clear);
+        assert_eq!(full.rgba_depth, base.rgba_depth);
+        assert_eq!(full.custom_levels, base.custom_levels);
+    }
+}
