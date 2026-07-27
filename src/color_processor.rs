@@ -197,14 +197,14 @@ mod tests {
     fn tone_curve_is_bit_exact_with_the_per_pixel_computation() {
         for corrections in presets() {
             let curve = ColorProcessor::tone_curve(&corrections);
-            for value in 0..=255usize {
+            for (value, entry) in curve.iter().enumerate() {
                 let mut expected = value as f32 / 255.0;
                 expected = ColorProcessor::apply_gamma(expected, corrections.gamma);
                 expected += corrections.brightness;
                 expected = ColorProcessor::apply_contrast(expected, corrections.contrast);
 
                 assert_eq!(
-                    curve[value].to_bits(),
+                    entry.to_bits(),
                     expected.to_bits(),
                     "gamma {} value {value}",
                     corrections.gamma
