@@ -85,10 +85,12 @@ impl ColorProcessor {
         gf = gf.clamp(0.0, 1.0);
         bf = bf.clamp(0.0, 1.0);
 
+        // Round rather than truncate: truncation biased every channel downwards,
+        // so even a neutral correction could shift a value by one.
         Rgba([
-            (rf * 255.0) as u8,
-            (gf * 255.0) as u8,
-            (bf * 255.0) as u8,
+            (rf * 255.0).round() as u8,
+            (gf * 255.0).round() as u8,
+            (bf * 255.0).round() as u8,
             a, // Keep original alpha
         ])
     }

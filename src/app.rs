@@ -558,7 +558,7 @@ impl QualetizeApp {
                 self.spawn_file_dialog(|dialog| {
                     let path = settings_file_dialog(dialog)
                         .set_file_name("qualetize_settings.qset")
-                        .pick_file()?;
+                        .save_file()?;
                     Some(AppStateRequest::SaveSettings {
                         path: path.display().to_string(),
                     })
