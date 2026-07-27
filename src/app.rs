@@ -639,7 +639,9 @@ impl eframe::App for QualetizeApp {
             egui::Frame::NONE
                 .inner_margin(Margin::symmetric(0, 4))
                 .show(ui, |ui| {
-                    settings_changed |= draw_header(ui, &mut self.state);
+                    let (settings, tile_reduce) = draw_header(ui, &mut self.state);
+                    settings_changed |= settings;
+                    tile_reduce_changed |= tile_reduce;
                 });
         });
 

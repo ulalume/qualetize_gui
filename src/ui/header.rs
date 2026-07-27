@@ -5,8 +5,11 @@ use crate::types::{
 };
 use crate::ui::styles::UiMarginExt;
 
-pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+/// Returns `(settings_changed, tile_reduce_changed)`, matching the settings
+/// panel: resetting tile reduction only needs the post-pass to rerun.
+pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
+    let mut tile_reduce_changed = false;
 
     egui::MenuBar::new().ui(ui, |ui| {
         // --- File menu ---
@@ -84,12 +87,17 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.menu_button("Reset Qualetize", |ui| {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
-                        state.settings = preset.qualetize_settings();
+                        state.settings.apply_preset(preset.qualetize_settings());
                         settings_changed = true;
                         ui.close();
                     }
                 }
             });
+            if ui.button("Reset Tile Reduction").clicked() {
+                state.settings.reset_tile_reduce();
+                tile_reduce_changed = true;
+                ui.close();
+            }
             ui.menu_button("Reset Color Correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
                     if ui.button(preset.display_name()).clicked() {
@@ -248,5 +256,5 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         state.preferences.show_appearance = show_dialog;
     }
 
-    settings_changed
+    (settings_changed, tile_reduce_changed)
 }

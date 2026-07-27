@@ -452,6 +452,16 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     };
     ui.label(egui::RichText::new(reduced_text).strong());
 
+    ui.add_space(4.0);
+    if ui
+        .add_sized([80.0, ROW_HEIGHT], egui::Button::new("🔄 Reset"))
+        .on_hover_text("Restore the threshold and flip options to their defaults")
+        .clicked()
+    {
+        state.settings.reset_tile_reduce();
+        settings_changed = true;
+    }
+
     settings_changed
 }
 

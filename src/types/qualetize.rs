@@ -151,6 +151,31 @@ impl QualetizePreset {
 }
 
 impl QualetizeSettings {
+    /// Replace the quantization settings with `preset`, leaving the tile
+    /// reduction post-pass alone.
+    ///
+    /// Tile reduction only lives in this struct because it is serialized
+    /// alongside; it is a separate stage with its own reset, so a quantization
+    /// preset should no more disturb it than it does color correction.
+    pub fn apply_preset(&mut self, preset: QualetizeSettings) {
+        *self = QualetizeSettings {
+            tile_reduce_post_enabled: self.tile_reduce_post_enabled,
+            tile_reduce_post_threshold: self.tile_reduce_post_threshold,
+            tile_reduce_allow_flip_x: self.tile_reduce_allow_flip_x,
+            tile_reduce_allow_flip_y: self.tile_reduce_allow_flip_y,
+            ..preset
+        };
+    }
+
+    /// Restore the tile reduction post-pass to its defaults, leaving the
+    /// quantization settings alone. The enable flag is kept, the same way a
+    /// color correction preset does not switch that section off.
+    pub fn reset_tile_reduce(&mut self) {
+        self.tile_reduce_post_threshold = default_tile_reduce_post_threshold();
+        self.tile_reduce_allow_flip_x = default_tile_reduce_allow_flip();
+        self.tile_reduce_allow_flip_y = default_tile_reduce_allow_flip();
+    }
+
     pub fn gba_nds() -> Self {
         let rgba_depth = "5551".to_string();
         Self {
@@ -447,6 +472,49 @@ mod tests {
                 assert!(u8::try_from(count).is_ok());
             }
         }
+    }
+
+    /// The regression this pair of helpers exists for: switching quantization
+    /// preset used to silently reset the tile reduction post-pass with it.
+    #[test]
+    fn applying_a_preset_leaves_tile_reduction_alone() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.tile_reduce_post_enabled = true;
+        settings.tile_reduce_post_threshold = 123.0;
+        settings.tile_reduce_allow_flip_x = false;
+        settings.tile_reduce_allow_flip_y = false;
+
+        settings.apply_preset(QualetizeSettings::gba_nds());
+
+        assert_eq!(settings.color_space, ColorSpace::YcbcrPsy, "preset applied");
+        assert_eq!(settings.rgba_depth, "5551", "preset applied");
+        assert!(settings.tile_reduce_post_enabled, "tile reduction kept");
+        assert_eq!(settings.tile_reduce_post_threshold, 123.0);
+        assert!(!settings.tile_reduce_allow_flip_x);
+        assert!(!settings.tile_reduce_allow_flip_y);
+    }
+
+    #[test]
+    fn resetting_tile_reduction_leaves_quantization_alone() {
+        let mut settings = QualetizeSettings::gba_nds();
+        settings.n_palettes = 7;
+        settings.tile_reduce_post_enabled = true;
+        settings.tile_reduce_post_threshold = 123.0;
+        settings.tile_reduce_allow_flip_x = false;
+
+        settings.reset_tile_reduce();
+
+        assert_eq!(settings.n_palettes, 7, "quantization untouched");
+        assert_eq!(settings.color_space, ColorSpace::YcbcrPsy);
+        assert_eq!(
+            settings.tile_reduce_post_threshold,
+            default_tile_reduce_post_threshold()
+        );
+        assert!(settings.tile_reduce_allow_flip_x);
+        assert!(
+            settings.tile_reduce_post_enabled,
+            "reset restores values, not the enable flag"
+        );
     }
 
     #[test]
