@@ -398,62 +398,60 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         settings_changed = true;
     }
 
-    ui.add_enabled_ui(state.settings.tile_reduce_post_enabled, |ui| {
-        ui.horizontal(|ui| {
-            if ui
-                .checkbox(
-                    &mut state.settings.tile_reduce_allow_flip_x,
-                    "Allowed X Flips",
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .checkbox(
-                    &mut state.settings.tile_reduce_allow_flip_y,
-                    "Allowed Y Flips",
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
+    // The settings only exist once the pass is turned on.
+    if !state.settings.tile_reduce_post_enabled {
+        return settings_changed;
+    }
 
-        ui.horizontal(|ui| {
-            ui.label("Threshold:")
-                .on_hover_text("Average per-channel MSE per pixel after quantization.");
-
-            let slider =
-                egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
-                    .logarithmic(false)
-                    .show_value(false);
-            if ui.add(slider).changed() {
-                settings_changed = true;
-            }
-
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
-                        .range(1.0..=500.0)
-                        .speed(5.0),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
-
-        let reduced_text = if let (Some(base), Some(reduced)) =
-            (state.base_tile_count, state.reduced_tile_count)
+    ui.horizontal(|ui| {
+        if ui
+            .checkbox(
+                &mut state.settings.tile_reduce_allow_flip_x,
+                "Allowed X Flips",
+            )
+            .changed()
         {
-            let diff = base.saturating_sub(reduced);
-            format!("Reduced {} tiles", diff)
-        } else {
-            "Reduced -- tiles".to_string()
-        };
-        ui.label(egui::RichText::new(reduced_text).strong());
+            settings_changed = true;
+        }
+        if ui
+            .checkbox(
+                &mut state.settings.tile_reduce_allow_flip_y,
+                "Allowed Y Flips",
+            )
+            .changed()
+        {
+            settings_changed = true;
+        }
     });
+
+    ui.horizontal(|ui| {
+        ui.label("Threshold:")
+            .on_hover_text("Average per-channel MSE per pixel after quantization.");
+
+        let slider = egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
+            .logarithmic(false)
+            .show_value(false);
+        if ui.add(slider).changed() {
+            settings_changed = true;
+        }
+
+        if ui
+            .add(
+                egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
+                    .range(1.0..=500.0)
+                    .speed(5.0),
+            )
+            .changed()
+        {
+            settings_changed = true;
+        }
+    });
+
+    let reduced_text = match (state.base_tile_count, state.reduced_tile_count) {
+        (Some(base), Some(reduced)) => format!("Reduced {} tiles", base.saturating_sub(reduced)),
+        _ => "Reduced -- tiles".to_string(),
+    };
+    ui.label(egui::RichText::new(reduced_text).strong());
 
     settings_changed
 }
@@ -623,6 +621,21 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 
     ui.heading_with_margin("Color Correction");
 
+    if ui
+        .checkbox(&mut state.color_correction.enabled, "Enable")
+        .on_hover_text(
+            "Adjust the image before quantization.\nWhen off the input image is passed through untouched.",
+        )
+        .changed()
+    {
+        settings_changed = true;
+    }
+
+    // The settings only exist once the pass is turned on.
+    if !state.color_correction.enabled {
+        return settings_changed;
+    }
+
     egui::Grid::new("color_correction_grid")
         .num_columns(3)
         .spacing([4.0, 6.0])
@@ -693,7 +706,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
                 .add_sized([button_width, ROW_HEIGHT], egui::Button::new(label))
                 .clicked()
             {
-                state.color_correction = preset;
+                state.color_correction.apply_preset(preset);
                 settings_changed = true;
             }
         }

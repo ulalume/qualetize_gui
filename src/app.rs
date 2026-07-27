@@ -271,10 +271,17 @@ impl QualetizeApp {
     }
 
     fn apply_color_correct_image(&mut self, ctx: &egui::Context) {
-        if let Some(image) = &self.state.input_image {
-            let color_corrected_image = image.color_corrected(&self.state.color_correction, ctx);
-            self.state.color_corrected_image = Some(color_corrected_image);
-        }
+        let Some(image) = &self.state.input_image else {
+            return;
+        };
+
+        // With color correction off the input is passed through untouched, which
+        // also skips a full pixel pass and a texture upload.
+        self.state.color_corrected_image = Some(if self.state.color_correction.enabled {
+            image.color_corrected(&self.state.color_correction, ctx)
+        } else {
+            image.clone()
+        });
     }
 
     fn handle_tile_reduce_changes(&mut self, ctx: &egui::Context) {
@@ -497,10 +504,8 @@ impl QualetizeApp {
                             time: std::time::Instant::now(),
                         });
 
-                        if let Some(input_image) = &self.state.input_image {
-                            self.state.color_corrected_image = Some(
-                                input_image.color_corrected(&self.state.color_correction, ctx),
-                            );
+                        if self.state.input_image.is_some() {
+                            self.apply_color_correct_image(ctx);
                         } else {
                             self.state.color_corrected_image = None;
                         }
@@ -609,8 +614,9 @@ impl Drop for QualetizeApp {
 
 impl eframe::App for QualetizeApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let image_processing =
-            self.image_processor.is_processing() || self.state.tile_reduce_processing;
+        // The Qualetized and Tile Reduced panels show their own spinners, so the
+        // two stages are tracked separately (`state.tile_reduce_processing`).
+        let qualetize_processing = self.image_processor.is_processing();
 
         // apply theme
         self.apply_theme(ctx);
@@ -691,7 +697,7 @@ impl eframe::App for QualetizeApp {
                 if self.state.input_path.is_none() {
                     draw_main_content(ui);
                 } else {
-                    draw_image_view(ui, &mut self.state, image_processing);
+                    draw_image_view(ui, &mut self.state, qualetize_processing);
                 }
             });
 

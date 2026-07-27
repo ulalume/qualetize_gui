@@ -85,7 +85,9 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.menu_button("Reset Color Correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
                     if ui.button(preset.display_name()).clicked() {
-                        state.color_correction = preset.color_correction();
+                        state
+                            .color_correction
+                            .apply_preset(preset.color_correction());
                         settings_changed = true;
                         ui.close();
                     }
@@ -121,14 +123,6 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
                 ui.separator();
                 ui.label(egui::widget_text::RichText::new("Canvas").small());
-                ui.checkbox(&mut state.preferences.show_original_image, "Original Image");
-                ui.checkbox(
-                    &mut state.preferences.show_color_corrected_image,
-                    "Color Corrected Image",
-                );
-
-                ui.separator();
-
                 ui.checkbox(&mut state.preferences.show_palettes, "Palettes");
 
                 ui.separator();
