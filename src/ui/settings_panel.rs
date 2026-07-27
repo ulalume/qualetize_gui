@@ -9,7 +9,6 @@ use crate::types::{
     image::{SortMode, SortOrder},
 };
 use egui::Color32;
-use regex::Regex;
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
@@ -794,14 +793,9 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ));
 }
 
+/// Exactly 4 digits, each from 1-8.
 fn validate_rgba_depth(rgba_str: &str) -> bool {
-    if rgba_str.is_empty() {
-        return false;
-    }
-
-    // Regex to match exactly 4 digits, each from 1-8
-    let re = Regex::new(r"^[1-8]{4}$").unwrap();
-    re.is_match(rgba_str)
+    rgba_str.len() == 4 && rgba_str.bytes().all(|b| (b'1'..=b'8').contains(&b))
 }
 
 fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {

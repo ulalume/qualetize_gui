@@ -126,6 +126,10 @@ pub struct AppState {
     // Palette Sort Settings
     pub palette_sort_settings: PaletteSortSettings,
     last_palette_sort_settings: PaletteSortSettings,
+    /// Set when the source of the sorted palette changed and it has to be recomputed.
+    /// `output_palette_sorted_indexed_image` cannot be used for this on its own, because
+    /// `None` is also the legitimate result of `SortMode::None`.
+    palette_sort_dirty: bool,
 
     pub tile_count: TileCountState,
 
@@ -178,6 +182,7 @@ impl Default for AppState {
 
             palette_sort_settings: PaletteSortSettings::default(),
             last_palette_sort_settings: PaletteSortSettings::default(),
+            palette_sort_dirty: false,
 
             tile_count: TileCountState::default(),
 
@@ -214,13 +219,21 @@ impl AppState {
         }
     }
 
-    pub fn palette_sort_settings_changed(&self) -> bool {
-        self.palette_sort_settings != self.last_palette_sort_settings
+    /// Drop the cached sorted palette and schedule a recomputation.
+    /// Call this whenever `output_image` (or anything `sorted()` reads) changes.
+    pub fn invalidate_palette_sort(&mut self) {
+        self.output_palette_sorted_indexed_image = None;
+        self.palette_sort_dirty = true;
     }
 
-    /// Update the tracked color correction settings
-    pub fn update_palette_sort_settings_tracking(&mut self) {
+    pub fn palette_sort_needs_update(&self) -> bool {
+        self.palette_sort_dirty || self.palette_sort_settings != self.last_palette_sort_settings
+    }
+
+    /// Mark the sorted palette as up to date with the current settings.
+    pub fn clear_palette_sort_dirty(&mut self) {
         self.last_palette_sort_settings = self.palette_sort_settings.clone();
+        self.palette_sort_dirty = false;
     }
 
     /// Check if color correction settings have changed

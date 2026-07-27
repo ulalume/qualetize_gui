@@ -3,6 +3,11 @@ use super::dither::DitherMode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::ptr;
+use std::sync::LazyLock;
+
+/// The C plan stores the per-channel level count in a `u8`, so a channel can hold
+/// at most 255 entries.
+pub const MAX_CUSTOM_LEVELS: usize = u8::MAX as usize;
 
 #[cfg(target_arch = "x86_64")]
 #[repr(C, align(16))]
@@ -298,23 +303,22 @@ fn default_custom_level_strings() -> [String; 4] {
     default_level_strings_from_depth(DEFAULT_RGBA_DEPTH)
 }
 
+/// Comma separated list of 0-255 integers, without leading zeros or whitespace.
+static LEVEL_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])(,(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]|[1-9][0-9]))*$")
+        .expect("level list regex is valid")
+});
+
 pub fn validate_0_255_array(array_str: &str) -> bool {
     if array_str.is_empty() {
         return false;
     }
 
-    let re = Regex::new(r"^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])(,(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]|[1-9][0-9]))*$").unwrap();
-
-    if !re.is_match(array_str) {
+    if !LEVEL_LIST_RE.is_match(array_str) {
         return false;
     }
 
-    let count = array_str.split(',').count();
-    if count > 255 {
-        return false;
-    }
-
-    true
+    array_str.split(',').count() <= MAX_CUSTOM_LEVELS
 }
 
 fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {

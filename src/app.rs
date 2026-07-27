@@ -143,7 +143,7 @@ impl QualetizeApp {
         if !width_divisible || !height_divisible {
             self.state.tile_size_warning = true;
             self.state.output_image = None;
-            self.state.output_palette_sorted_indexed_image = None;
+            self.state.invalidate_palette_sort();
             self.state.tile_count.last_count = None;
             self.state.tile_count.mark_dirty();
             log::warn!("Tile size warning");
@@ -180,14 +180,13 @@ impl QualetizeApp {
                         || self.state.settings.tile_reduce_post_threshold <= 0.0
                     {
                         self.state.output_image = Some(image_data);
-                        self.state.output_palette_sorted_indexed_image = None;
                         self.state.reduced_tile_count = self.state.base_tile_count;
                         self.state.tile_reduce_processing = false;
                     } else {
                         self.state.request_update_tile_reduce = true;
                         self.handle_tile_reduce_changes(ctx);
                     }
-                    self.state.output_palette_sorted_indexed_image = None;
+                    self.state.invalidate_palette_sort();
                     self.state.tile_count.last_count = None;
                     self.state.tile_count.mark_dirty();
                 }
@@ -197,7 +196,7 @@ impl QualetizeApp {
                     self.state.base_output_image = None;
                     self.state.base_tile_count = None;
                     self.state.reduced_tile_count = None;
-                    self.state.output_palette_sorted_indexed_image = None;
+                    self.state.invalidate_palette_sort();
                     self.state.tile_count.last_count = None;
                     self.state.tile_reduce_processing = false;
                     self.state.tile_count.mark_dirty();
@@ -243,7 +242,7 @@ impl QualetizeApp {
                         indexed_pixels: res.indexed_pixels,
                     });
                     self.state.output_image = Some(output);
-                    self.state.output_palette_sorted_indexed_image = None;
+                    self.state.invalidate_palette_sort();
                     self.state.reduced_tile_count = Self::count_tiles(
                         self.state.output_image.as_ref().unwrap(),
                         self.state.settings.tile_width,
@@ -306,8 +305,16 @@ impl QualetizeApp {
             return;
         };
 
-        self.state.output_image = Some(base.clone());
-        self.state.output_palette_sorted_indexed_image = None;
+        // Snapshot everything the worker needs before mutating state below.
+        let base_image = base.clone();
+        let reduce_input = base
+            .indexed
+            .as_ref()
+            .map(|indexed| (indexed.indexed_pixels.clone(), indexed.palettes.clone()));
+        let (base_width, base_height) = (base.width, base.height);
+
+        self.state.output_image = Some(base_image);
+        self.state.invalidate_palette_sort();
         self.state.reduced_tile_count = self.state.base_tile_count;
         self.state.tile_count.mark_dirty();
         if !self.state.settings.tile_reduce_post_enabled
@@ -317,7 +324,7 @@ impl QualetizeApp {
             return;
         }
 
-        let Some(indexed) = &base.indexed else {
+        let Some((indexed_pixels, palettes)) = reduce_input else {
             self.state.tile_reduce_processing = false;
             return;
         };
@@ -332,10 +339,10 @@ impl QualetizeApp {
         };
 
         let generation_id = self.image_processor.start_tile_reduce(
-            indexed.indexed_pixels.clone(),
-            indexed.palettes.clone(),
-            base.width,
-            base.height,
+            indexed_pixels,
+            palettes,
+            base_width,
+            base_height,
             opts,
         );
         self.state.tile_reduce_generation_id = generation_id;
@@ -608,36 +615,26 @@ impl QualetizeApp {
     }
 
     fn update_palette_sort_settings(&mut self) {
-        if self.state.output_palette_sorted_indexed_image.is_some()
-            && !self.state.palette_sort_settings_changed()
-        {
+        if !self.state.palette_sort_needs_update() {
             return;
         }
+        self.state.clear_palette_sort_dirty();
 
-        // Extract the indexed image data first to avoid borrowing conflicts
-        let indexed_image = if let Some(output_image) = &self.state.output_image {
-            if let Some(indexed) = &output_image.indexed {
-                indexed.clone()
-            } else {
-                return;
-            }
-        } else {
-            return;
-        };
-
-        let palette_sort_settings = self.state.palette_sort_settings.clone();
-
-        self.state.update_palette_sort_settings_tracking();
-
-        if palette_sort_settings.mode == SortMode::None {
+        let settings = self.state.palette_sort_settings.clone();
+        if settings.mode == SortMode::None {
             self.state.output_palette_sorted_indexed_image = None;
-        } else {
-            self.state.output_palette_sorted_indexed_image = Some(indexed_image.sorted(
-                palette_sort_settings.mode,
-                palette_sort_settings.order,
-                self.state.settings.col0_is_clear,
-            ));
+            return;
         }
+
+        let col0_is_clear = self.state.settings.col0_is_clear;
+        let sorted = self
+            .state
+            .output_image
+            .as_ref()
+            .and_then(|image| image.indexed.as_ref())
+            .map(|indexed| indexed.sorted(settings.mode, settings.order, col0_is_clear));
+
+        self.state.output_palette_sorted_indexed_image = sorted;
     }
 }
 
