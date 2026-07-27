@@ -9,6 +9,7 @@ use crate::types::{
     image::{SortMode, SortOrder},
 };
 use egui::Color32;
+use std::ops::RangeInclusive;
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
@@ -499,245 +500,177 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed
 }
 
+/// Height of one row in the color correction grid.
+const ROW_HEIGHT: f32 = 24.0;
+
+const BRIGHTNESS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
+const CONTRAST_RANGE: RangeInclusive<f32> = 0.0..=2.0;
+const SATURATION_RANGE: RangeInclusive<f32> = 0.0..=2.0;
+const HUE_SHIFT_RANGE: RangeInclusive<f32> = -180.0..=180.0;
+const SHADOWS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
+const HIGHLIGHTS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
+const GAMMA_RANGE: RangeInclusive<f32> = 0.1..=3.0;
+const GAMMA_DISPLAY_RANGE: RangeInclusive<f32> = -100.0..=100.0;
+
+/// How the numeric field next to a color correction slider is shown and parsed.
+#[derive(Clone, Copy)]
+enum ValueFormat {
+    /// `0.5` is shown as `+50%`; both `50%` and `0.5` are accepted as input.
+    Percentage,
+    /// Plain number with two decimals.
+    Decimal,
+    /// Whole degrees with a `°` suffix.
+    Degrees,
+}
+
+impl ValueFormat {
+    fn drag_speed(self) -> f64 {
+        match self {
+            ValueFormat::Percentage | ValueFormat::Decimal => 0.01,
+            ValueFormat::Degrees => 1.0,
+        }
+    }
+
+    fn apply(self, drag: egui::DragValue<'_>) -> egui::DragValue<'_> {
+        match self {
+            ValueFormat::Percentage => drag
+                .custom_formatter(|n, _| format_percentage(n as f32))
+                .custom_parser(parse_percentage),
+            ValueFormat::Decimal => drag.fixed_decimals(2),
+            ValueFormat::Degrees => drag.suffix("°").fixed_decimals(0),
+        }
+    }
+}
+
+/// Accepts either a percentage (`-50%`) or the raw factor (`-0.5`).
+fn parse_percentage(text: &str) -> Option<f64> {
+    match text.strip_suffix('%') {
+        Some(number) => number.parse::<f64>().ok().map(|value| value / 100.0),
+        None => text.parse::<f64>().ok(),
+    }
+}
+
+fn draw_row_label(ui: &mut egui::Ui, label: &str) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(format!("{label}:"));
+    });
+}
+
+/// One `label | slider | number` row of the color correction grid.
+/// Returns true if the value was edited.
+fn draw_slider_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    format: ValueFormat,
+    slider_width: f32,
+) -> bool {
+    draw_row_label(ui, label);
+
+    let mut changed = ui
+        .add_sized(
+            [slider_width, ROW_HEIGHT],
+            egui::Slider::new(value, range.clone()).show_value(false),
+        )
+        .changed();
+
+    let drag = egui::DragValue::new(value)
+        .range(range)
+        .speed(format.drag_speed());
+    changed |= ui.add(format.apply(drag)).changed();
+
+    ui.end_row();
+    changed
+}
+
+/// Gamma needs its own row: the slider edits an intuitive -100..100 display
+/// value while the number field edits the gamma exponent directly.
+fn draw_gamma_row(ui: &mut egui::Ui, gamma: &mut f32, slider_width: f32) -> bool {
+    draw_row_label(ui, "Gamma");
+
+    let mut changed = false;
+    let mut display = gamma_to_display_value(*gamma);
+    if ui
+        .add_sized(
+            [slider_width, ROW_HEIGHT],
+            egui::Slider::new(&mut display, GAMMA_DISPLAY_RANGE).show_value(false),
+        )
+        .changed()
+    {
+        *gamma = display_value_to_gamma(display);
+        changed = true;
+    }
+
+    changed |= ui
+        .add(
+            egui::DragValue::new(gamma)
+                .range(GAMMA_RANGE)
+                .speed(0.01)
+                .custom_formatter(|n, _| format_gamma(n as f32))
+                .custom_parser(|s| s.parse::<f64>().ok()),
+        )
+        .changed();
+
+    ui.end_row();
+    changed
+}
+
 fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     ui.heading_with_margin("Color Correction");
 
-    // Define ranges to avoid duplication
-    const BRIGHTNESS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
-    const CONTRAST_RANGE: std::ops::RangeInclusive<f32> = 0.0..=2.0;
-    const SATURATION_RANGE: std::ops::RangeInclusive<f32> = 0.0..=2.0;
-    const HUE_SHIFT_RANGE: std::ops::RangeInclusive<f32> = -180.0..=180.0;
-    const SHADOWS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
-    const HIGHLIGHTS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
-    const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.1..=3.0;
-    const GAMMA_DISPLAY_RANGE: std::ops::RangeInclusive<f32> = -100.0..=100.0;
-
     egui::Grid::new("color_correction_grid")
         .num_columns(3)
         .spacing([4.0, 6.0])
         .show(ui, |ui| {
-            let available_width = ui.available_width();
-            let slider_width = (available_width * 0.6).max(180.0);
-
+            let slider_width = (ui.available_width() * 0.6).max(180.0);
             ui.style_mut().spacing.slider_width = slider_width;
 
-            // Brightness
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Brightness:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.brightness, BRIGHTNESS_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.brightness)
-                        .range(BRIGHTNESS_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_percentage(n as f32))
-                        .custom_parser(|s| {
-                            // Try to parse as percentage first
-                            if let Some(s) = s.strip_suffix('%') {
-                                s.parse::<f64>().map(|v| v / 100.0).ok()
-                            } else {
-                                s.parse::<f64>().ok()
-                            }
-                        }),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
+            let correction = &mut state.color_correction;
+            let mut row = |label, value: &mut f32, range, format| {
+                draw_slider_row(ui, label, value, range, format, slider_width)
+            };
 
-            // Contrast
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Contrast:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.contrast, CONTRAST_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.contrast)
-                        .range(CONTRAST_RANGE)
-                        .speed(0.01)
-                        .fixed_decimals(2),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
+            settings_changed |= row(
+                "Brightness",
+                &mut correction.brightness,
+                BRIGHTNESS_RANGE,
+                ValueFormat::Percentage,
+            );
+            settings_changed |= row(
+                "Contrast",
+                &mut correction.contrast,
+                CONTRAST_RANGE,
+                ValueFormat::Decimal,
+            );
+            settings_changed |= row(
+                "Saturation",
+                &mut correction.saturation,
+                SATURATION_RANGE,
+                ValueFormat::Decimal,
+            );
+            settings_changed |= row(
+                "Hue Shift",
+                &mut correction.hue_shift,
+                HUE_SHIFT_RANGE,
+                ValueFormat::Degrees,
+            );
+            settings_changed |= row(
+                "Shadows",
+                &mut correction.shadows,
+                SHADOWS_RANGE,
+                ValueFormat::Percentage,
+            );
+            settings_changed |= row(
+                "Highlights",
+                &mut correction.highlights,
+                HIGHLIGHTS_RANGE,
+                ValueFormat::Percentage,
+            );
 
-            // Saturation
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Saturation:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.saturation, SATURATION_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.saturation)
-                        .range(SATURATION_RANGE)
-                        .speed(0.01)
-                        .fixed_decimals(2),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Hue Shift
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Hue Shift:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.hue_shift, HUE_SHIFT_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.hue_shift)
-                        .range(HUE_SHIFT_RANGE)
-                        .speed(1.0)
-                        .suffix("°")
-                        .fixed_decimals(0),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Shadows
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Shadows:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.shadows, SHADOWS_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.shadows)
-                        .range(SHADOWS_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_percentage(n as f32))
-                        .custom_parser(|s| {
-                            // Try to parse as percentage first
-                            if let Some(s) = s.strip_suffix('%') {
-                                s.parse::<f64>().map(|v| v / 100.0).ok()
-                            } else {
-                                s.parse::<f64>().ok()
-                            }
-                        }),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Highlights
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Highlights:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.highlights, HIGHLIGHTS_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.highlights)
-                        .range(HIGHLIGHTS_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_percentage(n as f32))
-                        .custom_parser(|s| {
-                            // Try to parse as percentage first
-                            if let Some(s) = s.strip_suffix('%') {
-                                s.parse::<f64>().map(|v| v / 100.0).ok()
-                            } else {
-                                s.parse::<f64>().ok()
-                            }
-                        }),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Gamma (special handling)
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Gamma:");
-            });
-            let mut gamma_display = gamma_to_display_value(state.color_correction.gamma);
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut gamma_display, GAMMA_DISPLAY_RANGE).show_value(false),
-                )
-                .changed()
-            {
-                state.color_correction.gamma = display_value_to_gamma(gamma_display);
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.gamma)
-                        .range(GAMMA_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_gamma(n as f32))
-                        .custom_parser(|s| s.parse::<f64>().ok()),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
+            settings_changed |= draw_gamma_row(ui, &mut correction.gamma, slider_width);
         });
 
     // Color correction presets
@@ -755,7 +688,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 
         for (label, preset) in presets {
             if ui
-                .add_sized([button_width, 24.0], egui::Button::new(label))
+                .add_sized([button_width, ROW_HEIGHT], egui::Button::new(label))
                 .clicked()
             {
                 state.color_correction = preset;
