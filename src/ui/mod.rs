@@ -25,7 +25,7 @@ impl UI {
         header::draw_header(ui, state)
     }
 
-    pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) {
         footer::draw_footer(ui, state)
     }
 }

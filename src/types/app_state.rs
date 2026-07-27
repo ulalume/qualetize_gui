@@ -54,7 +54,14 @@ impl TileCountState {
         }
     }
 
+    /// Force a recount on the next draw, keeping the stale number visible until then.
     pub fn mark_dirty(&mut self) {
+        self.dirty = true;
+    }
+
+    /// Force a recount and clear the displayed number, for when the image itself is gone.
+    pub fn reset(&mut self) {
+        self.last_count = None;
         self.dirty = true;
     }
 }
@@ -248,5 +255,25 @@ impl AppState {
 
     pub fn reset_view_settings(&mut self) {
         self.preferences = UserPreferences::default();
+    }
+
+    /// Drop the qualetize result and everything derived from it, keeping the
+    /// input and color corrected images.
+    pub fn reset_qualetize_outputs(&mut self) {
+        self.base_output_image = None;
+        self.output_image = None;
+        self.base_tile_count = None;
+        self.reduced_tile_count = None;
+        self.request_update_tile_reduce = false;
+        self.invalidate_palette_sort();
+        self.tile_count.reset();
+    }
+
+    /// Drop the loaded image together with everything derived from it.
+    pub fn reset_all_images(&mut self) {
+        self.input_path = None;
+        self.input_image = None;
+        self.color_corrected_image = None;
+        self.reset_qualetize_outputs();
     }
 }

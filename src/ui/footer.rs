@@ -2,8 +2,7 @@ use super::styles;
 use crate::types::{AppState, ExportFormat, app_state::AppStateRequest, image::ImageData};
 use egui::{Color32, Vec2};
 
-pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let export_clicked = false;
+pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) {
     let width = ui.available_width();
 
     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
@@ -17,8 +16,6 @@ pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ui.separator();
         draw_export_controls(ui, state);
     });
-
-    export_clicked
 }
 
 fn draw_view_controls(ui: &mut egui::Ui, state: &mut AppState) {
@@ -143,8 +140,6 @@ fn compute_tile_count(state: &mut AppState) -> Option<usize> {
 fn apply_export_button_style(ui: &mut egui::Ui) {
     ui.style_mut().spacing.button_padding = egui::vec2(10.0, 4.0);
     let style = &mut ui.style_mut();
-
-    // style.spacing.button_padding = egui::vec2(10.0, 4.0);
 
     // Inactive state
     style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, Color32::WHITE);

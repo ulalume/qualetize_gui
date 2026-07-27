@@ -66,14 +66,9 @@ impl QualetizeApp {
 
         match ImageData::load(&path, ctx) {
             Ok(image_data) => {
-                self.state.input_path = Some(path.clone());
+                self.state.reset_all_images();
+                self.state.input_path = Some(path);
                 self.state.input_image = Some(image_data);
-                self.state.color_corrected_image = None;
-                self.state.base_output_image = None;
-                self.state.output_image = None;
-                self.state.base_tile_count = None;
-                self.state.reduced_tile_count = None;
-                self.state.request_update_tile_reduce = false;
 
                 // Check tile size compatibility
                 self.check_tile_size_compatibility();
@@ -83,14 +78,7 @@ impl QualetizeApp {
             }
             Err(e) => {
                 log::error!("File load Error {e}");
-                self.state.input_path = None;
-                self.state.input_image = Default::default();
-                self.state.color_corrected_image = None;
-                self.state.base_output_image = None;
-                self.state.output_image = None;
-                self.state.base_tile_count = None;
-                self.state.reduced_tile_count = None;
-                self.state.request_update_tile_reduce = false;
+                self.state.reset_all_images();
             }
         }
     }
@@ -144,8 +132,7 @@ impl QualetizeApp {
             self.state.tile_size_warning = true;
             self.state.output_image = None;
             self.state.invalidate_palette_sort();
-            self.state.tile_count.last_count = None;
-            self.state.tile_count.mark_dirty();
+            self.state.tile_count.reset();
             log::warn!("Tile size warning");
             false
         } else {
@@ -187,19 +174,12 @@ impl QualetizeApp {
                         self.handle_tile_reduce_changes(ctx);
                     }
                     self.state.invalidate_palette_sort();
-                    self.state.tile_count.last_count = None;
-                    self.state.tile_count.mark_dirty();
+                    self.state.tile_count.reset();
                 }
                 Err(e) => {
                     log::error!("Failed to generate preview image: {e}");
-                    self.state.output_image = None;
-                    self.state.base_output_image = None;
-                    self.state.base_tile_count = None;
-                    self.state.reduced_tile_count = None;
-                    self.state.invalidate_palette_sort();
-                    self.state.tile_count.last_count = None;
+                    self.state.reset_qualetize_outputs();
                     self.state.tile_reduce_processing = false;
-                    self.state.tile_count.mark_dirty();
                 }
             }
         }
@@ -413,15 +393,13 @@ impl QualetizeApp {
                     return;
                 };
 
-                let indexed = if self.state.output_palette_sorted_indexed_image.is_some() {
-                    &self.state.output_palette_sorted_indexed_image
-                } else if let Some(image) = &self.state.output_image {
-                    &image.indexed
-                } else {
-                    &None
-                };
-
-                let Some(indexed) = indexed else {
+                // Prefer the sorted palette when one is active.
+                let Some(indexed) = self
+                    .state
+                    .output_palette_sorted_indexed_image
+                    .as_ref()
+                    .or(output_image.indexed.as_ref())
+                else {
                     return;
                 };
 
@@ -748,8 +726,6 @@ impl eframe::App for QualetizeApp {
         {
             ctx.request_repaint();
         }
-
-        // enforce high quality always
     }
 }
 
