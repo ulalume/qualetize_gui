@@ -87,101 +87,48 @@ impl SortMode {
 }
 
 impl ImageDataIndexed {
+    /// Reorder the colors inside every palette, rewriting the pixel indices so
+    /// each pixel still resolves to the same color.
     pub fn sorted(
         &self,
         mode: SortMode,
         order: SortOrder,
         first_color_is_transparent: bool,
     ) -> Self {
-        // Get the number of colors per palette from palettes_for_ui
-        if self.palettes_for_ui.is_empty() {
+        let Some(first_palette) = self.palettes_for_ui.first() else {
+            return self.clone();
+        };
+        let colors_per_palette = first_palette.len();
+        if colors_per_palette == 0 {
             return self.clone();
         }
 
-        let colors_per_palette = self.palettes_for_ui[0].len();
-        let num_palettes = self.palettes_for_ui.len();
-
-        // Create a new copy to work with
         let mut new_palettes_for_ui = self.palettes_for_ui.clone();
         let mut new_palettes = self.palettes.clone();
-        let mut new_indexed_pixels = self.indexed_pixels.clone();
 
-        // Process each palette
-        for palette_idx in 0..num_palettes.min(new_palettes_for_ui.len()) {
-            // Get colors for this palette
+        // One global old-index -> new-index table for every palette, so the
+        // pixel buffer is rewritten in a single pass instead of once per
+        // palette. Entries not covered by a complete palette stay identity.
+        let mut remap: [u8; 256] = std::array::from_fn(|i| i as u8);
+
+        for (palette_idx, palette) in self.palettes_for_ui.iter().enumerate() {
             let palette_start = palette_idx * colors_per_palette;
-            let palette_end = palette_start + colors_per_palette;
-
-            if palette_end > self.palettes.len() {
+            if palette.len() != colors_per_palette
+                || palette_start + colors_per_palette > self.palettes.len()
+            {
                 continue;
             }
 
-            // Create index mapping for sorting
-            let mut indices: Vec<usize> = (0..colors_per_palette).collect();
-
-            // Sort indices based on color values
-            indices.sort_by(|&a, &b| {
-                if first_color_is_transparent {
-                    if a == 0 {
-                        return std::cmp::Ordering::Less;
-                    } else if b == 0 {
-                        return std::cmp::Ordering::Greater;
-                    }
-                }
-                let color_a = &self.palettes_for_ui[palette_idx][a];
-                let color_b = &self.palettes_for_ui[palette_idx][b];
-
-                let sort_key_a = Self::get_sort_key(color_a, &mode);
-                let sort_key_b = Self::get_sort_key(color_b, &mode);
-
-                match order {
-                    SortOrder::Ascending => sort_key_a
-                        .partial_cmp(&sort_key_b)
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                    SortOrder::Descending => sort_key_b
-                        .partial_cmp(&sort_key_a)
-                        .unwrap_or(std::cmp::Ordering::Equal),
-                }
+            let mut order_of: Vec<usize> = (0..colors_per_palette).collect();
+            order_of.sort_by(|&a, &b| {
+                Self::compare_colors(palette, a, b, mode, order, first_color_is_transparent)
             });
 
-            // Create reverse mapping (old index -> new index)
-            let mut index_mapping = vec![0; colors_per_palette];
-            for (new_idx, &old_idx) in indices.iter().enumerate() {
-                index_mapping[old_idx] = new_idx;
-            }
-
-            // Update palettes_for_ui for this palette
-            let mut sorted_ui_palette = vec![egui::Color32::BLACK; colors_per_palette];
-            for (new_idx, &old_idx) in indices.iter().enumerate() {
-                sorted_ui_palette[new_idx] = self.palettes_for_ui[palette_idx][old_idx];
-            }
-            new_palettes_for_ui[palette_idx] = sorted_ui_palette;
-
-            // Update palettes for this palette
-            let mut sorted_palette = vec![
-                BGRA8 {
-                    b: 0,
-                    g: 0,
-                    r: 0,
-                    a: 255
-                };
-                colors_per_palette
-            ];
-            for (new_idx, &old_idx) in indices.iter().enumerate() {
-                sorted_palette[new_idx] = self.palettes[palette_start + old_idx];
-            }
-            for (i, color) in sorted_palette.iter().enumerate() {
-                new_palettes[palette_start + i] = *color;
-            }
-
-            // Update indexed_pixels that reference this palette
-            for pixel in new_indexed_pixels.iter_mut() {
-                let pixel_palette_idx = (*pixel as usize) / colors_per_palette;
-                let pixel_color_idx = (*pixel as usize) % colors_per_palette;
-
-                if pixel_palette_idx == palette_idx {
-                    let new_color_idx = index_mapping[pixel_color_idx];
-                    *pixel = (palette_idx * colors_per_palette + new_color_idx) as u8;
+            for (new_idx, &old_idx) in order_of.iter().enumerate() {
+                new_palettes_for_ui[palette_idx][new_idx] = palette[old_idx];
+                new_palettes[palette_start + new_idx] = self.palettes[palette_start + old_idx];
+                if let Some(slot) = remap.get_mut(palette_start + old_idx) {
+                    *slot = (palette_start + new_idx) as u8;
                 }
             }
         }
@@ -189,12 +136,44 @@ impl ImageDataIndexed {
         ImageDataIndexed {
             palettes_for_ui: new_palettes_for_ui,
             palettes: new_palettes,
-            indexed_pixels: new_indexed_pixels,
+            indexed_pixels: self
+                .indexed_pixels
+                .iter()
+                .map(|&pixel| remap[pixel as usize])
+                .collect(),
         }
     }
 
-    fn get_sort_key(color: &egui::Color32, mode: &SortMode) -> f32 {
-        if mode == &SortMode::None {
+    /// Ordering of two entries of the same palette. When the first color is the
+    /// transparent one it is pinned to index 0 regardless of the sort key.
+    fn compare_colors(
+        palette: &[Color32],
+        a: usize,
+        b: usize,
+        mode: SortMode,
+        order: SortOrder,
+        first_color_is_transparent: bool,
+    ) -> std::cmp::Ordering {
+        if first_color_is_transparent {
+            if a == 0 {
+                return std::cmp::Ordering::Less;
+            }
+            if b == 0 {
+                return std::cmp::Ordering::Greater;
+            }
+        }
+
+        let key_a = Self::get_sort_key(&palette[a], mode);
+        let key_b = Self::get_sort_key(&palette[b], mode);
+        let ordering = match order {
+            SortOrder::Ascending => key_a.partial_cmp(&key_b),
+            SortOrder::Descending => key_b.partial_cmp(&key_a),
+        };
+        ordering.unwrap_or(std::cmp::Ordering::Equal)
+    }
+
+    fn get_sort_key(color: &Color32, mode: SortMode) -> f32 {
+        if mode == SortMode::None {
             return 0.0;
         }
         let r = color.r() as f32 / 255.0;

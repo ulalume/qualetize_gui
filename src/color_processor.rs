@@ -10,41 +10,44 @@ impl ColorProcessor {
         height: u32,
         corrections: &ColorCorrection,
     ) -> RgbaImage {
-        let mut output = ImageBuffer::new(width, height);
-        for i in (0..pixels.len()).step_by(4) {
-            let r = pixels[i];
-            let g = pixels[i + 1];
-            let b = pixels[i + 2];
-            let a = pixels[i + 3];
+        let tone_curve = Self::tone_curve(corrections);
+        let mut output: RgbaImage = ImageBuffer::new(width, height);
 
-            let corrected = Self::apply_pixel_corrections(&Rgba([r, g, b, a]), corrections);
-            output.put_pixel(i as u32 / 4 % width, i as u32 / 4 / width, corrected);
+        // chunks_exact and pixels_mut walk the buffers in the same row-major
+        // order, so no per-pixel coordinate arithmetic is needed.
+        for (source, target) in pixels.chunks_exact(4).zip(output.pixels_mut()) {
+            *target = Self::apply_pixel_corrections(
+                &Rgba([source[0], source[1], source[2], source[3]]),
+                corrections,
+                &tone_curve,
+            );
         }
+
         output
     }
 
-    fn apply_pixel_corrections(pixel: &Rgba<u8>, corrections: &ColorCorrection) -> Rgba<u8> {
+    /// Gamma, brightness and contrast are applied per channel and depend only on
+    /// the input byte, so they collapse into a single 256 entry table. The table
+    /// is bit-exact with the per-pixel computation because the input is always
+    /// `i as f32 / 255.0`.
+    fn tone_curve(corrections: &ColorCorrection) -> [f32; 256] {
+        std::array::from_fn(|i| {
+            let value = Self::apply_gamma(i as f32 / 255.0, corrections.gamma);
+            Self::apply_contrast(value + corrections.brightness, corrections.contrast)
+        })
+    }
+
+    fn apply_pixel_corrections(
+        pixel: &Rgba<u8>,
+        corrections: &ColorCorrection,
+        tone_curve: &[f32; 256],
+    ) -> Rgba<u8> {
         let [r, g, b, a] = pixel.0;
 
-        // Convert to float 0.0-1.0 range
-        let mut rf = r as f32 / 255.0;
-        let mut gf = g as f32 / 255.0;
-        let mut bf = b as f32 / 255.0;
-
-        // Apply gamma correction first
-        rf = Self::apply_gamma(rf, corrections.gamma);
-        gf = Self::apply_gamma(gf, corrections.gamma);
-        bf = Self::apply_gamma(bf, corrections.gamma);
-
-        // Apply brightness
-        rf += corrections.brightness;
-        gf += corrections.brightness;
-        bf += corrections.brightness;
-
-        // Apply contrast
-        rf = Self::apply_contrast(rf, corrections.contrast);
-        gf = Self::apply_contrast(gf, corrections.contrast);
-        bf = Self::apply_contrast(bf, corrections.contrast);
+        // Gamma, brightness and contrast in one table lookup per channel
+        let rf = tone_curve[r as usize];
+        let gf = tone_curve[g as usize];
+        let bf = tone_curve[b as usize];
 
         // Convert to HSV for saturation and hue adjustments
         let (mut h, mut s, v) = Self::rgb_to_hsv(rf, gf, bf);
@@ -172,4 +175,94 @@ pub fn format_percentage(value: f32) -> String {
 
 pub fn format_gamma(gamma: f32) -> String {
     format!("{gamma:.2}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn presets() -> [ColorCorrection; 5] {
+        [
+            ColorCorrection::default(),
+            ColorCorrection::preset_vibrant(),
+            ColorCorrection::preset_retro_warm(),
+            ColorCorrection::preset_retro_cool(),
+            ColorCorrection::preset_dark(),
+        ]
+    }
+
+    /// The lookup table replaced three per-pixel operations; it has to produce
+    /// bit-identical results, not merely close ones.
+    #[test]
+    fn tone_curve_is_bit_exact_with_the_per_pixel_computation() {
+        for corrections in presets() {
+            let curve = ColorProcessor::tone_curve(&corrections);
+            for value in 0..=255usize {
+                let mut expected = value as f32 / 255.0;
+                expected = ColorProcessor::apply_gamma(expected, corrections.gamma);
+                expected += corrections.brightness;
+                expected = ColorProcessor::apply_contrast(expected, corrections.contrast);
+
+                assert_eq!(
+                    curve[value].to_bits(),
+                    expected.to_bits(),
+                    "gamma {} value {value}",
+                    corrections.gamma
+                );
+            }
+        }
+    }
+
+    /// chunks_exact/pixels_mut must visit the buffers in the same order as the
+    /// coordinate arithmetic it replaced.
+    #[test]
+    fn corrected_pixels_land_at_the_right_coordinates() {
+        let (width, height) = (3u32, 2u32);
+        let pixels: Vec<u8> = (0..(width * height * 4) as u8).map(|i| i * 7).collect();
+        let corrections = ColorCorrection::preset_vibrant();
+        let curve = ColorProcessor::tone_curve(&corrections);
+
+        let output = ColorProcessor::apply_pixels_correction(&pixels, width, height, &corrections);
+
+        for y in 0..height {
+            for x in 0..width {
+                let i = ((y * width + x) * 4) as usize;
+                let expected = ColorProcessor::apply_pixel_corrections(
+                    &Rgba([pixels[i], pixels[i + 1], pixels[i + 2], pixels[i + 3]]),
+                    &corrections,
+                    &curve,
+                );
+                assert_eq!(*output.get_pixel(x, y), expected, "at ({x}, {y})");
+            }
+        }
+    }
+
+    #[test]
+    fn alpha_is_preserved() {
+        let pixels = vec![10, 20, 30, 40, 50, 60, 70, 200];
+        let output =
+            ColorProcessor::apply_pixels_correction(&pixels, 2, 1, &ColorCorrection::preset_dark());
+
+        assert_eq!(output.get_pixel(0, 0).0[3], 40);
+        assert_eq!(output.get_pixel(1, 0).0[3], 200);
+    }
+
+    #[test]
+    fn hsv_round_trip_is_stable() {
+        for (r, g, b) in [(0.0, 0.0, 0.0), (1.0, 1.0, 1.0), (0.2, 0.6, 0.9)] {
+            let (h, s, v) = ColorProcessor::rgb_to_hsv(r, g, b);
+            let (r2, g2, b2) = ColorProcessor::hsv_to_rgb(h, s, v);
+            assert!((r - r2).abs() < 1e-5, "{r} vs {r2}");
+            assert!((g - g2).abs() < 1e-5, "{g} vs {g2}");
+            assert!((b - b2).abs() < 1e-5, "{b} vs {b2}");
+        }
+    }
+
+    #[test]
+    fn gamma_display_conversion_round_trips() {
+        for gamma in [0.1, 0.5, 1.0, 2.0, 3.0] {
+            let display = gamma_to_display_value(gamma);
+            assert!((display_value_to_gamma(display) - gamma).abs() < 1e-4);
+        }
+    }
 }
