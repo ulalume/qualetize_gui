@@ -4,28 +4,7 @@ mod image_viewer;
 mod settings_panel;
 pub mod styles;
 
-use crate::types::AppState;
-
-pub struct UI;
-
-impl UI {
-    pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
-        settings_panel::draw_settings_panel(ui, state)
-    }
-
-    pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {
-        image_viewer::draw_image_view(ui, state, image_processing)
-    }
-
-    pub fn draw_main_content(ui: &mut egui::Ui) {
-        image_viewer::draw_main_content(ui)
-    }
-
-    pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-        header::draw_header(ui, state)
-    }
-
-    pub fn draw_footer(ui: &mut egui::Ui, state: &mut AppState) {
-        footer::draw_footer(ui, state)
-    }
-}
+pub use footer::draw_footer;
+pub use header::draw_header;
+pub use image_viewer::{draw_image_view, draw_main_content};
+pub use settings_panel::draw_settings_panel;

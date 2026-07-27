@@ -11,6 +11,9 @@ use crate::types::{
 use egui::Color32;
 use std::ops::RangeInclusive;
 
+/// Channel names in the order they appear in an RGBA depth string.
+const RGBA_CHANNELS: [&str; 4] = ["R", "G", "B", "A"];
+
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
     let mut tile_reduce_changed = false;
@@ -171,8 +174,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
     ui.label("Per-channel levels (0-255, comma separated, max 255 entries)");
 
-    let channel_labels = ["R", "G", "B", "A"];
-    for (idx, label) in channel_labels.iter().enumerate() {
+    for (idx, label) in RGBA_CHANNELS.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.label(format!("{label}:"));
             let mut response = ui.add_sized(
@@ -240,7 +242,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     if state.settings.use_custom_levels {
         settings_changed |= draw_custom_level_inputs(ui, state);
     } else {
-        let is_valid = validate_rgba_depth(&state.settings.rgba_depth);
+        let error = get_rgba_depth_error(&state.settings.rgba_depth);
         let is_empty = state.settings.rgba_depth.is_empty();
 
         let mut response = ui.add_sized(
@@ -248,7 +250,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             egui::TextEdit::singleline(&mut state.settings.rgba_depth),
         );
 
-        if !is_valid && !is_empty {
+        if error.is_some() && !is_empty {
             response = response.highlight();
             ui.painter().rect_stroke(
                 response.rect,
@@ -266,7 +268,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             settings_changed = true;
         }
 
-        if let Some(error) = get_rgba_depth_error(&state.settings.rgba_depth) {
+        if let Some(error) = error {
             ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
                 .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
         }
@@ -727,41 +729,26 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
 }
 
 /// Exactly 4 digits, each from 1-8.
-fn validate_rgba_depth(rgba_str: &str) -> bool {
-    rgba_str.len() == 4 && rgba_str.bytes().all(|b| (b'1'..=b'8').contains(&b))
-}
-
+/// Returns the reason `rgba_str` is not a valid RGBA depth, or `None` if it is.
 fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
     if rgba_str.is_empty() {
         return Some("RGBA depth is required".to_string());
     }
 
-    if rgba_str.len() != 4 {
-        return Some(format!("Expected 4 digits, got {}", rgba_str.len()));
+    let digit_count = rgba_str.chars().count();
+    if digit_count != RGBA_CHANNELS.len() {
+        return Some(format!(
+            "Expected {} digits, got {digit_count}",
+            RGBA_CHANNELS.len()
+        ));
     }
 
-    for (i, ch) in rgba_str.chars().enumerate() {
-        if !ch.is_ascii_digit() {
-            let component = match i {
-                0 => "R",
-                1 => "G",
-                2 => "B",
-                3 => "A",
-                _ => "?",
-            };
-            return Some(format!("{component} component '{ch}' is not a digit"));
-        }
-
-        let digit = ch.to_digit(10).unwrap();
+    for (channel, ch) in RGBA_CHANNELS.iter().zip(rgba_str.chars()) {
+        let Some(digit) = ch.to_digit(10) else {
+            return Some(format!("{channel} component '{ch}' is not a digit"));
+        };
         if !(1..=8).contains(&digit) {
-            let component = match i {
-                0 => "R",
-                1 => "G",
-                2 => "B",
-                3 => "A",
-                _ => "?",
-            };
-            return Some(format!("{component} component {digit} must be 1-8"));
+            return Some(format!("{channel} component {digit} must be 1-8"));
         }
     }
 
@@ -806,16 +793,17 @@ mod tests {
     #[test]
     fn valid_rgba_depths_report_no_error() {
         for depth in ["8888", "5551", "3331", "1111"] {
-            assert!(validate_rgba_depth(depth), "{depth} should be valid");
-            assert_eq!(get_rgba_depth_error(depth), None, "{depth}");
+            assert_eq!(get_rgba_depth_error(depth), None, "{depth} should be valid");
         }
     }
 
     #[test]
     fn invalid_rgba_depths_report_an_error() {
         for depth in ["", "888", "88888", "8x88", "0888", "8898"] {
-            assert!(!validate_rgba_depth(depth), "{depth} should be invalid");
-            assert!(get_rgba_depth_error(depth).is_some(), "{depth}");
+            assert!(
+                get_rgba_depth_error(depth).is_some(),
+                "{depth} should be invalid"
+            );
         }
     }
 

@@ -4,8 +4,7 @@ use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {
     const HORIZONTAL_MARGIN: f32 = 4.0;
-    let mut available_size = ui.available_size();
-    available_size.y -= 34.0; // footer size
+    let available_size = ui.available_size();
 
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;
@@ -71,37 +70,16 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
 
         // Right panel
         if !state.tile_size_warning {
-            let palettes_for_ui =
-                if let Some(indexed_image) = &state.output_palette_sorted_indexed_image {
-                    Some(&indexed_image.palettes_for_ui)
-                } else if let Some(image) = &state.output_image {
-                    image
-                        .indexed
-                        .as_ref()
-                        .map(|indexed_image| &indexed_image.palettes_for_ui)
-                } else {
-                    None
-                };
+            let toast = live_toast(state, ui.ctx());
+
+            // Prefer the sorted palette when one is active.
+            let palettes_for_ui = state
+                .output_palette_sorted_indexed_image
+                .as_ref()
+                .or_else(|| state.output_image.as_ref().and_then(|i| i.indexed.as_ref()))
+                .map(|indexed| &indexed.palettes_for_ui);
             let tile_reduced = state.settings.tile_reduce_post_enabled
                 && (state.tile_reduce_processing || state.reduced_tile_count.is_some());
-            let toast = if let Some(toast) = &state.tile_reduce_toast {
-                if toast.time.elapsed() < std::time::Duration::from_secs(3) {
-                    Some(toast.message.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            if toast.is_none()
-                && state
-                    .tile_reduce_toast
-                    .as_ref()
-                    .map(|t| t.time.elapsed() >= std::time::Duration::from_secs(3))
-                    .unwrap_or(false)
-            {
-                let _ = state.tile_reduce_toast.take();
-            }
 
             let settings = ImagePanelSettings {
                 width: split_x,
@@ -144,6 +122,22 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
             state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
         }
     }
+}
+
+const TOAST_DURATION: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Return the tile reduce toast while it is still within its display window,
+/// dropping it once it has expired. Schedules the repaint that makes it vanish.
+fn live_toast(state: &mut AppState, ctx: &egui::Context) -> Option<String> {
+    let toast = state.tile_reduce_toast.as_ref()?;
+    let Some(remaining) = TOAST_DURATION.checked_sub(toast.time.elapsed()) else {
+        state.tile_reduce_toast = None;
+        return None;
+    };
+
+    let message = toast.message.clone();
+    ctx.request_repaint_after(remaining);
+    Some(message)
 }
 
 pub fn draw_main_content(ui: &mut egui::Ui) {
@@ -293,13 +287,11 @@ fn draw_image_panel(
             );
             let canvas = response.rect;
 
-            // 背景色を取得
             let base_color = state
                 .preferences
                 .background_color
                 .unwrap_or(Color32::from_gray(64));
 
-            // 各要素を描画
             draw_background_and_pixels(&painter, canvas, base_color);
             draw_main_image(
                 &painter,
@@ -323,7 +315,7 @@ fn draw_image_panel(
                 draw_overlay_text(&painter, canvas, ui.ctx(), text);
             }
 
-            // パン操作の処理
+            // Panning
             if response.dragged() {
                 *pan_changed += response.drag_delta();
             }

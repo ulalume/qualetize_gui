@@ -55,13 +55,7 @@ pub struct TileReduceResult {
 
 impl ImageProcessor {
     pub fn new() -> Self {
-        Self {
-            tile_reduce_thread: None,
-            tile_reduce_receiver: None,
-            tile_reduce_generation_id: 0,
-            tile_reduce_cancel: None,
-            ..Default::default()
-        }
+        Self::default()
     }
 
     pub fn start_qualetize(
@@ -72,15 +66,10 @@ impl ImageProcessor {
         // Cancel any existing processing
         self.cancel_current_processing();
 
-        // Pre-generate BGRA data to improve responsiveness and avoid redundancy
-        let bgra_result = self.generate_bgra_data(color_corrected_image);
-        let (bgra_data, width, height) = match bgra_result {
-            Ok(data) => data,
-            Err(e) => {
-                log::error!("Failed to generate BGRA data: {e}");
-                return;
-            }
-        };
+        // Convert up front so the worker thread starts on data it can use directly.
+        let bgra_data = to_bgra(&color_corrected_image.rgba_data);
+        let width = color_corrected_image.width;
+        let height = color_corrected_image.height;
 
         let (result_sender, result_receiver) = mpsc::channel();
         let (cancel_sender, cancel_receiver) = mpsc::channel();
@@ -103,29 +92,6 @@ impl ImageProcessor {
         self.preview_thread = Some(thread);
     }
 
-    pub fn generate_bgra_data(
-        &mut self,
-        color_corrected_image: &ImageData,
-    ) -> Result<(Vec<BGRA8>, u32, u32), String> {
-        // Convert to BGRA
-        let width = color_corrected_image.width;
-        let height = color_corrected_image.height;
-
-        let input_data = &color_corrected_image.rgba_data;
-
-        // Convert RGBA to BGRA for qualetize
-        let mut bgra_data: Vec<BGRA8> = Vec::with_capacity((width * height) as usize);
-        for chunk in input_data.chunks_exact(4) {
-            bgra_data.push(BGRA8 {
-                b: chunk[2],
-                g: chunk[1],
-                r: chunk[0],
-                a: chunk[3],
-            });
-        }
-        Ok((bgra_data, width, height))
-    }
-
     pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
         self.cleanup_finished_threads();
 
@@ -135,34 +101,29 @@ impl ImageProcessor {
             self.preview_thread = None;
             self.preview_receiver = None;
 
-            return Some(match result {
+            return match result {
                 Ok(qualetize_result) => {
-                    if qualetize_result.generation_id == self.current_generation_id {
-                        log::debug!(
-                            "Accepting result from generation {}",
-                            qualetize_result.generation_id
-                        );
-                        match ImageData::create_from_qualetize_result(qualetize_result, ctx) {
-                            Ok(image_data) => Ok(image_data),
-                            Err(e) => Err(e),
-                        }
-                    } else {
+                    if qualetize_result.generation_id != self.current_generation_id {
                         log::debug!(
                             "Ignoring outdated result from generation {} (current: {})",
                             qualetize_result.generation_id,
                             self.current_generation_id
                         );
-                        return None; // 古い結果は無視
+                        return None;
                     }
+                    log::debug!(
+                        "Accepting result from generation {}",
+                        qualetize_result.generation_id
+                    );
+                    Some(ImageData::create_from_qualetize_result(
+                        qualetize_result,
+                        ctx,
+                    ))
                 }
-                Err(e) => {
-                    if e.contains("Processing cancelled") {
-                        return None; // キャンセルされた処理は無視
-                    } else {
-                        Err(e)
-                    }
-                }
-            });
+                // A cancelled run is not a failure worth reporting.
+                Err(e) if e.contains("Processing cancelled") => None,
+                Err(e) => Some(Err(e)),
+            };
         }
         None
     }
@@ -184,23 +145,20 @@ impl ImageProcessor {
 
     pub fn cancel_current_processing(&mut self) {
         if let Some(cancel_sender) = &self.cancel_sender {
-            let _ = cancel_sender.send(()); // キャンセル信号を送信
+            let _ = cancel_sender.send(());
         }
 
-        // 古いスレッドをバックグラウンドで実行継続させる（結果は無視）
+        // Let the old thread run to completion in the background; its result is
+        // discarded because the generation ID below no longer matches.
         if let Some(old_thread) = self.preview_thread.take() {
             self.active_threads.push(old_thread);
         }
 
-        // 現在の処理をクリア
         self.preview_thread = None;
         self.preview_receiver = None;
         self.cancel_sender = None;
-
-        // 世代IDを更新（古い結果を無視するため）
         self.current_generation_id += 1;
 
-        // 完了した古いスレッドをクリーンアップ
         self.cleanup_finished_threads();
     }
 
@@ -717,4 +675,16 @@ impl Orientation {
 struct OrientationMap {
     orientation: Orientation,
     map: Vec<usize>,
+}
+
+/// Qualetize consumes BGRA, egui produces RGBA.
+fn to_bgra(rgba: &[u8]) -> Vec<BGRA8> {
+    rgba.chunks_exact(4)
+        .map(|px| BGRA8 {
+            b: px[2],
+            g: px[1],
+            r: px[0],
+            a: px[3],
+        })
+        .collect()
 }

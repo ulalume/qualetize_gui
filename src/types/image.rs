@@ -286,7 +286,7 @@ impl ImageData {
         let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
         let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
-        // パレット情報を直接変換
+        // Split the flat palette into per-palette rows for the overlay.
         let palettes_for_ui = Self::convert_palette_data(
             &palette_data,
             settings.n_palettes as usize,

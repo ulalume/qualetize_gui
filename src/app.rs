@@ -7,7 +7,9 @@ use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
 use crate::types::image::{ImageDataIndexed, SortMode, TileCountOptions};
 use crate::types::{AppState, ExportFormat};
-use crate::ui::UI;
+use crate::ui::{
+    draw_footer, draw_header, draw_image_view, draw_main_content, draw_settings_panel,
+};
 use eframe::egui;
 use egui::{ColorImage, Margin};
 use rfd::FileDialog;
@@ -340,6 +342,26 @@ impl QualetizeApp {
         ImageData::count_unique_tiles(indexed, image.width, image.height, tile_w, tile_h, options)
     }
 
+    /// Run a native file dialog on a worker thread so the UI keeps repainting,
+    /// and feed whatever the user picked back into the request channel.
+    ///
+    /// `file_dialog_open` is held for the lifetime of the dialog so drag & drop
+    /// is ignored while it is up.
+    fn spawn_file_dialog<F>(&self, pick: F)
+    where
+        F: FnOnce(FileDialog) -> Option<AppStateRequest> + Send + 'static,
+    {
+        let sender = self.state.app_state_request_sender.clone();
+        let dialog_flag = self.state.file_dialog_open.clone();
+
+        std::thread::spawn(move || {
+            let _guard = FileDialogGuard::new(dialog_flag);
+            if let Some(request) = pick(FileDialog::new()) {
+                _ = sender.send(request);
+            }
+        });
+    }
+
     fn handle_requests(&mut self, ctx: &egui::Context) {
         // Check for file dialog results first
         let Ok(app_state_request) = &self.state.app_state_request_receiver.try_recv() else {
@@ -494,99 +516,60 @@ impl QualetizeApp {
                 }
             }
             AppStateRequest::OpenImageDialog => {
-                let sender = self.state.app_state_request_sender.clone();
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let dialog = FileDialog::new()
-                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
-
-                    let Some(path) = dialog.pick_file() else {
-                        return;
-                    };
-                    _ = sender.send(AppStateRequest::LoadImage {
+                self.spawn_file_dialog(|dialog| {
+                    let path = dialog
+                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
+                        .pick_file()?;
+                    Some(AppStateRequest::LoadImage {
                         path: path.display().to_string(),
-                    });
+                    })
                 });
             }
             AppStateRequest::ExportImageDialog { format, suffix } => {
-                let sender = self.state.app_state_request_sender.clone();
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
                 let default_path = get_export_path(&input_path, format, suffix.as_deref());
-                let format_clone = *format;
+                let format = *format;
 
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let mut dialog = FileDialog::new().add_filter(
-                        format!("{} files", format_clone.display_name()),
-                        &[format_clone.extension()],
+                self.spawn_file_dialog(move |dialog| {
+                    let mut dialog = dialog.add_filter(
+                        format!("{} files", format.display_name()),
+                        &[format.extension()],
                     );
-                    if let Some(filename) = default_path.file_name() {
-                        dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
+                    if let Some(file_name) = default_path.file_name() {
+                        dialog = dialog.set_file_name(file_name.to_string_lossy().to_string());
                     }
                     if let Some(parent) = default_path.parent() {
                         dialog = dialog.set_directory(parent);
                     }
-                    let Some(file) = dialog.save_file() else {
-                        return;
-                    };
-                    let export_request = match format_clone {
-                        crate::types::ExportFormat::Png => AppStateRequest::ColorCorrectedPng {
-                            output_path: file.display().to_string(),
-                        },
+
+                    let output_path = dialog.save_file()?.display().to_string();
+                    Some(match format {
+                        ExportFormat::Png => AppStateRequest::ColorCorrectedPng { output_path },
                         _ => AppStateRequest::QualetizedIndexed {
-                            output_path: file.display().to_string(),
-                            format: format_clone,
+                            output_path,
+                            format,
                         },
-                    };
-                    _ = sender.send(export_request);
+                    })
                 });
             }
             AppStateRequest::SaveSettingsDialog => {
-                let sender = self.state.app_state_request_sender.clone();
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let mut dialog = FileDialog::new()
-                        .add_filter(
-                            "QualetizeGUI Settings",
-                            &[SettingsBundle::get_settings_file_extension()],
-                        )
-                        .set_file_name("qualetize_settings.qset");
-
-                    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-                        dialog = dialog.set_directory(&settings_dir);
-                    }
-
-                    let Some(file) = dialog.pick_file() else {
-                        return;
-                    };
-                    _ = sender.send(AppStateRequest::SaveSettings {
-                        path: file.display().to_string(),
-                    });
+                self.spawn_file_dialog(|dialog| {
+                    let path = settings_file_dialog(dialog)
+                        .set_file_name("qualetize_settings.qset")
+                        .pick_file()?;
+                    Some(AppStateRequest::SaveSettings {
+                        path: path.display().to_string(),
+                    })
                 });
             }
             AppStateRequest::LoadSettingsDialog => {
-                let sender = self.state.app_state_request_sender.clone();
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let mut dialog = FileDialog::new().add_filter(
-                        "QualetizeGUI Settings",
-                        &[SettingsBundle::get_settings_file_extension()],
-                    );
-                    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-                        dialog = dialog.set_directory(&settings_dir);
-                    }
-                    let Some(file) = dialog.pick_file() else {
-                        return;
-                    };
-                    _ = sender.send(AppStateRequest::LoadSettings {
-                        path: file.display().to_string(),
-                    });
+                self.spawn_file_dialog(|dialog| {
+                    let path = settings_file_dialog(dialog).pick_file()?;
+                    Some(AppStateRequest::LoadSettings {
+                        path: path.display().to_string(),
+                    })
                 });
             }
         }
@@ -661,28 +644,43 @@ impl eframe::App for QualetizeApp {
 
         let mut settings_changed = false;
         let mut tile_reduce_changed = false;
-        // Top（Menu）
+
+        // Panels have to be declared before the central panel, otherwise the
+        // central panel is sized as if they were not there.
+
+        // Top (menu)
         egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
             egui::Frame::NONE
                 .inner_margin(Margin::symmetric(0, 4))
                 .show(ui, |ui| {
-                    settings_changed |= UI::draw_header(ui, &mut self.state);
+                    settings_changed |= draw_header(ui, &mut self.state);
                 });
         });
 
-        // Side（Settings）
+        // Bottom (zoom / export / tile count)
+        if self.state.input_image.is_some() {
+            egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
+                egui::Frame::NONE
+                    .inner_margin(Margin::symmetric(0, 4))
+                    .show(ui, |ui| {
+                        draw_footer(ui, &mut self.state);
+                    });
+            });
+        }
+
+        // Left (settings)
         egui::SidePanel::left("settings_panel")
             .default_width(260.0)
             .resizable(true)
             .show(ctx, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    let (settings, tile_reduce) = UI::draw_settings_panel(ui, &mut self.state);
+                    let (settings, tile_reduce) = draw_settings_panel(ui, &mut self.state);
                     settings_changed |= settings;
                     tile_reduce_changed |= tile_reduce;
                 });
             });
 
-        // Main（Images）
+        // Center (images)
         egui::CentralPanel::default()
             .frame(
                 egui::Frame::default()
@@ -690,22 +688,10 @@ impl eframe::App for QualetizeApp {
                     .fill(ctx.style().visuals.window_fill()),
             )
             .show(ctx, |ui| {
-                // Main
                 if self.state.input_path.is_none() {
-                    UI::draw_main_content(ui);
+                    draw_main_content(ui);
                 } else {
-                    UI::draw_image_view(ui, &mut self.state, image_processing);
-                }
-
-                // Footer
-                if self.state.input_image.is_some() {
-                    egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
-                        egui::Frame::NONE
-                            .inner_margin(Margin::symmetric(0, 4))
-                            .show(ui, |ui| {
-                                UI::draw_footer(ui, &mut self.state);
-                            });
-                    });
+                    draw_image_view(ui, &mut self.state, image_processing);
                 }
             });
 
@@ -752,6 +738,18 @@ fn get_export_path(
         None => format!("{stem}.{extension}"),
     };
     parent.join(file_name)
+}
+
+/// Filter and starting directory shared by the settings load/save dialogs.
+fn settings_file_dialog(dialog: FileDialog) -> FileDialog {
+    let mut dialog = dialog.add_filter(
+        "QualetizeGUI Settings",
+        &[SettingsBundle::get_settings_file_extension()],
+    );
+    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
+        dialog = dialog.set_directory(&settings_dir);
+    }
+    dialog
 }
 
 pub struct FileDialogGuard {
