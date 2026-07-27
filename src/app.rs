@@ -577,6 +577,8 @@ impl Drop for QualetizeApp {
     fn drop(&mut self) {
         // Cancel any ongoing processing
         self.image_processor.cancel_current_processing();
+        // Flush a change made in the last moments before quitting
+        self.state.save_session_now();
         log::debug!("QualetizeApp dropped, resources cleaned up");
     }
 }
@@ -622,8 +624,9 @@ impl eframe::App for QualetizeApp {
         // Handle export requests
         self.handle_requests(ctx);
 
-        // Save preferences
+        // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
+        self.state.check_and_save_session(ctx);
 
         let mut settings_changed = false;
         let mut tile_reduce_changed = false;

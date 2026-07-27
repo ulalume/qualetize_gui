@@ -8,6 +8,7 @@ use super::{
     preferences::UserPreferences,
     qualetize::QualetizeSettings,
 };
+use crate::settings_manager::SettingsBundle;
 use crate::types::image::TileCountOptions;
 use std::time::Instant;
 
@@ -147,6 +148,10 @@ pub struct AppState {
 
     // Qualetize Settings
     pub settings: QualetizeSettings,
+    /// Snapshot of what is mirrored to the session file, so it is only rewritten
+    /// when something actually changed.
+    last_saved_session: SettingsBundle,
+    session_save_deadline: Option<Instant>,
     pub request_update_qualetized_image: Option<QualetizeRequest>,
     pub request_update_tile_reduce: bool,
     pub debounce_delay: std::time::Duration,
@@ -198,6 +203,7 @@ pub struct FittedInput {
 impl Default for AppState {
     fn default() -> Self {
         let preferences = UserPreferences::load();
+        let session = SettingsBundle::load_session();
         let (sender, receiver) = mpsc::channel();
 
         Self {
@@ -220,16 +226,18 @@ impl Default for AppState {
             preferences: preferences.clone(),
             last_preferences: preferences.clone(),
 
-            settings: QualetizeSettings::default(),
+            settings: session.qualetize_settings.clone(),
+            last_saved_session: session.clone(),
+            session_save_deadline: None,
             request_update_qualetized_image: None,
             request_update_tile_reduce: false,
             debounce_delay: std::time::Duration::from_millis(100),
 
-            last_color_correction: ColorCorrection::default(),
-            color_correction: ColorCorrection::default(),
+            last_color_correction: session.color_correction.clone(),
+            color_correction: session.color_correction.clone(),
 
-            palette_sort_settings: PaletteSortSettings::default(),
-            last_palette_sort_settings: PaletteSortSettings::default(),
+            palette_sort_settings: session.sort_settings,
+            last_palette_sort_settings: session.sort_settings,
             palette_sort_dirty: false,
 
             tile_count: TileCountState::default(),
@@ -265,6 +273,54 @@ impl AppState {
             self.settings.tile_width,
             self.settings.tile_height,
         ))
+    }
+
+    /// Take the settings currently in use as a bundle, for saving.
+    pub fn settings_bundle(&self) -> SettingsBundle {
+        SettingsBundle::new(
+            self.settings.clone(),
+            self.color_correction.clone(),
+            self.palette_sort_settings,
+        )
+    }
+
+    /// Mirror the settings to the session file so they survive a restart.
+    ///
+    /// Writes are held back briefly so dragging a slider does not hit the disk
+    /// on every frame. A repaint is scheduled for the deadline so the write
+    /// still happens when nothing else asks for a frame.
+    pub fn check_and_save_session(&mut self, ctx: &egui::Context) {
+        const SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(750);
+
+        if self.settings_bundle().matches(&self.last_saved_session) {
+            self.session_save_deadline = None;
+            return;
+        }
+
+        let deadline = *self
+            .session_save_deadline
+            .get_or_insert_with(|| Instant::now() + SAVE_DEBOUNCE);
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            self.save_session_now();
+        } else {
+            ctx.request_repaint_after(remaining);
+        }
+    }
+
+    /// Write a pending change straight away, for shutdown.
+    pub fn save_session_now(&mut self) {
+        let current = self.settings_bundle();
+        self.session_save_deadline = None;
+        if current.matches(&self.last_saved_session) {
+            return;
+        }
+
+        if let Err(e) = current.save_session() {
+            log::error!("Failed to save session settings: {e}");
+        }
+        self.last_saved_session = current;
     }
 
     pub fn check_and_save_preferences(&mut self) {

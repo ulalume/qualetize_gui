@@ -83,7 +83,7 @@ impl ClearColor {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QualetizeSettings {
     pub tile_width: u16,
     pub tile_height: u16,

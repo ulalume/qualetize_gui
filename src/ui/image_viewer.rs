@@ -244,9 +244,6 @@ fn draw_main_image(
     }
 }
 
-/// Warning color, matching the one used by the settings panel.
-const NOTICE_COLOR: Color32 = Color32::from_rgb(255, 180, 0);
-
 /// A small text chip drawn over the image, used for titles and notices.
 fn draw_label_chip(
     painter: &egui::Painter,
@@ -285,7 +282,8 @@ fn draw_title(painter: &egui::Painter, canvas: Rect, title: &str, ui_ctx: &egui:
 /// seeing rather than a toast that fades.
 fn draw_notice(painter: &egui::Painter, canvas: Rect, text: &str, ui_ctx: &egui::Context) {
     let pos = canvas.left_top() + Vec2::new(4.0, 4.0);
-    draw_label_chip(painter, ui_ctx, pos, text, NOTICE_COLOR);
+    let color = super::styles::warning_color(&ui_ctx.global_style().visuals);
+    draw_label_chip(painter, ui_ctx, pos, text, color);
 }
 
 fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {

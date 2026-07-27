@@ -1,4 +1,4 @@
-use super::styles::UiMarginExt;
+use super::styles::{UiMarginExt, error_color, warning_color};
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
@@ -8,7 +8,6 @@ use crate::types::{
     color_correction::ColorCorrection,
     image::{SortMode, SortOrder},
 };
-use egui::Color32;
 use std::ops::RangeInclusive;
 
 /// Channel names in the order they appear in an RGBA depth string.
@@ -188,7 +187,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 ui.painter().rect_stroke(
                     response.rect,
                     2.0,
-                    egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 150, 150)),
+                    egui::Stroke::new(1.0_f32, error_color(ui.visuals())),
                     egui::StrokeKind::Outside,
                 );
             }
@@ -199,7 +198,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             settings_changed |= response.changed();
 
             if !is_valid {
-                ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
+                ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
                     .on_hover_text(
                         "Enter comma-separated integers between 0 and 255 (max 255 entries)",
                     );
@@ -255,7 +254,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.painter().rect_stroke(
                 response.rect,
                 2.0,
-                egui::Stroke::new(1.0_f32, Color32::from_rgb(255, 150, 150)),
+                egui::Stroke::new(1.0_f32, error_color(ui.visuals())),
                 egui::StrokeKind::Outside,
             );
         }
@@ -269,7 +268,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         }
 
         if let Some(error) = error {
-            ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
+            ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
                 .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
         }
     }
