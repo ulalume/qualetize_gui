@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ColorSpace {
     Srgb,
     #[default]
@@ -50,7 +50,7 @@ impl ColorSpace {
         }
     }
 
-    pub fn to_id(&self) -> u8 {
+    pub fn to_id(self) -> u8 {
         match self {
             ColorSpace::Srgb => 0,
             ColorSpace::RgbLinear => 1,

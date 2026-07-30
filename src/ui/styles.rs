@@ -2,6 +2,26 @@ use egui::Color32;
 pub const COLOR_TINT: Color32 = Color32::from_rgb(240, 100, 156);
 pub const COLOR_TINT_ACTIVE: Color32 = Color32::from_rgb(131, 100, 144);
 
+/// Amber used for warnings. The bright variant is only readable against a dark
+/// background; on a light one it washes out, so light themes get a darker one.
+pub fn warning_color(visuals: &egui::Visuals) -> Color32 {
+    if visuals.dark_mode {
+        Color32::from_rgb(255, 180, 0)
+    } else {
+        Color32::from_rgb(150, 85, 0)
+    }
+}
+
+/// Red marking invalid input, darkened for light themes for the same reason as
+/// [`warning_color`].
+pub fn error_color(visuals: &egui::Visuals) -> Color32 {
+    if visuals.dark_mode {
+        Color32::from_rgb(255, 150, 150)
+    } else {
+        Color32::from_rgb(180, 40, 40)
+    }
+}
+
 pub fn init_styles(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
 

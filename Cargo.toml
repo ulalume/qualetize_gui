@@ -1,6 +1,6 @@
 [package]
 name = "qualetize_gui"
-version = "0.4.2"
+version = "0.5.0"
 edition = "2024"
 build = "build.rs"
 
@@ -14,10 +14,10 @@ identifier = "io.github.ulalume.qualetize_gui"
 icon = ["assets/icon.icns"]
 
 [dependencies]
-eframe = "0.32"
-egui = "0.32"
+eframe = "0.35"
+egui = "0.35"
 image = "0.25"
-rfd = "0.15"
+rfd = "0.17"
 env_logger = "0.11"
 log = "0.4"
 serde = { version = "1.0", features = ["derive"] }
@@ -27,7 +27,7 @@ png = "0.18"
 regex = "1.11"
 
 [build-dependencies]
-cc = "*"
+cc = "1.4"
 
 [profile.dev]
 opt-level = 1

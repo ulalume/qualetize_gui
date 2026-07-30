@@ -4,10 +4,14 @@ use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
 use crate::image_processor::ImageProcessor;
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
-use crate::types::app_state::{AppStateRequest, AppearanceMode, QualetizeRequest};
+use crate::types::app_state::{
+    AppStateRequest, AppearanceMode, ExportSource, FittedInput, QualetizeRequest, Toast,
+};
 use crate::types::image::{ImageDataIndexed, SortMode, TileCountOptions};
 use crate::types::{AppState, ExportFormat};
-use crate::ui::UI;
+use crate::ui::{
+    draw_footer, draw_header, draw_image_view, draw_main_content, draw_settings_panel,
+};
 use eframe::egui;
 use egui::{ColorImage, Margin};
 use rfd::FileDialog;
@@ -66,39 +70,21 @@ impl QualetizeApp {
 
         match ImageData::load(&path, ctx) {
             Ok(image_data) => {
-                self.state.input_path = Some(path.clone());
+                self.state.reset_all_images();
+                self.state.input_path = Some(path);
                 self.state.input_image = Some(image_data);
-                self.state.color_corrected_image = None;
-                self.state.base_output_image = None;
-                self.state.output_image = None;
-                self.state.base_tile_count = None;
-                self.state.reduced_tile_count = None;
-                self.state.request_update_tile_reduce = false;
-
-                // Check tile size compatibility
-                self.check_tile_size_compatibility();
 
                 self.state.zoom = 1.0;
                 self.state.pan_offset = egui::Vec2::ZERO;
             }
             Err(e) => {
                 log::error!("File load Error {e}");
-                self.state.input_path = None;
-                self.state.input_image = Default::default();
-                self.state.color_corrected_image = None;
-                self.state.base_output_image = None;
-                self.state.output_image = None;
-                self.state.base_tile_count = None;
-                self.state.reduced_tile_count = None;
-                self.state.request_update_tile_reduce = false;
+                self.state.reset_all_images();
             }
         }
     }
 
     fn handle_settings_changes(&mut self) {
-        if !self.check_tile_size_compatibility() {
-            return;
-        }
         let Some(color_corrected_image) = &self.state.color_corrected_image else {
             return;
         };
@@ -123,36 +109,47 @@ impl QualetizeApp {
         self.state.request_update_tile_reduce = self.state.settings.tile_reduce_post_enabled;
     }
 
-    fn check_tile_size_compatibility(&mut self) -> bool {
-        let Some(input_image) = &self.state.input_image else {
-            return true;
+    /// Extend the input image so both sides are a multiple of the tile size,
+    /// filling the added area with the top-left pixel color.
+    ///
+    /// The loaded image is never modified, so changing the tile size later
+    /// re-derives the extension from it instead of compounding.
+    /// Returns true when the image the pipeline runs on changed.
+    fn update_tile_fit(&mut self, ctx: &egui::Context) -> bool {
+        let Some(input) = &self.state.input_image else {
+            return self.state.tile_fitted_input.take().is_some();
         };
 
-        let image_width = input_image.width as u16;
-        let image_height = input_image.height as u16;
-        let tile_width = self.state.settings.tile_width;
-        let tile_height = self.state.settings.tile_height;
-
-        let width_divisible = image_width.is_multiple_of(tile_width);
-        let height_divisible = image_height.is_multiple_of(tile_height);
-
-        log::debug!(
-            "Tile size check: image {image_width}×{image_height}, tile {tile_width}×{tile_height}, divisible: width={width_divisible}, height={height_divisible}"
+        let target = tile_fit_target(
+            (input.width, input.height),
+            self.state.settings.tile_width,
+            self.state.settings.tile_height,
         );
 
-        if !width_divisible || !height_divisible {
-            self.state.tile_size_warning = true;
-            self.state.output_image = None;
-            self.state.output_palette_sorted_indexed_image = None;
-            self.state.tile_count.last_count = None;
-            self.state.tile_count.mark_dirty();
-            log::warn!("Tile size warning");
-            false
-        } else {
-            self.state.tile_size_warning = false;
-            log::debug!("No warning - sizes are compatible");
-            true
+        if target == (input.width, input.height) {
+            return self.state.tile_fitted_input.take().is_some();
         }
+        if let Some(fitted) = &self.state.tile_fitted_input
+            && (fitted.image.width, fitted.image.height) == target
+        {
+            return false;
+        }
+
+        log::info!(
+            "Extending {}×{} to {}×{} to fit the tile grid",
+            input.width,
+            input.height,
+            target.0,
+            target.1
+        );
+        let image = input.extended_to(target.0, target.1, input.top_left_pixel(), ctx);
+        self.state.tile_fitted_input = Some(FittedInput {
+            image,
+            original_size: (input.width, input.height),
+        });
+        self.state.tile_fit_toast =
+            Some(Toast::new(format!("Extended to {}×{}", target.0, target.1)));
+        true
     }
 
     fn update_color_corrected_image(&mut self, ctx: &egui::Context) {
@@ -180,27 +177,19 @@ impl QualetizeApp {
                         || self.state.settings.tile_reduce_post_threshold <= 0.0
                     {
                         self.state.output_image = Some(image_data);
-                        self.state.output_palette_sorted_indexed_image = None;
                         self.state.reduced_tile_count = self.state.base_tile_count;
                         self.state.tile_reduce_processing = false;
                     } else {
                         self.state.request_update_tile_reduce = true;
                         self.handle_tile_reduce_changes(ctx);
                     }
-                    self.state.output_palette_sorted_indexed_image = None;
-                    self.state.tile_count.last_count = None;
-                    self.state.tile_count.mark_dirty();
+                    self.state.invalidate_palette_sort();
+                    self.state.tile_count.reset();
                 }
                 Err(e) => {
                     log::error!("Failed to generate preview image: {e}");
-                    self.state.output_image = None;
-                    self.state.base_output_image = None;
-                    self.state.base_tile_count = None;
-                    self.state.reduced_tile_count = None;
-                    self.state.output_palette_sorted_indexed_image = None;
-                    self.state.tile_count.last_count = None;
+                    self.state.reset_qualetize_outputs();
                     self.state.tile_reduce_processing = false;
-                    self.state.tile_count.mark_dirty();
                 }
             }
         }
@@ -243,7 +232,7 @@ impl QualetizeApp {
                         indexed_pixels: res.indexed_pixels,
                     });
                     self.state.output_image = Some(output);
-                    self.state.output_palette_sorted_indexed_image = None;
+                    self.state.invalidate_palette_sort();
                     self.state.reduced_tile_count = Self::count_tiles(
                         self.state.output_image.as_ref().unwrap(),
                         self.state.settings.tile_width,
@@ -260,10 +249,8 @@ impl QualetizeApp {
                                 .map(|reduced| base.saturating_sub(reduced))
                         })
                         .unwrap_or(res.merged);
-                    self.state.tile_reduce_toast = Some(crate::types::app_state::TileReduceToast {
-                        message: format!("Reduced {} tiles", diff),
-                        time: std::time::Instant::now(),
-                    });
+                    self.state.tile_reduce_toast =
+                        Some(Toast::new(format!("Reduced {diff} tiles")));
                     self.state.tile_count.mark_dirty();
                     log::info!("Tile reduce completed: merged {}", res.merged);
                 }
@@ -284,16 +271,23 @@ impl QualetizeApp {
                 None => egui::Visuals::dark(),
             },
         };
-        if ctx.style().visuals != visuals {
+        if ctx.global_style().visuals != visuals {
             ctx.set_visuals(visuals);
         }
     }
 
     fn apply_color_correct_image(&mut self, ctx: &egui::Context) {
-        if let Some(image) = &self.state.input_image {
-            let color_corrected_image = image.color_corrected(&self.state.color_correction, ctx);
-            self.state.color_corrected_image = Some(color_corrected_image);
-        }
+        let Some(image) = self.state.processing_input() else {
+            return;
+        };
+
+        // With color correction off the input is passed through untouched, which
+        // also skips a full pixel pass and a texture upload.
+        self.state.color_corrected_image = Some(if self.state.color_correction.enabled {
+            image.color_corrected(&self.state.color_correction, ctx)
+        } else {
+            image.clone()
+        });
     }
 
     fn handle_tile_reduce_changes(&mut self, ctx: &egui::Context) {
@@ -306,8 +300,16 @@ impl QualetizeApp {
             return;
         };
 
-        self.state.output_image = Some(base.clone());
-        self.state.output_palette_sorted_indexed_image = None;
+        // Snapshot everything the worker needs before mutating state below.
+        let base_image = base.clone();
+        let reduce_input = base
+            .indexed
+            .as_ref()
+            .map(|indexed| (indexed.indexed_pixels.clone(), indexed.palettes.clone()));
+        let (base_width, base_height) = (base.width, base.height);
+
+        self.state.output_image = Some(base_image);
+        self.state.invalidate_palette_sort();
         self.state.reduced_tile_count = self.state.base_tile_count;
         self.state.tile_count.mark_dirty();
         if !self.state.settings.tile_reduce_post_enabled
@@ -317,7 +319,7 @@ impl QualetizeApp {
             return;
         }
 
-        let Some(indexed) = &base.indexed else {
+        let Some((indexed_pixels, palettes)) = reduce_input else {
             self.state.tile_reduce_processing = false;
             return;
         };
@@ -332,10 +334,10 @@ impl QualetizeApp {
         };
 
         let generation_id = self.image_processor.start_tile_reduce(
-            indexed.indexed_pixels.clone(),
-            indexed.palettes.clone(),
-            base.width,
-            base.height,
+            indexed_pixels,
+            palettes,
+            base_width,
+            base_height,
             opts,
         );
         self.state.tile_reduce_generation_id = generation_id;
@@ -353,6 +355,69 @@ impl QualetizeApp {
         ImageData::count_unique_tiles(indexed, image.width, image.height, tile_w, tile_h, options)
     }
 
+    /// Write `source` to `output_path` on a worker thread.
+    fn export_image(&self, source: ExportSource, format: ExportFormat, output_path: String) {
+        if source == ExportSource::ColorCorrected {
+            let Some(image) = &self.state.color_corrected_image else {
+                log::error!("Export failed: no color corrected image in memory");
+                return;
+            };
+            let rgba_data = image.rgba_data.clone();
+            let (width, height) = (image.width, image.height);
+
+            std::thread::spawn(move || {
+                match save_rgba_image(&output_path, &rgba_data, width, height, format) {
+                    Ok(()) => log::info!("Color corrected export completed: {output_path}"),
+                    Err(e) => log::error!("Color corrected export failed: {e}"),
+                }
+            });
+            return;
+        }
+
+        let Some((indexed, width, height)) = self.state.indexed_for_export(source) else {
+            log::error!("Export failed: no indexed image available for {source:?}");
+            return;
+        };
+
+        std::thread::spawn(move || {
+            let pixels = &indexed.indexed_pixels;
+            let palettes = &indexed.palettes;
+            let result = match format {
+                ExportFormat::Bmp => {
+                    save_indexed_bmp(&output_path, pixels, palettes, width, height)
+                }
+                ExportFormat::PngIndexed => {
+                    save_indexed_png(&output_path, pixels, palettes, width, height)
+                }
+                ExportFormat::Png => Err("indexed export needs an indexed format".to_string()),
+            };
+            match result {
+                Ok(()) => log::info!("Indexed export completed: {output_path}"),
+                Err(e) => log::error!("Indexed export failed: {e}"),
+            }
+        });
+    }
+
+    /// Run a native file dialog on a worker thread so the UI keeps repainting,
+    /// and feed whatever the user picked back into the request channel.
+    ///
+    /// `file_dialog_open` is held for the lifetime of the dialog so drag & drop
+    /// is ignored while it is up.
+    fn spawn_file_dialog<F>(&self, pick: F)
+    where
+        F: FnOnce(FileDialog) -> Option<AppStateRequest> + Send + 'static,
+    {
+        let sender = self.state.app_state_request_sender.clone();
+        let dialog_flag = self.state.file_dialog_open.clone();
+
+        std::thread::spawn(move || {
+            let _guard = FileDialogGuard::new(dialog_flag);
+            if let Some(request) = pick(FileDialog::new()) {
+                _ = sender.send(request);
+            }
+        });
+    }
+
     fn handle_requests(&mut self, ctx: &egui::Context) {
         // Check for file dialog results first
         let Ok(app_state_request) = &self.state.app_state_request_receiver.try_recv() else {
@@ -361,106 +426,25 @@ impl QualetizeApp {
         match app_state_request {
             AppStateRequest::LoadImage { path } => {
                 self.load_image_file(path.clone(), ctx);
+                self.update_tile_fit(ctx);
                 self.apply_color_correct_image(ctx);
                 self.state.request_update_qualetized_image = Some(QualetizeRequest {
                     time: std::time::Instant::now(),
                 });
                 self.state.update_color_correction_tracking();
             }
-            AppStateRequest::ColorCorrectedPng { output_path } => {
-                // Use ImageData pixels directly
-                let Some(color_corrected_image) = &self.state.color_corrected_image else {
-                    log::error!("No color corrected image data available in memory");
-                    return;
-                };
-
-                let output_path = output_path.clone();
-                let rgba_data = color_corrected_image.rgba_data.clone();
-                let width = color_corrected_image.width;
-                let height = color_corrected_image.height;
-                std::thread::spawn(move || {
-                    match save_rgba_image(
-                        &output_path,
-                        &rgba_data,
-                        width,
-                        height,
-                        crate::types::ExportFormat::Png,
-                    ) {
-                        Ok(()) => {
-                            log::info!(
-                                "Color corrected PNG export completed successfully (from memory)"
-                            );
-                        }
-                        Err(e) => {
-                            log::error!("Color corrected PNG export failed: {e}");
-                        }
-                    }
-                });
-            }
-            AppStateRequest::QualetizedIndexed {
-                output_path,
+            AppStateRequest::ExportImage {
+                source,
                 format,
+                output_path,
             } => {
-                let Some(output_image) = &self.state.output_image else {
-                    log::error!("Qualetized export failed: output image is None");
-                    return;
-                };
-
-                let indexed = if self.state.output_palette_sorted_indexed_image.is_some() {
-                    &self.state.output_palette_sorted_indexed_image
-                } else if let Some(image) = &self.state.output_image {
-                    &image.indexed
-                } else {
-                    &None
-                };
-
-                let Some(indexed) = indexed else {
-                    return;
-                };
-
-                match format {
-                    crate::types::ExportFormat::Png => {
-                        log::error!("Qualetized export failed: Unexpected format");
-                    }
-                    crate::types::ExportFormat::Bmp => {
-                        match save_indexed_bmp(
-                            output_path,
-                            &indexed.indexed_pixels,
-                            &indexed.palettes,
-                            output_image.width,
-                            output_image.height,
-                        ) {
-                            Ok(()) => {
-                                log::info!("Qualetized indexed BMP export completed successfully");
-                            }
-                            Err(e) => {
-                                log::error!("Qualetized indexed export failed: {e}");
-                            }
-                        }
-                    }
-                    crate::types::ExportFormat::PngIndexed => {
-                        match save_indexed_png(
-                            output_path,
-                            &indexed.indexed_pixels,
-                            &indexed.palettes,
-                            output_image.width,
-                            output_image.height,
-                        ) {
-                            Ok(()) => {
-                                log::info!("Qualetized indexed PNG export completed successfully");
-                            }
-                            Err(e) => {
-                                log::error!("Qualetized indexed export failed: {e}");
-                            }
-                        }
-                    }
-                }
+                self.export_image(*source, *format, output_path.clone());
             }
             AppStateRequest::SaveSettings { path } => {
                 let settings_bundle = SettingsBundle::new(
                     self.state.settings.clone(),
                     self.state.color_correction.clone(),
-                    self.state.palette_sort_settings.clone(),
+                    self.state.palette_sort_settings,
                 );
 
                 match settings_bundle.save_to_file(path) {
@@ -490,10 +474,9 @@ impl QualetizeApp {
                             time: std::time::Instant::now(),
                         });
 
-                        if let Some(input_image) = &self.state.input_image {
-                            self.state.color_corrected_image = Some(
-                                input_image.color_corrected(&self.state.color_correction, ctx),
-                            );
+                        if self.state.input_image.is_some() {
+                            self.update_tile_fit(ctx);
+                            self.apply_color_correct_image(ctx);
                         } else {
                             self.state.color_corrected_image = None;
                         }
@@ -509,135 +492,84 @@ impl QualetizeApp {
                 }
             }
             AppStateRequest::OpenImageDialog => {
-                let sender = self.state.app_state_request_sender.clone();
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let dialog = FileDialog::new()
-                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
-
-                    let Some(path) = dialog.pick_file() else {
-                        return;
-                    };
-                    _ = sender.send(AppStateRequest::LoadImage {
+                self.spawn_file_dialog(|dialog| {
+                    let path = dialog
+                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
+                        .pick_file()?;
+                    Some(AppStateRequest::LoadImage {
                         path: path.display().to_string(),
-                    });
+                    })
                 });
             }
-            AppStateRequest::ExportImageDialog { format, suffix } => {
-                let sender = self.state.app_state_request_sender.clone();
+            AppStateRequest::ExportImageDialog { source, format } => {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
-                let default_path = get_export_path(input_path, format, suffix.clone());
-                let format_clone = format.clone();
+                let (source, format) = (*source, *format);
+                let default_path =
+                    get_export_path(&input_path, &format, Some(source.file_suffix()));
 
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let mut dialog = FileDialog::new().add_filter(
-                        format!("{} files", format_clone.display_name()),
-                        &[format_clone.extension()],
+                self.spawn_file_dialog(move |dialog| {
+                    let mut dialog = dialog.add_filter(
+                        format!("{} files", format.display_name()),
+                        &[format.extension()],
                     );
-                    if let Some(filename) = default_path.file_name() {
-                        dialog = dialog.set_file_name(filename.to_string_lossy().to_string());
+                    if let Some(file_name) = default_path.file_name() {
+                        dialog = dialog.set_file_name(file_name.to_string_lossy().to_string());
                     }
                     if let Some(parent) = default_path.parent() {
                         dialog = dialog.set_directory(parent);
                     }
-                    let Some(file) = dialog.save_file() else {
-                        return;
-                    };
-                    let export_request = match format_clone {
-                        crate::types::ExportFormat::Png => AppStateRequest::ColorCorrectedPng {
-                            output_path: file.display().to_string(),
-                        },
-                        _ => AppStateRequest::QualetizedIndexed {
-                            output_path: file.display().to_string(),
-                            format: format_clone,
-                        },
-                    };
-                    _ = sender.send(export_request);
+
+                    Some(AppStateRequest::ExportImage {
+                        source,
+                        format,
+                        output_path: dialog.save_file()?.display().to_string(),
+                    })
                 });
             }
             AppStateRequest::SaveSettingsDialog => {
-                let sender = self.state.app_state_request_sender.clone();
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let mut dialog = FileDialog::new()
-                        .add_filter(
-                            "QualetizeGUI Settings",
-                            &[SettingsBundle::get_settings_file_extension()],
-                        )
-                        .set_file_name("qualetize_settings.qset");
-
-                    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-                        dialog = dialog.set_directory(&settings_dir);
-                    }
-
-                    let Some(file) = dialog.pick_file() else {
-                        return;
-                    };
-                    _ = sender.send(AppStateRequest::SaveSettings {
-                        path: file.display().to_string(),
-                    });
+                self.spawn_file_dialog(|dialog| {
+                    let path = settings_file_dialog(dialog)
+                        .set_file_name("qualetize_settings.qset")
+                        .save_file()?;
+                    Some(AppStateRequest::SaveSettings {
+                        path: path.display().to_string(),
+                    })
                 });
             }
             AppStateRequest::LoadSettingsDialog => {
-                let sender = self.state.app_state_request_sender.clone();
-                let dialog_flag = self.state.file_dialog_open.clone();
-                std::thread::spawn(move || {
-                    let _guard = FileDialogGuard::new(dialog_flag);
-                    let mut dialog = FileDialog::new().add_filter(
-                        "QualetizeGUI Settings",
-                        &[SettingsBundle::get_settings_file_extension()],
-                    );
-                    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-                        dialog = dialog.set_directory(&settings_dir);
-                    }
-                    let Some(file) = dialog.pick_file() else {
-                        return;
-                    };
-                    _ = sender.send(AppStateRequest::LoadSettings {
-                        path: file.display().to_string(),
-                    });
+                self.spawn_file_dialog(|dialog| {
+                    let path = settings_file_dialog(dialog).pick_file()?;
+                    Some(AppStateRequest::LoadSettings {
+                        path: path.display().to_string(),
+                    })
                 });
             }
         }
     }
 
     fn update_palette_sort_settings(&mut self) {
-        if self.state.output_palette_sorted_indexed_image.is_some()
-            && !self.state.palette_sort_settings_changed()
-        {
+        if !self.state.palette_sort_needs_update() {
             return;
         }
+        self.state.clear_palette_sort_dirty();
 
-        // Extract the indexed image data first to avoid borrowing conflicts
-        let indexed_image = if let Some(output_image) = &self.state.output_image {
-            if let Some(indexed) = &output_image.indexed {
-                indexed.clone()
-            } else {
-                return;
-            }
-        } else {
-            return;
-        };
-
-        let palette_sort_settings = self.state.palette_sort_settings.clone();
-
-        self.state.update_palette_sort_settings_tracking();
-
-        if palette_sort_settings.mode == SortMode::None {
+        let settings = self.state.palette_sort_settings;
+        if settings.mode == SortMode::None {
             self.state.output_palette_sorted_indexed_image = None;
-        } else {
-            self.state.output_palette_sorted_indexed_image = Some(indexed_image.sorted(
-                palette_sort_settings.mode,
-                palette_sort_settings.order,
-                self.state.settings.col0_is_clear,
-            ));
+            return;
         }
+
+        let col0_is_clear = self.state.settings.col0_is_clear;
+        let sorted = self
+            .state
+            .output_image
+            .as_ref()
+            .and_then(|image| image.indexed.as_ref())
+            .map(|indexed| indexed.sorted(settings.mode, settings.order, col0_is_clear));
+
+        self.state.output_palette_sorted_indexed_image = sorted;
     }
 }
 
@@ -645,14 +577,19 @@ impl Drop for QualetizeApp {
     fn drop(&mut self) {
         // Cancel any ongoing processing
         self.image_processor.cancel_current_processing();
+        // Flush a change made in the last moments before quitting
+        self.state.save_session_now();
         log::debug!("QualetizeApp dropped, resources cleaned up");
     }
 }
 
 impl eframe::App for QualetizeApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let image_processing =
-            self.image_processor.is_processing() || self.state.tile_reduce_processing;
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+        let ctx = &ctx;
+        // The Qualetized and Tile Reduced panels show their own spinners, so the
+        // two stages are tracked separately (`state.tile_reduce_processing`).
+        let qualetize_processing = self.image_processor.is_processing();
 
         // apply theme
         self.apply_theme(ctx);
@@ -667,7 +604,13 @@ impl eframe::App for QualetizeApp {
         // Check tile reduce completion
         self.check_tile_reduce_completion(ctx);
 
-        // Update color corrected image if needed
+        // Re-extend if the tile size changed, then update the corrected image
+        if self.update_tile_fit(ctx) {
+            self.apply_color_correct_image(ctx);
+            self.state.request_update_qualetized_image = Some(QualetizeRequest {
+                time: std::time::Instant::now(),
+            });
+        }
         self.update_color_corrected_image(ctx);
 
         // Handle settings changes after checking completion
@@ -681,56 +624,62 @@ impl eframe::App for QualetizeApp {
         // Handle export requests
         self.handle_requests(ctx);
 
-        // Save preferences
+        // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
+        self.state.check_and_save_session(ctx);
 
         let mut settings_changed = false;
         let mut tile_reduce_changed = false;
-        // Top（Menu）
-        egui::TopBottomPanel::top("menu_panel").show(ctx, |ui| {
+
+        // Panels have to be declared before the central panel, otherwise the
+        // central panel is sized as if they were not there.
+
+        // Top (menu)
+        egui::Panel::top("menu_panel").show(ui, |ui| {
             egui::Frame::NONE
                 .inner_margin(Margin::symmetric(0, 4))
                 .show(ui, |ui| {
-                    settings_changed |= UI::draw_header(ui, &mut self.state);
+                    let (settings, tile_reduce) = draw_header(ui, &mut self.state);
+                    settings_changed |= settings;
+                    tile_reduce_changed |= tile_reduce;
                 });
         });
 
-        // Side（Settings）
-        egui::SidePanel::left("settings_panel")
-            .default_width(260.0)
+        // Bottom (zoom / export / tile count)
+        if self.state.input_image.is_some() {
+            egui::Panel::bottom("footer").show(ui, |ui| {
+                egui::Frame::NONE
+                    .inner_margin(Margin::symmetric(0, 4))
+                    .show(ui, |ui| {
+                        draw_footer(ui, &mut self.state);
+                    });
+            });
+        }
+
+        // Left (settings)
+        egui::Panel::left("settings_panel")
+            .default_size(260.0)
             .resizable(true)
-            .show(ctx, |ui| {
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    let (settings, tile_reduce) = UI::draw_settings_panel(ui, &mut self.state);
+                    let (settings, tile_reduce) = draw_settings_panel(ui, &mut self.state);
                     settings_changed |= settings;
                     tile_reduce_changed |= tile_reduce;
                 });
             });
 
-        // Main（Images）
-        egui::CentralPanel::default()
+        // Center (images)
+        egui::CentralPanel::default_margins()
             .frame(
                 egui::Frame::default()
                     .inner_margin(0.0)
-                    .fill(ctx.style().visuals.window_fill()),
+                    .fill(ctx.global_style().visuals.window_fill()),
             )
-            .show(ctx, |ui| {
-                // Main
+            .show(ui, |ui| {
                 if self.state.input_path.is_none() {
-                    UI::draw_main_content(ui);
+                    draw_main_content(ui);
                 } else {
-                    UI::draw_image_view(ui, &mut self.state, image_processing);
-                }
-
-                // Footer
-                if self.state.input_image.is_some() {
-                    egui::TopBottomPanel::bottom("footer").show(ctx, |ui| {
-                        egui::Frame::NONE
-                            .inner_margin(Margin::symmetric(0, 4))
-                            .show(ui, |ui| {
-                                UI::draw_footer(ui, &mut self.state);
-                            });
-                    });
+                    draw_image_view(ui, &mut self.state, qualetize_processing);
                 }
             });
 
@@ -751,26 +700,52 @@ impl eframe::App for QualetizeApp {
         {
             ctx.request_repaint();
         }
-
-        // enforce high quality always
     }
 }
 
+/// Smallest size at or above `size` whose sides are multiples of the tile size.
+fn tile_fit_target(size: (u32, u32), tile_width: u16, tile_height: u16) -> (u32, u32) {
+    (
+        size.0.next_multiple_of(tile_width.max(1) as u32),
+        size.1.next_multiple_of(tile_height.max(1) as u32),
+    )
+}
+
+/// Build the default export path for `input_path`.
+///
+/// The extension is appended rather than set via [`std::path::Path::with_extension`],
+/// which would treat everything after the last dot of the *new* name as an extension
+/// and silently truncate it (`hero.idle.png` -> `hero.png`).
 fn get_export_path(
-    input_path: String,
+    input_path: &str,
     format: &ExportFormat,
-    suffix: Option<String>,
+    suffix: Option<&str>,
 ) -> std::path::PathBuf {
-    let path = Path::new(&input_path);
+    let path = Path::new(input_path);
 
     let parent = path.parent().unwrap_or(Path::new("."));
-    let stem = path.file_stem().unwrap_or(std::ffi::OsStr::new("output"));
-    let new_name = if let Some(suffix) = suffix {
-        format!("{}_{}", stem.to_string_lossy(), suffix)
-    } else {
-        stem.to_string_lossy().to_string()
+    let stem = path
+        .file_stem()
+        .unwrap_or(std::ffi::OsStr::new("output"))
+        .to_string_lossy();
+    let extension = format.extension();
+    let file_name = match suffix {
+        Some(suffix) => format!("{stem}_{suffix}.{extension}"),
+        None => format!("{stem}.{extension}"),
     };
-    parent.join(new_name).with_extension(format.extension())
+    parent.join(file_name)
+}
+
+/// Filter and starting directory shared by the settings load/save dialogs.
+fn settings_file_dialog(dialog: FileDialog) -> FileDialog {
+    let mut dialog = dialog.add_filter(
+        "QualetizeGUI Settings",
+        &[SettingsBundle::get_settings_file_extension()],
+    );
+    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
+        dialog = dialog.set_directory(&settings_dir);
+    }
+    dialog
 }
 
 pub struct FileDialogGuard {
@@ -788,5 +763,90 @@ impl Drop for FileDialogGuard {
     fn drop(&mut self) {
         self.flag.store(false, Ordering::Relaxed);
         log::debug!("FileDialogGuard dropped - dialog closed");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn export_path(input: &str, format: ExportFormat, suffix: Option<&str>) -> String {
+        get_export_path(input, &format, suffix)
+            .to_string_lossy()
+            .into_owned()
+    }
+
+    #[test]
+    fn a_size_already_on_the_tile_grid_is_left_alone() {
+        assert_eq!(tile_fit_target((96, 96), 8, 8), (96, 96));
+        assert_eq!(tile_fit_target((64, 32), 16, 16), (64, 32));
+    }
+
+    #[test]
+    fn a_size_off_the_grid_grows_to_the_next_multiple() {
+        assert_eq!(tile_fit_target((100, 100), 8, 8), (104, 104));
+        assert_eq!(tile_fit_target((100, 100), 7, 7), (105, 105));
+        assert_eq!(tile_fit_target((17, 3), 8, 8), (24, 8));
+    }
+
+    #[test]
+    fn each_axis_uses_its_own_tile_size() {
+        assert_eq!(tile_fit_target((100, 100), 8, 16), (104, 112));
+    }
+
+    /// An image smaller than one tile still has to grow to a full tile.
+    #[test]
+    fn an_image_smaller_than_a_tile_grows_to_one_tile() {
+        assert_eq!(tile_fit_target((3, 5), 8, 8), (8, 8));
+    }
+
+    #[test]
+    fn export_path_appends_suffix_and_extension() {
+        assert_eq!(
+            export_path(
+                "/img/hero.png",
+                ExportFormat::PngIndexed,
+                Some("qualetized")
+            ),
+            "/img/hero_qualetized.png"
+        );
+        assert_eq!(
+            export_path("/img/hero.png", ExportFormat::Bmp, Some("qualetized")),
+            "/img/hero_qualetized.bmp"
+        );
+    }
+
+    #[test]
+    fn export_path_without_suffix_keeps_stem() {
+        assert_eq!(
+            export_path("/img/hero.png", ExportFormat::Bmp, None),
+            "/img/hero.bmp"
+        );
+    }
+
+    /// Regression: `with_extension` used to reduce `hero.idle.png` to `hero.png`,
+    /// dropping both the suffix and part of the original file name.
+    #[test]
+    fn export_path_preserves_dots_in_file_name() {
+        assert_eq!(
+            export_path(
+                "/img/hero.idle.png",
+                ExportFormat::PngIndexed,
+                Some("qualetized")
+            ),
+            "/img/hero.idle_qualetized.png"
+        );
+        assert_eq!(
+            export_path("/img/tile.v2.bmp", ExportFormat::Bmp, None),
+            "/img/tile.v2.bmp"
+        );
+    }
+
+    #[test]
+    fn export_path_handles_missing_extension_and_parent() {
+        assert_eq!(
+            export_path("hero", ExportFormat::Bmp, Some("qualetized")),
+            "hero_qualetized.bmp"
+        );
     }
 }

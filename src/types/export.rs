@@ -1,4 +1,4 @@
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum ExportFormat {
     #[default]
     PngIndexed,
@@ -23,15 +23,9 @@ impl ExportFormat {
         }
     }
 
+    /// Formats offered in the export UI. `Png` is reached only through the
+    /// dedicated "Color Corrected PNG" menu entry.
     pub fn indexed_list() -> &'static [ExportFormat] {
         &[ExportFormat::Bmp, ExportFormat::PngIndexed]
     }
-
-    // pub fn all() -> &'static [ExportFormat] {
-    //     &[
-    //         ExportFormat::Bmp,
-    //         ExportFormat::Png,
-    //         ExportFormat::PngIndexed,
-    //     ]
-    // }
 }

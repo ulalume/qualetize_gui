@@ -3,6 +3,11 @@ use super::dither::DitherMode;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::ptr;
+use std::sync::LazyLock;
+
+/// The C plan stores the per-channel level count in a `u8`, so a channel can hold
+/// at most 255 entries.
+pub const MAX_CUSTOM_LEVELS: usize = u8::MAX as usize;
 
 #[cfg(target_arch = "x86_64")]
 #[repr(C, align(16))]
@@ -57,7 +62,7 @@ pub struct BGRA8 {
     pub a: u8,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ClearColor {
     #[default]
     None,
@@ -65,7 +70,7 @@ pub enum ClearColor {
 }
 
 impl ClearColor {
-    pub fn to_bgra8(&self) -> BGRA8 {
+    pub fn to_bgra8(self) -> BGRA8 {
         match self {
             ClearColor::None => BGRA8 {
                 b: 0,
@@ -73,17 +78,12 @@ impl ClearColor {
                 r: 0,
                 a: 0,
             },
-            ClearColor::Rgb(r, g, b) => BGRA8 {
-                b: *b,
-                g: *g,
-                r: *r,
-                a: 0xFF,
-            },
+            ClearColor::Rgb(r, g, b) => BGRA8 { b, g, r, a: 0xFF },
         }
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QualetizeSettings {
     pub tile_width: u16,
     pub tile_height: u16,
@@ -151,6 +151,31 @@ impl QualetizePreset {
 }
 
 impl QualetizeSettings {
+    /// Replace the quantization settings with `preset`, leaving the tile
+    /// reduction post-pass alone.
+    ///
+    /// Tile reduction only lives in this struct because it is serialized
+    /// alongside; it is a separate stage with its own reset, so a quantization
+    /// preset should no more disturb it than it does color correction.
+    pub fn apply_preset(&mut self, preset: QualetizeSettings) {
+        *self = QualetizeSettings {
+            tile_reduce_post_enabled: self.tile_reduce_post_enabled,
+            tile_reduce_post_threshold: self.tile_reduce_post_threshold,
+            tile_reduce_allow_flip_x: self.tile_reduce_allow_flip_x,
+            tile_reduce_allow_flip_y: self.tile_reduce_allow_flip_y,
+            ..preset
+        };
+    }
+
+    /// Restore the tile reduction post-pass to its defaults, leaving the
+    /// quantization settings alone. The enable flag is kept, the same way a
+    /// color correction preset does not switch that section off.
+    pub fn reset_tile_reduce(&mut self) {
+        self.tile_reduce_post_threshold = default_tile_reduce_post_threshold();
+        self.tile_reduce_allow_flip_x = default_tile_reduce_allow_flip();
+        self.tile_reduce_allow_flip_y = default_tile_reduce_allow_flip();
+    }
+
     pub fn gba_nds() -> Self {
         let rgba_depth = "5551".to_string();
         Self {
@@ -298,23 +323,22 @@ fn default_custom_level_strings() -> [String; 4] {
     default_level_strings_from_depth(DEFAULT_RGBA_DEPTH)
 }
 
+/// Comma separated list of 0-255 integers, without leading zeros or whitespace.
+static LEVEL_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])(,(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]|[1-9][0-9]))*$")
+        .expect("level list regex is valid")
+});
+
 pub fn validate_0_255_array(array_str: &str) -> bool {
     if array_str.is_empty() {
         return false;
     }
 
-    let re = Regex::new(r"^(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])(,(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[0-9]|[1-9][0-9]))*$").unwrap();
-
-    if !re.is_match(array_str) {
+    if !LEVEL_LIST_RE.is_match(array_str) {
         return false;
     }
 
-    let count = array_str.split(',').count();
-    if count > 255 {
-        return false;
-    }
-
-    true
+    array_str.split(',').count() <= MAX_CUSTOM_LEVELS
 }
 
 fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {
@@ -383,5 +407,131 @@ impl From<QualetizeSettings> for QualetizePlanOwned {
             plan,
             custom_level_storage,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn validate_0_255_array_accepts_well_formed_lists() {
+        assert!(validate_0_255_array("0"));
+        assert!(validate_0_255_array("0,255"));
+        assert!(validate_0_255_array("0,49,87,119,146,174,206,255"));
+    }
+
+    #[test]
+    fn validate_0_255_array_rejects_malformed_lists() {
+        assert!(!validate_0_255_array(""), "empty");
+        assert!(!validate_0_255_array("256"), "out of range");
+        assert!(!validate_0_255_array("0, 255"), "whitespace");
+        assert!(!validate_0_255_array("0,"), "trailing comma");
+        assert!(!validate_0_255_array("00"), "leading zero");
+        assert!(!validate_0_255_array("0;255"), "wrong separator");
+    }
+
+    #[test]
+    fn validate_0_255_array_rejects_more_entries_than_the_plan_can_hold() {
+        let at_limit = vec!["1"; MAX_CUSTOM_LEVELS].join(",");
+        let over_limit = vec!["1"; MAX_CUSTOM_LEVELS + 1].join(",");
+        assert!(validate_0_255_array(&at_limit));
+        assert!(!validate_0_255_array(&over_limit));
+    }
+
+    #[test]
+    fn parse_custom_levels_normalizes_and_sorts() {
+        let levels = parse_custom_levels("255,0,128").expect("valid list");
+        assert_eq!(levels.len(), 3);
+        assert!(levels[0] < levels[1] && levels[1] < levels[2]);
+        assert_eq!(levels[0], 0.0);
+        assert_eq!(levels[2], 1.0);
+    }
+
+    #[test]
+    fn parse_custom_levels_rejects_invalid_input() {
+        assert!(parse_custom_levels("0,256").is_none());
+        assert!(parse_custom_levels("").is_none());
+    }
+
+    /// A full 8-bit channel needs 256 steps but the plan stores the count in a `u8`,
+    /// so `depth_to_levels` clamps to 254 steps (255 entries) and stays valid.
+    #[test]
+    fn generated_levels_always_fit_the_plan() {
+        for depth in ["3331", "5551", "8888"] {
+            for (channel, levels) in default_level_strings_from_depth(depth).iter().enumerate() {
+                let count = levels.split(',').count();
+                assert!(
+                    count <= MAX_CUSTOM_LEVELS,
+                    "{depth} channel {channel} produced {count} levels"
+                );
+                assert!(
+                    validate_0_255_array(levels),
+                    "{depth} channel {channel} is not accepted by its own validator"
+                );
+                assert!(u8::try_from(count).is_ok());
+            }
+        }
+    }
+
+    /// The regression this pair of helpers exists for: switching quantization
+    /// preset used to silently reset the tile reduction post-pass with it.
+    #[test]
+    fn applying_a_preset_leaves_tile_reduction_alone() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.tile_reduce_post_enabled = true;
+        settings.tile_reduce_post_threshold = 123.0;
+        settings.tile_reduce_allow_flip_x = false;
+        settings.tile_reduce_allow_flip_y = false;
+
+        settings.apply_preset(QualetizeSettings::gba_nds());
+
+        assert_eq!(settings.color_space, ColorSpace::YcbcrPsy, "preset applied");
+        assert_eq!(settings.rgba_depth, "5551", "preset applied");
+        assert!(settings.tile_reduce_post_enabled, "tile reduction kept");
+        assert_eq!(settings.tile_reduce_post_threshold, 123.0);
+        assert!(!settings.tile_reduce_allow_flip_x);
+        assert!(!settings.tile_reduce_allow_flip_y);
+    }
+
+    #[test]
+    fn resetting_tile_reduction_leaves_quantization_alone() {
+        let mut settings = QualetizeSettings::gba_nds();
+        settings.n_palettes = 7;
+        settings.tile_reduce_post_enabled = true;
+        settings.tile_reduce_post_threshold = 123.0;
+        settings.tile_reduce_allow_flip_x = false;
+
+        settings.reset_tile_reduce();
+
+        assert_eq!(settings.n_palettes, 7, "quantization untouched");
+        assert_eq!(settings.color_space, ColorSpace::YcbcrPsy);
+        assert_eq!(
+            settings.tile_reduce_post_threshold,
+            default_tile_reduce_post_threshold()
+        );
+        assert!(settings.tile_reduce_allow_flip_x);
+        assert!(
+            settings.tile_reduce_post_enabled,
+            "reset restores values, not the enable flag"
+        );
+    }
+
+    #[test]
+    fn genesis_preset_uses_the_documented_levels() {
+        let settings = QualetizeSettings::genesis();
+        assert!(settings.use_custom_levels);
+        assert_eq!(settings.custom_levels[0], "0,49,87,119,146,174,206,255");
+        assert_eq!(settings.custom_levels[3], "0,255");
+    }
+
+    #[test]
+    fn full_palette_presets_only_change_palette_layout() {
+        let base = QualetizeSettings::genesis();
+        let full = QualetizeSettings::genesis_full_palettes();
+        assert_eq!(full.n_palettes, 4);
+        assert!(full.col0_is_clear);
+        assert_eq!(full.rgba_depth, base.rgba_depth);
+        assert_eq!(full.custom_levels, base.custom_levels);
     }
 }

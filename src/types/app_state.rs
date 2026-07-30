@@ -4,10 +4,11 @@ use std::sync::{Arc, atomic::AtomicBool, mpsc};
 use super::{
     color_correction::ColorCorrection,
     export::ExportFormat,
-    image::{ImageData, ImageDataIndexed, PaletteSortSettings},
+    image::{ImageData, ImageDataIndexed, PaletteSortSettings, SortMode},
     preferences::UserPreferences,
     qualetize::QualetizeSettings,
 };
+use crate::settings_manager::SettingsBundle;
 use crate::types::image::TileCountOptions;
 use std::time::Instant;
 
@@ -54,8 +55,37 @@ impl TileCountState {
         }
     }
 
+    /// Force a recount on the next draw, keeping the stale number visible until then.
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
+    }
+
+    /// Force a recount and clear the displayed number, for when the image itself is gone.
+    pub fn reset(&mut self) {
+        self.last_count = None;
+        self.dirty = true;
+    }
+}
+
+/// Which stage of the pipeline an export refers to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExportSource {
+    /// The input image after color correction, in full color.
+    ColorCorrected,
+    /// The indexed quantization result, before tile reduction.
+    Qualetized,
+    /// The indexed result after the tile reduction pass.
+    TileReduced,
+}
+
+impl ExportSource {
+    /// Appended to the input file name to build the default export name.
+    pub fn file_suffix(self) -> &'static str {
+        match self {
+            Self::ColorCorrected => "color_corrected",
+            Self::Qualetized => "qualetized",
+            Self::TileReduced => "tile_reduced",
+        }
     }
 }
 
@@ -65,12 +95,10 @@ pub enum AppStateRequest {
     LoadImage {
         path: String,
     },
-    ColorCorrectedPng {
-        output_path: String,
-    },
-    QualetizedIndexed {
-        output_path: String,
+    ExportImage {
+        source: ExportSource,
         format: ExportFormat,
+        output_path: String,
     },
     SaveSettings {
         path: String,
@@ -81,8 +109,8 @@ pub enum AppStateRequest {
 
     OpenImageDialog,
     ExportImageDialog {
+        source: ExportSource,
         format: ExportFormat,
-        suffix: Option<String>,
     },
     SaveSettingsDialog,
     LoadSettingsDialog,
@@ -105,7 +133,12 @@ pub struct AppState {
     pub reduced_tile_count: Option<usize>,
     pub tile_reduce_processing: bool,
     pub tile_reduce_generation_id: u64,
-    pub tile_reduce_toast: Option<TileReduceToast>,
+    pub tile_reduce_toast: Option<Toast>,
+
+    /// Set only while the loaded image needs extending; the input image itself
+    /// is never modified, so a later tile size change re-derives this from it.
+    pub tile_fitted_input: Option<FittedInput>,
+    pub tile_fit_toast: Option<Toast>,
 
     // View Settings
     pub zoom: f32,
@@ -115,6 +148,10 @@ pub struct AppState {
 
     // Qualetize Settings
     pub settings: QualetizeSettings,
+    /// Snapshot of what is mirrored to the session file, so it is only rewritten
+    /// when something actually changed.
+    last_saved_session: SettingsBundle,
+    session_save_deadline: Option<Instant>,
     pub request_update_qualetized_image: Option<QualetizeRequest>,
     pub request_update_tile_reduce: bool,
     pub debounce_delay: std::time::Duration,
@@ -126,11 +163,12 @@ pub struct AppState {
     // Palette Sort Settings
     pub palette_sort_settings: PaletteSortSettings,
     last_palette_sort_settings: PaletteSortSettings,
+    /// Set when the source of the sorted palette changed and it has to be recomputed.
+    /// `output_palette_sorted_indexed_image` cannot be used for this on its own, because
+    /// `None` is also the legitimate result of `SortMode::None`.
+    palette_sort_dirty: bool,
 
     pub tile_count: TileCountState,
-
-    // warning
-    pub tile_size_warning: bool,
 
     // Export requests
     pub app_state_request_receiver: mpsc::Receiver<AppStateRequest>,
@@ -139,15 +177,33 @@ pub struct AppState {
     pub file_dialog_open: Arc<AtomicBool>,
 }
 
+/// A short lived message drawn over an image panel.
 #[derive(Clone)]
-pub struct TileReduceToast {
+pub struct Toast {
     pub message: String,
     pub time: Instant,
+}
+
+impl Toast {
+    pub fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            time: Instant::now(),
+        }
+    }
+}
+
+/// The input image extended so its size is a multiple of the tile size.
+pub struct FittedInput {
+    pub image: ImageData,
+    /// Size of the image as it was loaded, for the notice in the Original view.
+    pub original_size: (u32, u32),
 }
 
 impl Default for AppState {
     fn default() -> Self {
         let preferences = UserPreferences::load();
+        let session = SettingsBundle::load_session();
         let (sender, receiver) = mpsc::channel();
 
         Self {
@@ -162,26 +218,29 @@ impl Default for AppState {
             tile_reduce_processing: false,
             tile_reduce_generation_id: 0,
             tile_reduce_toast: None,
+            tile_fitted_input: None,
+            tile_fit_toast: None,
 
             zoom: 1.0,
             pan_offset: Vec2::ZERO,
             preferences: preferences.clone(),
             last_preferences: preferences.clone(),
 
-            settings: QualetizeSettings::default(),
+            settings: session.qualetize_settings.clone(),
+            last_saved_session: session.clone(),
+            session_save_deadline: None,
             request_update_qualetized_image: None,
             request_update_tile_reduce: false,
             debounce_delay: std::time::Duration::from_millis(100),
 
-            last_color_correction: ColorCorrection::default(),
-            color_correction: ColorCorrection::default(),
+            last_color_correction: session.color_correction.clone(),
+            color_correction: session.color_correction.clone(),
 
-            palette_sort_settings: PaletteSortSettings::default(),
-            last_palette_sort_settings: PaletteSortSettings::default(),
+            palette_sort_settings: session.sort_settings,
+            last_palette_sort_settings: session.sort_settings,
+            palette_sort_dirty: false,
 
             tile_count: TileCountState::default(),
-
-            tile_size_warning: false,
 
             app_state_request_receiver: receiver,
             app_state_request_sender: sender,
@@ -192,17 +251,76 @@ impl Default for AppState {
 }
 
 impl AppState {
-    pub fn tile_size_warning_message(&self) -> String {
-        let Some(input_image) = &self.input_image else {
-            return String::new();
-        };
-        format!(
-            "Image size ({}×{}) is not divisible by tile size ({}×{}). Qualetize processing cannot proceed.",
-            input_image.width,
-            input_image.height,
+    /// The image the pipeline actually runs on: the extended one when the
+    /// loaded image does not line up with the tile grid, otherwise the input.
+    pub fn processing_input(&self) -> Option<&ImageData> {
+        self.tile_fitted_input
+            .as_ref()
+            .map(|fitted| &fitted.image)
+            .or(self.input_image.as_ref())
+    }
+
+    /// Notice shown in the Original view while the image is being extended.
+    pub fn tile_fit_notice(&self) -> Option<String> {
+        let fitted = self.tile_fitted_input.as_ref()?;
+        let (from_w, from_h) = fitted.original_size;
+        Some(format!(
+            "⚠ Extended {}×{} → {}×{} to fit {}×{} tiles",
+            from_w,
+            from_h,
+            fitted.image.width,
+            fitted.image.height,
             self.settings.tile_width,
             self.settings.tile_height,
+        ))
+    }
+
+    /// Take the settings currently in use as a bundle, for saving.
+    pub fn settings_bundle(&self) -> SettingsBundle {
+        SettingsBundle::new(
+            self.settings.clone(),
+            self.color_correction.clone(),
+            self.palette_sort_settings,
         )
+    }
+
+    /// Mirror the settings to the session file so they survive a restart.
+    ///
+    /// Writes are held back briefly so dragging a slider does not hit the disk
+    /// on every frame. A repaint is scheduled for the deadline so the write
+    /// still happens when nothing else asks for a frame.
+    pub fn check_and_save_session(&mut self, ctx: &egui::Context) {
+        const SAVE_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(750);
+
+        if self.settings_bundle().matches(&self.last_saved_session) {
+            self.session_save_deadline = None;
+            return;
+        }
+
+        let deadline = *self
+            .session_save_deadline
+            .get_or_insert_with(|| Instant::now() + SAVE_DEBOUNCE);
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            self.save_session_now();
+        } else {
+            ctx.request_repaint_after(remaining);
+        }
+    }
+
+    /// Write a pending change straight away, for shutdown.
+    pub fn save_session_now(&mut self) {
+        let current = self.settings_bundle();
+        self.session_save_deadline = None;
+        if current.matches(&self.last_saved_session) {
+            return;
+        }
+
+        if let Err(e) = current.save_session() {
+            log::error!("Failed to save session settings: {e}");
+        }
+        self.last_saved_session = current;
     }
 
     pub fn check_and_save_preferences(&mut self) {
@@ -214,13 +332,21 @@ impl AppState {
         }
     }
 
-    pub fn palette_sort_settings_changed(&self) -> bool {
-        self.palette_sort_settings != self.last_palette_sort_settings
+    /// Drop the cached sorted palette and schedule a recomputation.
+    /// Call this whenever `output_image` (or anything `sorted()` reads) changes.
+    pub fn invalidate_palette_sort(&mut self) {
+        self.output_palette_sorted_indexed_image = None;
+        self.palette_sort_dirty = true;
     }
 
-    /// Update the tracked color correction settings
-    pub fn update_palette_sort_settings_tracking(&mut self) {
-        self.last_palette_sort_settings = self.palette_sort_settings.clone();
+    pub fn palette_sort_needs_update(&self) -> bool {
+        self.palette_sort_dirty || self.palette_sort_settings != self.last_palette_sort_settings
+    }
+
+    /// Mark the sorted palette as up to date with the current settings.
+    pub fn clear_palette_sort_dirty(&mut self) {
+        self.last_palette_sort_settings = self.palette_sort_settings;
+        self.palette_sort_dirty = false;
     }
 
     /// Check if color correction settings have changed
@@ -235,5 +361,64 @@ impl AppState {
 
     pub fn reset_view_settings(&mut self) {
         self.preferences = UserPreferences::default();
+    }
+
+    /// Drop the qualetize result and everything derived from it, keeping the
+    /// input and color corrected images.
+    pub fn reset_qualetize_outputs(&mut self) {
+        self.base_output_image = None;
+        self.output_image = None;
+        self.base_tile_count = None;
+        self.reduced_tile_count = None;
+        self.request_update_tile_reduce = false;
+        self.invalidate_palette_sort();
+        self.tile_count.reset();
+    }
+
+    /// Whether `source` currently has something to export. The optional passes
+    /// are only offered while they are enabled, so the menu entry matches the
+    /// view it refers to.
+    pub fn can_export(&self, source: ExportSource) -> bool {
+        match source {
+            ExportSource::ColorCorrected => {
+                self.color_correction.enabled && self.color_corrected_image.is_some()
+            }
+            ExportSource::Qualetized => self.base_output_image.is_some(),
+            ExportSource::TileReduced => {
+                self.settings.tile_reduce_post_enabled && self.output_image.is_some()
+            }
+        }
+    }
+
+    /// The indexed image to export for `source`, with the current palette sort
+    /// applied. Sorting is redone here rather than reusing
+    /// `output_palette_sorted_indexed_image`, which only ever describes the
+    /// final image and would be wrong for the pre-reduction export.
+    pub fn indexed_for_export(&self, source: ExportSource) -> Option<(ImageDataIndexed, u32, u32)> {
+        let image = match source {
+            ExportSource::Qualetized => self.base_output_image.as_ref()?,
+            ExportSource::TileReduced => self.output_image.as_ref()?,
+            ExportSource::ColorCorrected => return None,
+        };
+        let indexed = image.indexed.as_ref()?;
+
+        let sort = self.palette_sort_settings;
+        let indexed = if sort.mode == SortMode::None {
+            indexed.clone()
+        } else {
+            indexed.sorted(sort.mode, sort.order, self.settings.col0_is_clear)
+        };
+
+        Some((indexed, image.width, image.height))
+    }
+
+    /// Drop the loaded image together with everything derived from it.
+    pub fn reset_all_images(&mut self) {
+        self.input_path = None;
+        self.input_image = None;
+        self.tile_fitted_input = None;
+        self.tile_fit_toast = None;
+        self.color_corrected_image = None;
+        self.reset_qualetize_outputs();
     }
 }

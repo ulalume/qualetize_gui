@@ -2,6 +2,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ColorCorrection {
+    /// When off the input image is passed through untouched, the settings are
+    /// hidden and no "Color Corrected" view is shown.
+    ///
+    /// Settings files written before this flag existed were saved when color
+    /// correction was unconditional, so they load as enabled. A fresh
+    /// [`ColorCorrection::default()`] on the other hand starts disabled.
+    #[serde(default = "enabled_when_missing")]
+    pub enabled: bool,
     pub brightness: f32, // -1.0 to 1.0
     pub contrast: f32,   // 0.0 to 2.0
     pub gamma: f32,      // 0.1 to 3.0
@@ -9,6 +17,10 @@ pub struct ColorCorrection {
     pub hue_shift: f32,  // -180.0 to 180.0 degrees
     pub shadows: f32,    // -1.0 to 1.0
     pub highlights: f32, // -1.0 to 1.0
+}
+
+fn enabled_when_missing() -> bool {
+    true
 }
 
 pub enum ColorCorrectionPreset {
@@ -54,6 +66,7 @@ impl ColorCorrectionPreset {
 impl Default for ColorCorrection {
     fn default() -> Self {
         Self {
+            enabled: false,
             brightness: 0.0,
             contrast: 1.0,
             gamma: 1.0,
@@ -66,6 +79,15 @@ impl Default for ColorCorrection {
 }
 
 impl ColorCorrection {
+    /// Replace the correction values with `preset`, leaving [`Self::enabled`]
+    /// alone: picking a preset should not switch the whole section off.
+    pub fn apply_preset(&mut self, preset: ColorCorrection) {
+        *self = ColorCorrection {
+            enabled: self.enabled,
+            ..preset
+        };
+    }
+
     pub fn preset_dark() -> ColorCorrection {
         ColorCorrection {
             contrast: 1.75,

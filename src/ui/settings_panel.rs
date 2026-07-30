@@ -1,4 +1,4 @@
-use super::styles::UiMarginExt;
+use super::styles::{UiMarginExt, error_color, warning_color};
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
@@ -8,8 +8,10 @@ use crate::types::{
     color_correction::ColorCorrection,
     image::{SortMode, SortOrder},
 };
-use egui::Color32;
-use regex::Regex;
+use std::ops::RangeInclusive;
+
+/// Channel names in the order they appear in an RGBA depth string.
+const RGBA_CHANNELS: [&str; 4] = ["R", "G", "B", "A"];
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
@@ -171,8 +173,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
     ui.label("Per-channel levels (0-255, comma separated, max 255 entries)");
 
-    let channel_labels = ["R", "G", "B", "A"];
-    for (idx, label) in channel_labels.iter().enumerate() {
+    for (idx, label) in RGBA_CHANNELS.iter().enumerate() {
         ui.horizontal(|ui| {
             ui.label(format!("{label}:"));
             let mut response = ui.add_sized(
@@ -186,7 +187,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 ui.painter().rect_stroke(
                     response.rect,
                     2.0,
-                    egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
+                    egui::Stroke::new(1.0_f32, error_color(ui.visuals())),
                     egui::StrokeKind::Outside,
                 );
             }
@@ -197,7 +198,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             settings_changed |= response.changed();
 
             if !is_valid {
-                ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
+                ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
                     .on_hover_text(
                         "Enter comma-separated integers between 0 and 255 (max 255 entries)",
                     );
@@ -240,7 +241,7 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     if state.settings.use_custom_levels {
         settings_changed |= draw_custom_level_inputs(ui, state);
     } else {
-        let is_valid = validate_rgba_depth(&state.settings.rgba_depth);
+        let error = get_rgba_depth_error(&state.settings.rgba_depth);
         let is_empty = state.settings.rgba_depth.is_empty();
 
         let mut response = ui.add_sized(
@@ -248,12 +249,12 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             egui::TextEdit::singleline(&mut state.settings.rgba_depth),
         );
 
-        if !is_valid && !is_empty {
+        if error.is_some() && !is_empty {
             response = response.highlight();
             ui.painter().rect_stroke(
                 response.rect,
                 2.0,
-                egui::Stroke::new(1.0, Color32::from_rgb(255, 150, 150)),
+                egui::Stroke::new(1.0_f32, error_color(ui.visuals())),
                 egui::StrokeKind::Outside,
             );
         }
@@ -266,8 +267,8 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             settings_changed = true;
         }
 
-        if let Some(error) = get_rgba_depth_error(&state.settings.rgba_depth) {
-            ui.label(egui::RichText::new("⚠").color(Color32::from_rgb(255, 180, 0)))
+        if let Some(error) = error {
+            ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
                 .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
         }
     }
@@ -330,7 +331,7 @@ fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .show_ui(ui, |ui| {
             for color_space in ColorSpace::all() {
                 if ui
-                    .selectable_value(&mut state.settings.color_space, color_space.clone(), color_space.display_name())
+                    .selectable_value(&mut state.settings.color_space, *color_space, color_space.display_name())
                     .on_hover_text(color_space.description())
                     .clicked()
                 {
@@ -353,7 +354,7 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .show_ui(ui, |ui| {
             for dither_mode in DitherMode::all() {
                 if ui
-                    .selectable_value(&mut state.settings.dither_mode, dither_mode.clone(), dither_mode.display_name())
+                    .selectable_value(&mut state.settings.dither_mode, *dither_mode, dither_mode.display_name())
                     .on_hover_text(dither_mode.description())
                     .clicked()
                 {
@@ -396,62 +397,70 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         settings_changed = true;
     }
 
-    ui.add_enabled_ui(state.settings.tile_reduce_post_enabled, |ui| {
-        ui.horizontal(|ui| {
-            if ui
-                .checkbox(
-                    &mut state.settings.tile_reduce_allow_flip_x,
-                    "Allowed X Flips",
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .checkbox(
-                    &mut state.settings.tile_reduce_allow_flip_y,
-                    "Allowed Y Flips",
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
+    // The settings only exist once the pass is turned on.
+    if !state.settings.tile_reduce_post_enabled {
+        return settings_changed;
+    }
 
-        ui.horizontal(|ui| {
-            ui.label("Threshold:")
-                .on_hover_text("Average per-channel MSE per pixel after quantization.");
-
-            let slider =
-                egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
-                    .logarithmic(false)
-                    .show_value(false);
-            if ui.add(slider).changed() {
-                settings_changed = true;
-            }
-
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
-                        .range(1.0..=500.0)
-                        .speed(5.0),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-        });
-
-        let reduced_text = if let (Some(base), Some(reduced)) =
-            (state.base_tile_count, state.reduced_tile_count)
+    ui.horizontal(|ui| {
+        if ui
+            .checkbox(
+                &mut state.settings.tile_reduce_allow_flip_x,
+                "Allowed X Flips",
+            )
+            .changed()
         {
-            let diff = base.saturating_sub(reduced);
-            format!("Reduced {} tiles", diff)
-        } else {
-            "Reduced -- tiles".to_string()
-        };
-        ui.label(egui::RichText::new(reduced_text).strong());
+            settings_changed = true;
+        }
+        if ui
+            .checkbox(
+                &mut state.settings.tile_reduce_allow_flip_y,
+                "Allowed Y Flips",
+            )
+            .changed()
+        {
+            settings_changed = true;
+        }
     });
+
+    ui.horizontal(|ui| {
+        ui.label("Threshold:")
+            .on_hover_text("Average per-channel MSE per pixel after quantization.");
+
+        let slider = egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
+            .logarithmic(false)
+            .show_value(false);
+        if ui.add(slider).changed() {
+            settings_changed = true;
+        }
+
+        if ui
+            .add(
+                egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
+                    .range(1.0..=500.0)
+                    .speed(5.0),
+            )
+            .changed()
+        {
+            settings_changed = true;
+        }
+    });
+
+    let reduced_text = match (state.base_tile_count, state.reduced_tile_count) {
+        (Some(base), Some(reduced)) => format!("Reduced {} tiles", base.saturating_sub(reduced)),
+        _ => "Reduced -- tiles".to_string(),
+    };
+    ui.label(egui::RichText::new(reduced_text).strong());
+
+    ui.add_space(4.0);
+    if ui
+        .add_sized([80.0, ROW_HEIGHT], egui::Button::new("🔄 Reset"))
+        .on_hover_text("Restore the threshold and flip options to their defaults")
+        .clicked()
+    {
+        state.settings.reset_tile_reduce();
+        settings_changed = true;
+    }
 
     settings_changed
 }
@@ -500,245 +509,192 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed
 }
 
+/// Height of one row in the color correction grid.
+const ROW_HEIGHT: f32 = 24.0;
+
+const BRIGHTNESS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
+const CONTRAST_RANGE: RangeInclusive<f32> = 0.0..=2.0;
+const SATURATION_RANGE: RangeInclusive<f32> = 0.0..=2.0;
+const HUE_SHIFT_RANGE: RangeInclusive<f32> = -180.0..=180.0;
+const SHADOWS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
+const HIGHLIGHTS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
+const GAMMA_RANGE: RangeInclusive<f32> = 0.1..=3.0;
+const GAMMA_DISPLAY_RANGE: RangeInclusive<f32> = -100.0..=100.0;
+
+/// How the numeric field next to a color correction slider is shown and parsed.
+#[derive(Clone, Copy)]
+enum ValueFormat {
+    /// `0.5` is shown as `+50%`; both `50%` and `0.5` are accepted as input.
+    Percentage,
+    /// Plain number with two decimals.
+    Decimal,
+    /// Whole degrees with a `°` suffix.
+    Degrees,
+}
+
+impl ValueFormat {
+    fn drag_speed(self) -> f64 {
+        match self {
+            ValueFormat::Percentage | ValueFormat::Decimal => 0.01,
+            ValueFormat::Degrees => 1.0,
+        }
+    }
+
+    fn apply(self, drag: egui::DragValue<'_>) -> egui::DragValue<'_> {
+        match self {
+            ValueFormat::Percentage => drag
+                .custom_formatter(|n, _| format_percentage(n as f32))
+                .custom_parser(parse_percentage),
+            ValueFormat::Decimal => drag.fixed_decimals(2),
+            ValueFormat::Degrees => drag.suffix("°").fixed_decimals(0),
+        }
+    }
+}
+
+/// Accepts either a percentage (`-50%`) or the raw factor (`-0.5`).
+fn parse_percentage(text: &str) -> Option<f64> {
+    match text.strip_suffix('%') {
+        Some(number) => number.parse::<f64>().ok().map(|value| value / 100.0),
+        None => text.parse::<f64>().ok(),
+    }
+}
+
+fn draw_row_label(ui: &mut egui::Ui, label: &str) {
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        ui.label(format!("{label}:"));
+    });
+}
+
+/// One `label | slider | number` row of the color correction grid.
+/// Returns true if the value was edited.
+fn draw_slider_row(
+    ui: &mut egui::Ui,
+    label: &str,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    format: ValueFormat,
+    slider_width: f32,
+) -> bool {
+    draw_row_label(ui, label);
+
+    let mut changed = ui
+        .add_sized(
+            [slider_width, ROW_HEIGHT],
+            egui::Slider::new(value, range.clone()).show_value(false),
+        )
+        .changed();
+
+    let drag = egui::DragValue::new(value)
+        .range(range)
+        .speed(format.drag_speed());
+    changed |= ui.add(format.apply(drag)).changed();
+
+    ui.end_row();
+    changed
+}
+
+/// Gamma needs its own row: the slider edits an intuitive -100..100 display
+/// value while the number field edits the gamma exponent directly.
+fn draw_gamma_row(ui: &mut egui::Ui, gamma: &mut f32, slider_width: f32) -> bool {
+    draw_row_label(ui, "Gamma");
+
+    let mut changed = false;
+    let mut display = gamma_to_display_value(*gamma);
+    if ui
+        .add_sized(
+            [slider_width, ROW_HEIGHT],
+            egui::Slider::new(&mut display, GAMMA_DISPLAY_RANGE).show_value(false),
+        )
+        .changed()
+    {
+        *gamma = display_value_to_gamma(display);
+        changed = true;
+    }
+
+    changed |= ui
+        .add(
+            egui::DragValue::new(gamma)
+                .range(GAMMA_RANGE)
+                .speed(0.01)
+                .custom_formatter(|n, _| format_gamma(n as f32))
+                .custom_parser(|s| s.parse::<f64>().ok()),
+        )
+        .changed();
+
+    ui.end_row();
+    changed
+}
+
 fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     ui.heading_with_margin("Color Correction");
 
-    // Define ranges to avoid duplication
-    const BRIGHTNESS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
-    const CONTRAST_RANGE: std::ops::RangeInclusive<f32> = 0.0..=2.0;
-    const SATURATION_RANGE: std::ops::RangeInclusive<f32> = 0.0..=2.0;
-    const HUE_SHIFT_RANGE: std::ops::RangeInclusive<f32> = -180.0..=180.0;
-    const SHADOWS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
-    const HIGHLIGHTS_RANGE: std::ops::RangeInclusive<f32> = -1.0..=1.0;
-    const GAMMA_RANGE: std::ops::RangeInclusive<f32> = 0.1..=3.0;
-    const GAMMA_DISPLAY_RANGE: std::ops::RangeInclusive<f32> = -100.0..=100.0;
+    if ui
+        .checkbox(&mut state.color_correction.enabled, "Enable")
+        .on_hover_text(
+            "Adjust the image before quantization.\nWhen off the input image is passed through untouched.",
+        )
+        .changed()
+    {
+        settings_changed = true;
+    }
+
+    // The settings only exist once the pass is turned on.
+    if !state.color_correction.enabled {
+        return settings_changed;
+    }
 
     egui::Grid::new("color_correction_grid")
         .num_columns(3)
         .spacing([4.0, 6.0])
         .show(ui, |ui| {
-            let available_width = ui.available_width();
-            let slider_width = (available_width * 0.6).max(180.0);
-
+            let slider_width = (ui.available_width() * 0.6).max(180.0);
             ui.style_mut().spacing.slider_width = slider_width;
 
-            // Brightness
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Brightness:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.brightness, BRIGHTNESS_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.brightness)
-                        .range(BRIGHTNESS_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_percentage(n as f32))
-                        .custom_parser(|s| {
-                            // Try to parse as percentage first
-                            if let Some(s) = s.strip_suffix('%') {
-                                s.parse::<f64>().map(|v| v / 100.0).ok()
-                            } else {
-                                s.parse::<f64>().ok()
-                            }
-                        }),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
+            let correction = &mut state.color_correction;
+            let mut row = |label, value: &mut f32, range, format| {
+                draw_slider_row(ui, label, value, range, format, slider_width)
+            };
 
-            // Contrast
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Contrast:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.contrast, CONTRAST_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.contrast)
-                        .range(CONTRAST_RANGE)
-                        .speed(0.01)
-                        .fixed_decimals(2),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
+            settings_changed |= row(
+                "Brightness",
+                &mut correction.brightness,
+                BRIGHTNESS_RANGE,
+                ValueFormat::Percentage,
+            );
+            settings_changed |= row(
+                "Contrast",
+                &mut correction.contrast,
+                CONTRAST_RANGE,
+                ValueFormat::Decimal,
+            );
+            settings_changed |= row(
+                "Saturation",
+                &mut correction.saturation,
+                SATURATION_RANGE,
+                ValueFormat::Decimal,
+            );
+            settings_changed |= row(
+                "Hue Shift",
+                &mut correction.hue_shift,
+                HUE_SHIFT_RANGE,
+                ValueFormat::Degrees,
+            );
+            settings_changed |= row(
+                "Shadows",
+                &mut correction.shadows,
+                SHADOWS_RANGE,
+                ValueFormat::Percentage,
+            );
+            settings_changed |= row(
+                "Highlights",
+                &mut correction.highlights,
+                HIGHLIGHTS_RANGE,
+                ValueFormat::Percentage,
+            );
 
-            // Saturation
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Saturation:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.saturation, SATURATION_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.saturation)
-                        .range(SATURATION_RANGE)
-                        .speed(0.01)
-                        .fixed_decimals(2),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Hue Shift
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Hue Shift:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.hue_shift, HUE_SHIFT_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.hue_shift)
-                        .range(HUE_SHIFT_RANGE)
-                        .speed(1.0)
-                        .suffix("°")
-                        .fixed_decimals(0),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Shadows
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Shadows:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.shadows, SHADOWS_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.shadows)
-                        .range(SHADOWS_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_percentage(n as f32))
-                        .custom_parser(|s| {
-                            // Try to parse as percentage first
-                            if let Some(s) = s.strip_suffix('%') {
-                                s.parse::<f64>().map(|v| v / 100.0).ok()
-                            } else {
-                                s.parse::<f64>().ok()
-                            }
-                        }),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Highlights
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Highlights:");
-            });
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut state.color_correction.highlights, HIGHLIGHTS_RANGE)
-                        .show_value(false),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.highlights)
-                        .range(HIGHLIGHTS_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_percentage(n as f32))
-                        .custom_parser(|s| {
-                            // Try to parse as percentage first
-                            if let Some(s) = s.strip_suffix('%') {
-                                s.parse::<f64>().map(|v| v / 100.0).ok()
-                            } else {
-                                s.parse::<f64>().ok()
-                            }
-                        }),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
-
-            // Gamma (special handling)
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label("Gamma:");
-            });
-            let mut gamma_display = gamma_to_display_value(state.color_correction.gamma);
-            if ui
-                .add_sized(
-                    [slider_width, 24.0],
-                    egui::Slider::new(&mut gamma_display, GAMMA_DISPLAY_RANGE).show_value(false),
-                )
-                .changed()
-            {
-                state.color_correction.gamma = display_value_to_gamma(gamma_display);
-                settings_changed = true;
-            }
-            if ui
-                .add(
-                    egui::DragValue::new(&mut state.color_correction.gamma)
-                        .range(GAMMA_RANGE)
-                        .speed(0.01)
-                        .custom_formatter(|n, _| format_gamma(n as f32))
-                        .custom_parser(|s| s.parse::<f64>().ok()),
-                )
-                .changed()
-            {
-                settings_changed = true;
-            }
-            ui.end_row();
+            settings_changed |= draw_gamma_row(ui, &mut correction.gamma, slider_width);
         });
 
     // Color correction presets
@@ -756,10 +712,10 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
 
         for (label, preset) in presets {
             if ui
-                .add_sized([button_width, 24.0], egui::Button::new(label))
+                .add_sized([button_width, ROW_HEIGHT], egui::Button::new(label))
                 .clicked()
             {
-                state.color_correction = preset;
+                state.color_correction.apply_preset(preset);
                 settings_changed = true;
             }
         }
@@ -794,47 +750,27 @@ fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
     ));
 }
 
-fn validate_rgba_depth(rgba_str: &str) -> bool {
-    if rgba_str.is_empty() {
-        return false;
-    }
-
-    // Regex to match exactly 4 digits, each from 1-8
-    let re = Regex::new(r"^[1-8]{4}$").unwrap();
-    re.is_match(rgba_str)
-}
-
+/// Exactly 4 digits, each from 1-8.
+/// Returns the reason `rgba_str` is not a valid RGBA depth, or `None` if it is.
 fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
     if rgba_str.is_empty() {
         return Some("RGBA depth is required".to_string());
     }
 
-    if rgba_str.len() != 4 {
-        return Some(format!("Expected 4 digits, got {}", rgba_str.len()));
+    let digit_count = rgba_str.chars().count();
+    if digit_count != RGBA_CHANNELS.len() {
+        return Some(format!(
+            "Expected {} digits, got {digit_count}",
+            RGBA_CHANNELS.len()
+        ));
     }
 
-    for (i, ch) in rgba_str.chars().enumerate() {
-        if !ch.is_ascii_digit() {
-            let component = match i {
-                0 => "R",
-                1 => "G",
-                2 => "B",
-                3 => "A",
-                _ => "?",
-            };
-            return Some(format!("{component} component '{ch}' is not a digit"));
-        }
-
-        let digit = ch.to_digit(10).unwrap();
+    for (channel, ch) in RGBA_CHANNELS.iter().zip(rgba_str.chars()) {
+        let Some(digit) = ch.to_digit(10) else {
+            return Some(format!("{channel} component '{ch}' is not a digit"));
+        };
         if !(1..=8).contains(&digit) {
-            let component = match i {
-                0 => "R",
-                1 => "G",
-                2 => "B",
-                3 => "A",
-                _ => "?",
-            };
-            return Some(format!("{component} component {digit} must be 1-8"));
+            return Some(format!("{channel} component {digit} must be 1-8"));
         }
     }
 
@@ -851,7 +787,7 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 for sort_mode in SortMode::all() {
                     ui.selectable_value(
                         &mut state.palette_sort_settings.mode,
-                        sort_mode.clone(),
+                        *sort_mode,
                         sort_mode.display_name(),
                     );
                 }
@@ -863,11 +799,39 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                     for sort_order in SortOrder::all() {
                         ui.selectable_value(
                             &mut state.palette_sort_settings.order,
-                            sort_order.clone(),
+                            *sort_order,
                             sort_order.display_name(),
                         );
                     }
                 });
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn valid_rgba_depths_report_no_error() {
+        for depth in ["8888", "5551", "3331", "1111"] {
+            assert_eq!(get_rgba_depth_error(depth), None, "{depth} should be valid");
+        }
+    }
+
+    #[test]
+    fn invalid_rgba_depths_report_an_error() {
+        for depth in ["", "888", "88888", "8x88", "0888", "8898"] {
+            assert!(
+                get_rgba_depth_error(depth).is_some(),
+                "{depth} should be invalid"
+            );
+        }
+    }
+
+    #[test]
+    fn rgba_depth_error_names_the_offending_channel() {
+        assert!(get_rgba_depth_error("88x8").unwrap().starts_with('B'));
+        assert!(get_rgba_depth_error("0888").unwrap().starts_with('R'));
+    }
 }

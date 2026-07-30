@@ -33,10 +33,6 @@ mod color32_def {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UserPreferences {
     pub show_advanced: bool,
-    pub show_original_image: bool,
-
-    #[serde(default)]
-    pub show_color_corrected_image: bool,
     pub show_palettes: bool,
 
     #[serde(default)]
@@ -56,8 +52,6 @@ impl Default for UserPreferences {
     fn default() -> Self {
         Self {
             show_advanced: false,
-            show_original_image: true,
-            show_color_corrected_image: false,
             show_palettes: true,
             show_debug_info: false,
             show_appearance: false,

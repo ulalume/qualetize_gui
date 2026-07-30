@@ -1,12 +1,15 @@
-use crate::types::app_state::AppStateRequest;
+use crate::types::app_state::{AppStateRequest, ExportSource};
 use crate::types::{
     AppState, ExportFormat, QualetizePreset, app_state::AppearanceMode,
     color_correction::ColorCorrectionPreset,
 };
 use crate::ui::styles::UiMarginExt;
 
-pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+/// Returns `(settings_changed, tile_reduce_changed)`, matching the settings
+/// panel: resetting tile reduction only needs the post-pass to rerun.
+pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut settings_changed = false;
+    let mut tile_reduce_changed = false;
 
     egui::MenuBar::new().ui(ui, |ui| {
         // --- File menu ---
@@ -20,37 +23,45 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.separator();
 
             ui.menu_button("Export Image", |ui| {
-                ui.add_enabled_ui(state.color_corrected_image.is_some(), |ui| {
-                    if ui.button("Color Corrected PNG").clicked() {
-                        _ = state.app_state_request_sender.send(
-                            AppStateRequest::ExportImageDialog {
-                                format: ExportFormat::Png,
-                                suffix: Some("color_corrected".to_string()),
-                            },
-                        );
+                // Passes that are switched off have nothing to export, so their
+                // entries stay visible but disabled.
+                const ENTRIES: [(ExportSource, ExportFormat, &str); 5] = [
+                    (
+                        ExportSource::ColorCorrected,
+                        ExportFormat::Png,
+                        "Color Corrected PNG",
+                    ),
+                    (
+                        ExportSource::Qualetized,
+                        ExportFormat::PngIndexed,
+                        "Qualetized PNG",
+                    ),
+                    (
+                        ExportSource::Qualetized,
+                        ExportFormat::Bmp,
+                        "Qualetized BMP",
+                    ),
+                    (
+                        ExportSource::TileReduced,
+                        ExportFormat::PngIndexed,
+                        "Tile Reduced PNG",
+                    ),
+                    (
+                        ExportSource::TileReduced,
+                        ExportFormat::Bmp,
+                        "Tile Reduced BMP",
+                    ),
+                ];
+
+                for (source, format, label) in ENTRIES {
+                    let enabled = state.can_export(source);
+                    if ui.add_enabled(enabled, egui::Button::new(label)).clicked() {
+                        _ = state
+                            .app_state_request_sender
+                            .send(AppStateRequest::ExportImageDialog { source, format });
                         ui.close();
                     }
-                });
-                ui.add_enabled_ui(state.output_image.is_some(), |ui| {
-                    if ui.button("Qualetized Indexed PNG").clicked() {
-                        _ = state.app_state_request_sender.send(
-                            AppStateRequest::ExportImageDialog {
-                                format: ExportFormat::PngIndexed,
-                                suffix: Some("qualetized".to_string()),
-                            },
-                        );
-                        ui.close();
-                    }
-                    if ui.button("Qualetized Indexed BMP").clicked() {
-                        _ = state.app_state_request_sender.send(
-                            AppStateRequest::ExportImageDialog {
-                                format: ExportFormat::Bmp,
-                                suffix: Some("qualetized".to_string()),
-                            },
-                        );
-                        ui.close();
-                    }
-                });
+                }
             });
 
             ui.separator();
@@ -76,16 +87,23 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             ui.menu_button("Reset Qualetize", |ui| {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
-                        state.settings = preset.qualetize_settings();
+                        state.settings.apply_preset(preset.qualetize_settings());
                         settings_changed = true;
                         ui.close();
                     }
                 }
             });
+            if ui.button("Reset Tile Reduction").clicked() {
+                state.settings.reset_tile_reduce();
+                tile_reduce_changed = true;
+                ui.close();
+            }
             ui.menu_button("Reset Color Correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
                     if ui.button(preset.display_name()).clicked() {
-                        state.color_correction = preset.color_correction();
+                        state
+                            .color_correction
+                            .apply_preset(preset.color_correction());
                         settings_changed = true;
                         ui.close();
                     }
@@ -97,7 +115,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     if ui
                         .selectable_value(
                             &mut state.preferences.selected_export_format,
-                            format.clone(),
+                            *format,
                             format.display_name(),
                         )
                         .clicked()
@@ -121,14 +139,6 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
                 ui.separator();
                 ui.label(egui::widget_text::RichText::new("Canvas").small());
-                ui.checkbox(&mut state.preferences.show_original_image, "Original Image");
-                ui.checkbox(
-                    &mut state.preferences.show_color_corrected_image,
-                    "Color Corrected Image",
-                );
-
-                ui.separator();
-
                 ui.checkbox(&mut state.preferences.show_palettes, "Palettes");
 
                 ui.separator();
@@ -246,5 +256,5 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         state.preferences.show_appearance = show_dialog;
     }
 
-    settings_changed
+    (settings_changed, tile_reduce_changed)
 }

@@ -1,144 +1,159 @@
 use super::styles::UiMarginExt;
-use crate::types::AppState;
+use crate::types::{AppState, ImageData, app_state::Toast};
 use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
 
-pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing: bool) {
-    const HORIZONTAL_MARGIN: f32 = 4.0;
-    let mut available_size = ui.available_size();
-    available_size.y -= 34.0; // footer size
+/// Gap between the image panels.
+const PANEL_MARGIN: f32 = 4.0;
+
+/// Everything one image panel needs to draw itself.
+struct ImagePanel<'a> {
+    title: &'a str,
+    image: Option<&'a ImageData>,
+    size: Vec2,
+    zoom: f32,
+    pan_offset: Vec2,
+    background: Color32,
+    has_spinner: bool,
+    overlay_text: Option<&'a str>,
+    /// Persistent warning drawn in the top left corner of the panel.
+    notice: Option<&'a str>,
+    palettes: Option<&'a Vec<Vec<Color32>>>,
+}
+
+pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_processing: bool) {
+    let available_size = ui.available_size();
+    let toast = live_toast(&mut state.tile_reduce_toast, ui.ctx());
+    let fit_toast = live_toast(&mut state.tile_fit_toast, ui.ctx());
+    let fit_notice = state.tile_fit_notice();
+    // The Original view shows what the pipeline actually consumes, so the added
+    // border is visible right next to the notice explaining it, and all four
+    // panels share the same dimensions at a given zoom.
+    let original_image = state.processing_input();
 
     let zoom = state.zoom;
     let pan_offset = state.pan_offset;
-    let mut pan_changed = egui::Vec2::ZERO;
+    let background = state
+        .preferences
+        .background_color
+        .unwrap_or(Color32::from_gray(64));
+    let mut pan_changed = Vec2::ZERO;
 
-    let split_x =
-        if state.preferences.show_original_image || state.preferences.show_color_corrected_image {
-            (available_size.x - HORIZONTAL_MARGIN) / 2.0
-        } else {
-            available_size.x
-        };
-    let split_y =
-        if state.preferences.show_original_image && state.preferences.show_color_corrected_image {
-            (available_size.y - HORIZONTAL_MARGIN) / 2.0
-        } else {
-            available_size.y
-        };
+    // Left column holds the inputs, right column the outputs. The optional
+    // panels appear exactly when their pass is enabled.
+    let show_color_corrected = state.color_correction.enabled;
+    let show_tile_reduced = state.settings.tile_reduce_post_enabled;
+
+    // The palette is identical for both output panels, so it is only drawn on
+    // the Qualetized one to keep its position stable.
+    let palettes = state
+        .preferences
+        .show_palettes
+        .then(|| {
+            state
+                .output_palette_sorted_indexed_image
+                .as_ref()
+                .or_else(|| state.output_image.as_ref().and_then(|i| i.indexed.as_ref()))
+                .map(|indexed| &indexed.palettes_for_ui)
+        })
+        .flatten();
+
+    let column_width = (available_size.x - PANEL_MARGIN) / 2.0;
+    let input_height = column_height(available_size.y, 1 + usize::from(show_color_corrected));
+    let output_height = column_height(available_size.y, 1 + usize::from(show_tile_reduced));
 
     ui.horizontal(|ui| {
-        ui.style_mut().spacing.item_spacing = egui::vec2(HORIZONTAL_MARGIN, 0.0);
-        // Left panel - Original image
+        ui.style_mut().spacing.item_spacing = egui::vec2(PANEL_MARGIN, 0.0);
+
+        // Inputs
         ui.vertical(|ui| {
-            ui.style_mut().spacing.item_spacing = egui::vec2(0.0, HORIZONTAL_MARGIN);
-            if state.preferences.show_original_image {
-                let settings = ImagePanelSettings {
-                    width: split_x,
-                    height: split_y,
+            ui.style_mut().spacing.item_spacing = egui::vec2(0.0, PANEL_MARGIN);
+
+            draw_image_panel(
+                ui,
+                ImagePanel {
+                    title: "Original",
+                    image: original_image,
+                    size: Vec2::new(column_width, input_height),
                     zoom,
                     pan_offset,
-                    title: "Original".into(),
+                    background,
                     has_spinner: false,
-                    overlay_text: None,
-                };
+                    overlay_text: fit_toast.as_deref(),
+                    notice: fit_notice.as_deref(),
+                    palettes: None,
+                },
+                &mut pan_changed,
+            );
+
+            if show_color_corrected {
                 draw_image_panel(
                     ui,
-                    state,
-                    settings,
-                    &state.input_image,
-                    None,
-                    &mut pan_changed,
-                );
-            }
-            if state.preferences.show_color_corrected_image {
-                let settings = ImagePanelSettings {
-                    width: split_x,
-                    height: split_y,
-                    zoom,
-                    pan_offset,
-                    title: "Color Corrected".into(),
-                    has_spinner: state.color_corrected_image.is_none(),
-                    overlay_text: None,
-                };
-                draw_image_panel(
-                    ui,
-                    state,
-                    settings,
-                    &state.color_corrected_image,
-                    None,
+                    ImagePanel {
+                        title: "Color Corrected",
+                        image: state.color_corrected_image.as_ref(),
+                        size: Vec2::new(column_width, input_height),
+                        zoom,
+                        pan_offset,
+                        background,
+                        has_spinner: state.color_corrected_image.is_none(),
+                        overlay_text: None,
+                        notice: None,
+                        palettes: None,
+                    },
                     &mut pan_changed,
                 );
             }
         });
 
-        // Right panel
-        if !state.tile_size_warning {
-            let palettes_for_ui =
-                if let Some(indexed_image) = &state.output_palette_sorted_indexed_image {
-                    Some(&indexed_image.palettes_for_ui)
-                } else if let Some(image) = &state.output_image {
-                    image
-                        .indexed
-                        .as_ref()
-                        .map(|indexed_image| &indexed_image.palettes_for_ui)
-                } else {
-                    None
-                };
-            let tile_reduced = state.settings.tile_reduce_post_enabled
-                && (state.tile_reduce_processing || state.reduced_tile_count.is_some());
-            let toast = if let Some(toast) = &state.tile_reduce_toast {
-                if toast.time.elapsed() < std::time::Duration::from_secs(3) {
-                    Some(toast.message.clone())
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
-            if toast.is_none()
-                && state
-                    .tile_reduce_toast
-                    .as_ref()
-                    .map(|t| t.time.elapsed() >= std::time::Duration::from_secs(3))
-                    .unwrap_or(false)
-            {
-                let _ = state.tile_reduce_toast.take();
-            }
+        // Outputs
+        ui.vertical(|ui| {
+            ui.style_mut().spacing.item_spacing = egui::vec2(0.0, PANEL_MARGIN);
 
-            let settings = ImagePanelSettings {
-                width: split_x,
-                height: available_size.y,
-                zoom,
-                pan_offset,
-                title: if tile_reduced {
-                    "Qualetized + Tile Reduced".into()
-                } else {
-                    "Qualetized".into()
-                },
-                has_spinner: image_processing,
-                overlay_text: toast,
-            };
             draw_image_panel(
                 ui,
-                state,
-                settings,
-                &state.output_image,
-                palettes_for_ui,
+                ImagePanel {
+                    title: "Qualetized",
+                    image: state.base_output_image.as_ref(),
+                    size: Vec2::new(column_width, output_height),
+                    zoom,
+                    pan_offset,
+                    background,
+                    has_spinner: qualetize_processing,
+                    overlay_text: None,
+                    notice: None,
+                    palettes,
+                },
                 &mut pan_changed,
             );
-        } else {
-            // Status/ Warning message
-            draw_status_panel(ui, state, split_x, available_size.y);
-        }
+
+            if show_tile_reduced {
+                draw_image_panel(
+                    ui,
+                    ImagePanel {
+                        title: "Tile Reduced",
+                        image: state.output_image.as_ref(),
+                        size: Vec2::new(column_width, output_height),
+                        zoom,
+                        pan_offset,
+                        background,
+                        // A new quantization invalidates the reduced result too.
+                        has_spinner: qualetize_processing || state.tile_reduce_processing,
+                        overlay_text: toast.as_deref(),
+                        notice: None,
+                        palettes: None,
+                    },
+                    &mut pan_changed,
+                );
+            }
+        });
     });
 
-    // Apply changes back to state (this block is common to both views)
-    if pan_changed != egui::Vec2::ZERO {
+    if pan_changed != Vec2::ZERO {
         state.pan_offset += pan_changed;
     }
 
-    // Handle mouse interaction (this block is also common)
     if ui.ui_contains_pointer() {
-        let ctx = ui.ctx();
-        let scroll_delta = ctx.input(|i| i.raw_scroll_delta.y);
+        let scroll_delta = ui.ctx().input(|i| i.smooth_scroll_delta.y);
         if scroll_delta != 0.0 {
             let zoom_factor = 1.0 + scroll_delta * 0.001;
             state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
@@ -146,22 +161,33 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, image_processing
     }
 }
 
+/// Height of one panel in a column of `panel_count` stacked panels.
+fn column_height(available_height: f32, panel_count: usize) -> f32 {
+    let gaps = PANEL_MARGIN * (panel_count.saturating_sub(1)) as f32;
+    (available_height - gaps) / panel_count as f32
+}
+
+const TOAST_DURATION: std::time::Duration = std::time::Duration::from_secs(3);
+
+/// Return a toast while it is still within its display window, dropping it once
+/// it has expired. Schedules the repaint that makes it vanish.
+fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
+    let toast = slot.as_ref()?;
+    let Some(remaining) = TOAST_DURATION.checked_sub(toast.time.elapsed()) else {
+        *slot = None;
+        return None;
+    };
+
+    let message = toast.message.clone();
+    ctx.request_repaint_after(remaining);
+    Some(message)
+}
+
 pub fn draw_main_content(ui: &mut egui::Ui) {
     ui.centered_and_justified(|ui| {
         ui.heading_with_margin("📁 Drop an image file here or use 'File > Open Image...'");
     });
 }
-#[derive(Clone)]
-struct ImagePanelSettings {
-    pub width: f32,
-    pub height: f32,
-    pub zoom: f32,
-    pub pan_offset: Vec2,
-    pub title: String,
-    pub has_spinner: bool,
-    pub overlay_text: Option<String>,
-}
-
 fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color: Color32) {
     painter.rect_filled(canvas, 0.0, base_color);
 
@@ -201,7 +227,7 @@ fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color:
 fn draw_main_image(
     painter: &egui::Painter,
     canvas: Rect,
-    image_data: &Option<crate::types::ImageData>,
+    image_data: Option<&ImageData>,
     zoom: f32,
     pan_offset: Vec2,
 ) {
@@ -218,30 +244,46 @@ fn draw_main_image(
     }
 }
 
+/// A small text chip drawn over the image, used for titles and notices.
+fn draw_label_chip(
+    painter: &egui::Painter,
+    ui_ctx: &egui::Context,
+    top_left: Pos2,
+    text: &str,
+    text_color: Color32,
+) {
+    let window_color = ui_ctx.global_style().visuals.window_fill();
+    let bg_color =
+        Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
+
+    let galley =
+        ui_ctx.fonts_mut(|f| f.layout_no_wrap(text.to_string(), FontId::default(), text_color));
+    let rect = Rect::from_min_size(
+        top_left - egui::vec2(2.0, 1.0),
+        galley.size() + egui::vec2(4.0, 2.0),
+    );
+
+    painter.rect_filled(rect, 0.0, bg_color);
+    painter.galley(top_left, galley, text_color);
+}
+
 fn draw_title(painter: &egui::Painter, canvas: Rect, title: &str, ui_ctx: &egui::Context) {
     if title.is_empty() {
         return;
     }
 
-    let visuals = &ui_ctx.style().visuals;
-    let window_color = visuals.window_fill();
-    let bg_color =
-        Color32::from_rgba_unmultiplied(window_color.r(), window_color.g(), window_color.b(), 178);
+    let visuals = ui_ctx.global_style().visuals.clone();
     let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
-
-    let galley =
-        ui_ctx.fonts(|f| f.layout_no_wrap(title.to_string(), FontId::default(), text_color));
-
     let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
-    let rect = Align2::LEFT_TOP.align_size_within_rect(
-        galley.size() + egui::vec2(4.0, 2.0),
-        Rect::from_min_size(
-            pos - egui::vec2(2.0, 1.0),
-            galley.size() + egui::vec2(4.0, 2.0),
-        ),
-    );
-    painter.rect_filled(rect, 0.0, bg_color);
-    painter.galley(pos, galley, text_color);
+    draw_label_chip(painter, ui_ctx, pos, title, text_color);
+}
+
+/// Persistent notice in the top left corner, for state the user should keep
+/// seeing rather than a toast that fades.
+fn draw_notice(painter: &egui::Painter, canvas: Rect, text: &str, ui_ctx: &egui::Context) {
+    let pos = canvas.left_top() + Vec2::new(4.0, 4.0);
+    let color = super::styles::warning_color(&ui_ctx.global_style().visuals);
+    draw_label_chip(painter, ui_ctx, pos, text, color);
 }
 
 fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
@@ -259,14 +301,15 @@ fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
 }
 
 fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context, text: &str) {
-    let visuals = &ui_ctx.style().visuals;
+    let style = ui_ctx.global_style();
+    let visuals = &style.visuals;
     let panel = visuals.panel_fill;
     // Use theme-aware background with slight translucency
     let bg_color = Color32::from_rgba_unmultiplied(panel.r(), panel.g(), panel.b(), 200);
     let text_color = visuals.strong_text_color();
     let font_id = egui::FontId::proportional(15.0); // slightly larger to emphasize toast text
 
-    let galley = ui_ctx.fonts(|f| f.layout_no_wrap(text.to_string(), font_id, text_color));
+    let galley = ui_ctx.fonts_mut(|f| f.layout_no_wrap(text.to_string(), font_id, text_color));
     let rect = Align2::CENTER_CENTER.align_size_within_rect(
         galley.size() + egui::vec2(12.0, 6.0),
         Rect::from_center_size(canvas.center(), galley.size() + egui::vec2(12.0, 6.0)),
@@ -275,107 +318,37 @@ fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Conte
     painter.galley(rect.center() - galley.size() * 0.5, galley, text_color);
 }
 
-fn draw_image_panel(
-    ui: &mut egui::Ui,
-    state: &AppState,
-    settings: ImagePanelSettings,
-    image_data: &Option<crate::types::ImageData>,
-    palettes_for_ui: Option<&Vec<Vec<egui::Color32>>>,
-    pan_changed: &mut Vec2,
-) {
+fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, pan_changed: &mut Vec2) {
     ui.allocate_ui_with_layout(
-        Vec2::new(settings.width, settings.height),
+        panel.size,
         egui::Layout::top_down(egui::Align::Center),
         |ui| {
-            let (response, painter) = ui.allocate_painter(
-                Vec2::new(settings.width, settings.height),
-                egui::Sense::click_and_drag(),
-            );
+            let (response, painter) =
+                ui.allocate_painter(panel.size, egui::Sense::click_and_drag());
             let canvas = response.rect;
 
-            // 背景色を取得
-            let base_color = state
-                .preferences
-                .background_color
-                .unwrap_or(Color32::from_gray(64));
-
-            // 各要素を描画
-            draw_background_and_pixels(&painter, canvas, base_color);
-            draw_main_image(
-                &painter,
-                canvas,
-                image_data,
-                settings.zoom,
-                settings.pan_offset,
-            );
-            draw_title(&painter, canvas, &settings.title, ui.ctx());
-
-            if state.preferences.show_palettes
-                && let Some(palettes_for_ui) = palettes_for_ui
-            {
-                draw_palettes_overlay(&painter, canvas, palettes_for_ui);
+            draw_background_and_pixels(&painter, canvas, panel.background);
+            draw_main_image(&painter, canvas, panel.image, panel.zoom, panel.pan_offset);
+            draw_title(&painter, canvas, panel.title, ui.ctx());
+            if let Some(notice) = panel.notice {
+                draw_notice(&painter, canvas, notice, ui.ctx());
             }
 
-            if settings.has_spinner {
+            if let Some(palettes) = panel.palettes {
+                draw_palettes_overlay(&painter, canvas, palettes);
+            }
+            if panel.has_spinner {
                 draw_spinner(&painter, canvas, ui.ctx());
             }
-            if let Some(text) = &settings.overlay_text {
+            if let Some(text) = panel.overlay_text {
                 draw_overlay_text(&painter, canvas, ui.ctx(), text);
             }
 
-            // パン操作の処理
+            // Panning
             if response.dragged() {
                 *pan_changed += response.drag_delta();
             }
         },
-    );
-}
-
-fn draw_status_panel(ui: &mut egui::Ui, state: &AppState, width: f32, height: f32) {
-    ui.allocate_ui_with_layout(
-        Vec2::new(width, height),
-        egui::Layout::top_down(egui::Align::Center),
-        |ui| {
-            let (_, painter) = ui.allocate_painter(Vec2::new(width, height), egui::Sense::hover());
-
-            // Draw background
-            painter.rect_filled(painter.clip_rect(), 0.0, Color32::from_gray(64));
-
-            ui.scope_builder(
-                egui::UiBuilder::new().max_rect(Rect::from_center_size(
-                    painter.clip_rect().center(),
-                    Vec2::new(300.0, 150.0),
-                )),
-                |ui| {
-                    ui.with_layout(egui::Layout::top_down(egui::Align::Center), |ui| {
-                        if state.tile_size_warning {
-                            draw_warning_message(ui, state);
-                        }
-                    });
-                },
-            );
-        },
-    );
-}
-
-fn draw_warning_message(ui: &mut egui::Ui, state: &AppState) {
-    ui.label(egui::RichText::new("⚠").size(32.0).color(Color32::YELLOW));
-    ui.label(
-        egui::RichText::new("Tile Size Warning")
-            .size(16.0)
-            .color(Color32::YELLOW),
-    );
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new(state.tile_size_warning_message())
-            .size(12.0)
-            .color(Color32::WHITE),
-    );
-    ui.add_space(10.0);
-    ui.label(
-        egui::RichText::new("Adjust tile width/height in settings to match image dimensions.")
-            .size(11.0)
-            .color(Color32::LIGHT_GRAY),
     );
 }
 
@@ -515,7 +488,7 @@ fn draw_single_palette(
     hovered: Option<(usize, usize)>,
 ) {
     let palette_width = (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
-    let highlight_color = painter.ctx().style().visuals.selection.stroke.color;
+    let highlight_color = painter.ctx().global_style().visuals.selection.stroke.color;
 
     for (color_idx, &color) in palette.iter().enumerate() {
         let x = origin.x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
@@ -529,7 +502,7 @@ fn draw_single_palette(
             color_rect,
             0.0,
             egui::Stroke::new(
-                1.0,
+                1.0_f32,
                 if hovered
                     .map(|(p_idx, c_idx)| p_idx == palette_idx && c_idx == color_idx)
                     .unwrap_or(false)
@@ -541,5 +514,34 @@ fn draw_single_palette(
             ),
             egui::StrokeKind::Middle,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_single_panel_fills_the_column() {
+        assert_eq!(column_height(400.0, 1), 400.0);
+    }
+
+    #[test]
+    fn two_panels_share_the_column_minus_the_gap() {
+        assert_eq!(column_height(404.0, 2), 200.0);
+    }
+
+    #[test]
+    fn columns_with_different_panel_counts_stay_within_the_view() {
+        let available = 500.0;
+        for panel_count in 1..=4 {
+            let height = column_height(available, panel_count);
+            let used =
+                height * panel_count as f32 + PANEL_MARGIN * panel_count.saturating_sub(1) as f32;
+            assert!(
+                (used - available).abs() < 1e-3,
+                "{panel_count} panels: {used}"
+            );
+        }
     }
 }
