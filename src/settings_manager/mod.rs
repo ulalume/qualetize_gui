@@ -5,12 +5,31 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+/// Write `bytes` to `path` without ever leaving a truncated file behind.
+///
+/// Writes go to a sibling `<path>.tmp` file first and are only made visible by an
+/// atomic rename over the real target, so a crash or power loss mid-write can lose
+/// the new content but never corrupts what was already on disk.
+pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let mut tmp_name = path.as_os_str().to_owned();
+    tmp_name.push(".tmp");
+    let tmp_path = Path::new(&tmp_name);
+
+    fs::write(tmp_path, bytes)?;
+    fs::rename(tmp_path, path)
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SettingsBundle {
     pub qualetize_settings: QualetizeSettings,
     pub color_correction: ColorCorrection,
     #[serde(default)]
     pub sort_settings: PaletteSortSettings,
+    #[serde(default)]
     pub version: String,
 }
 
@@ -39,7 +58,8 @@ impl SettingsBundle {
         let json_data = serde_json::to_string_pretty(self)
             .map_err(|e| format!("Failed to serialize settings: {e}"))?;
 
-        fs::write(&path, json_data).map_err(|e| format!("Failed to write settings file: {e}"))?;
+        write_atomically(path.as_ref(), json_data.as_bytes())
+            .map_err(|e| format!("Failed to write settings file: {e}"))?;
 
         log::info!("Settings saved to: {}", path.as_ref().display());
         Ok(())
@@ -49,8 +69,13 @@ impl SettingsBundle {
         let json_data =
             fs::read_to_string(&path).map_err(|e| format!("Failed to read settings file: {e}"))?;
 
-        let settings = serde_json::from_str::<SettingsBundle>(&json_data)
+        let mut settings = serde_json::from_str::<SettingsBundle>(&json_data)
             .map_err(|e| format!("Failed to parse settings file: {e}"))?;
+
+        // A hand-edited or older-version `.qset` may carry out-of-range values;
+        // clamp them before they can reach the C library. See
+        // `QualetizeSettings::sanitize`.
+        settings.qualetize_settings.sanitize();
 
         log::info!("Settings loaded from: {}", path.as_ref().display());
         Ok(settings)
@@ -85,7 +110,22 @@ impl SettingsBundle {
 
     /// Restore the settings from the last run, falling back to the defaults.
     pub fn load_session() -> Self {
-        let bundle = Self::session_path().and_then(|path| Self::load_from_file(path).ok());
+        let bundle = Self::session_path().and_then(|path| {
+            if !path.exists() {
+                // Nothing to restore yet, e.g. first run: not worth a warning.
+                return None;
+            }
+            match Self::load_from_file(&path) {
+                Ok(bundle) => Some(bundle),
+                Err(e) => {
+                    log::warn!(
+                        "Failed to load session settings from {}: {e}",
+                        path.display()
+                    );
+                    None
+                }
+            }
+        });
 
         bundle.unwrap_or_else(|| {
             Self::new(
@@ -159,6 +199,48 @@ mod tests {
         // Predates the flag, and back then correction was always applied.
         assert!(bundle.color_correction.enabled);
         assert_eq!(bundle.sort_settings, PaletteSortSettings::default());
+    }
+
+    /// `version` is written but never read back, so a file saved before it existed
+    /// (or hand-trimmed) must still load rather than fail to parse.
+    #[test]
+    fn a_bundle_missing_the_version_field_still_loads() {
+        let json = r#"{
+            "qualetize_settings": {
+                "tile_width": 8, "tile_height": 8, "n_palettes": 1, "n_colors": 16,
+                "rgba_depth": "3331", "premul_alpha": false, "color_space": "RgbLinear",
+                "dither_mode": "Floyd", "dither_level": 0.5, "tile_passes": 1000,
+                "color_passes": 100, "col0_is_clear": false, "clear_color": "None"
+            },
+            "color_correction": {
+                "brightness": 0.0, "contrast": 1.0, "gamma": 1.0, "saturation": 1.0,
+                "hue_shift": 0.0, "shadows": 0.0, "highlights": 0.0
+            }
+        }"#;
+
+        let bundle: SettingsBundle = serde_json::from_str(json).expect("loads");
+        assert_eq!(bundle.version, "");
+    }
+
+    /// `examples/genesis.qset` ships as a ready-to-use example: it must still load,
+    /// and its `color_correction.enabled` must be explicit (`false`) rather than
+    /// relying on the "missing means true" backwards-compatibility default, which
+    /// would otherwise silently turn color correction on for this example.
+    #[test]
+    fn the_genesis_example_loads_disabled_and_matches_the_preset() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("examples/genesis.qset");
+        let bundle = SettingsBundle::load_from_file(&path).expect("example loads");
+
+        assert!(!bundle.color_correction.enabled);
+
+        let preset = QualetizeSettings::genesis();
+        assert_eq!(
+            bundle.qualetize_settings, preset,
+            "loaded settings (left) do not match QualetizeSettings::genesis() (right):\n\
+             loaded:  {:#?}\n\
+             genesis: {:#?}",
+            bundle.qualetize_settings, preset
+        );
     }
 
     #[test]

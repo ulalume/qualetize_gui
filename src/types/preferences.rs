@@ -32,19 +32,22 @@ mod color32_def {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UserPreferences {
+    #[serde(default)]
     pub show_advanced: bool,
+    #[serde(default)]
     pub show_palettes: bool,
 
     #[serde(default)]
     pub show_debug_info: bool,
     #[serde(default)]
     pub show_appearance: bool,
+    #[serde(default)]
     pub selected_export_format: ExportFormat,
 
     #[serde(default)]
     pub appearance_mode: AppearanceMode,
 
-    #[serde(with = "color32_def")]
+    #[serde(default, with = "color32_def")]
     pub background_color: Option<Color32>,
 }
 
@@ -73,21 +76,55 @@ impl UserPreferences {
 
     pub fn load() -> Self {
         let path = Self::config_path();
-        if let Ok(content) = std::fs::read_to_string(&path)
-            && let Ok(prefs) = serde_json::from_str(&content)
-        {
-            return prefs;
+        // A missing file just means first run: not worth a warning, so only the
+        // parse failure of an existing file is logged.
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            match serde_json::from_str(&content) {
+                Ok(prefs) => return prefs,
+                Err(e) => log::warn!("Failed to parse preferences at {}: {e}", path.display()),
+            }
         }
         Self::default()
     }
 
     pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
         let path = Self::config_path();
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
         let content = serde_json::to_string_pretty(self)?;
-        std::fs::write(&path, content)?;
+        crate::settings_manager::write_atomically(&path, content.as_bytes())?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every field carries `#[serde(default)]`, so a completely empty preferences
+    /// file (e.g. `{}`, or one truncated by a crash) still deserializes instead of
+    /// failing to load.
+    #[test]
+    fn an_empty_preferences_object_still_deserializes() {
+        let prefs: UserPreferences = serde_json::from_str("{}").expect("loads");
+        assert_eq!(prefs.selected_export_format, ExportFormat::PngIndexed);
+        assert_eq!(prefs.background_color, None);
+    }
+
+    /// A preferences file written before a field existed is missing just that one
+    /// key; it must still load, with the missing field taking its serde default.
+    #[test]
+    fn a_preferences_object_missing_one_field_still_deserializes() {
+        let json = r#"{
+            "show_advanced": true,
+            "show_debug_info": true,
+            "show_appearance": true,
+            "selected_export_format": "Bmp",
+            "appearance_mode": "Dark"
+        }"#;
+
+        let prefs: UserPreferences = serde_json::from_str(json).expect("loads");
+        assert!(prefs.show_advanced);
+        assert_eq!(prefs.selected_export_format, ExportFormat::Bmp);
+        // "show_palettes" was omitted: falls back to bool's serde default.
+        assert!(!prefs.show_palettes);
     }
 }
