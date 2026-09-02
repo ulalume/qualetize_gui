@@ -1,55 +1,39 @@
 use std::path::Path;
 
 use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
-use crate::image_processor::ImageProcessor;
+use crate::image_processor::{ImageProcessor, TileReduceOptions};
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
-use crate::types::app_state::{
-    AppStateRequest, AppearanceMode, ExportSource, FittedInput, QualetizeRequest, Toast,
-};
-use crate::types::image::{ImageDataIndexed, SortMode, TileCountOptions};
+use crate::types::app_state::{AppStateRequest, AppearanceMode, ExportSource, FittedInput, Toast};
+use crate::types::image::{ImageDataIndexed, SortMode};
 use crate::types::{AppState, ExportFormat};
 use crate::ui::{
     draw_footer, draw_header, draw_image_view, draw_main_content, draw_settings_panel,
 };
 use eframe::egui;
-use egui::{ColorImage, Margin};
+use egui::Margin;
 use rfd::FileDialog;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
 
+#[derive(Default)]
 pub struct QualetizeApp {
     state: AppState,
     image_processor: ImageProcessor,
 }
 
-impl Default for QualetizeApp {
-    fn default() -> Self {
-        Self {
-            state: AppState::default(),
-            image_processor: ImageProcessor::new(),
-        }
-    }
-}
-
 impl QualetizeApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let ctx = &cc.egui_ctx;
-
-        crate::ui::styles::init_styles(ctx);
-
+        crate::ui::styles::init_styles(&cc.egui_ctx);
         Self::default()
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
 
-        if !dropped_files.is_empty()
-            && let Some(dropped_file) = dropped_files.first()
-            && let Some(path) = &dropped_file.path
-        {
+        if let Some(path) = dropped_files.first().and_then(|file| file.path.as_ref()) {
             _ = self
                 .state
                 .app_state_request_sender
@@ -60,53 +44,44 @@ impl QualetizeApp {
     }
 
     fn load_image_file(&mut self, path: String, ctx: &egui::Context) {
-        // Cancel any existing processing
-        if self.image_processor.is_processing() {
-            self.image_processor.cancel_current_processing();
-            self.image_processor = ImageProcessor::new();
-        }
-        self.image_processor.cancel_tile_reduce();
-        self.state.tile_reduce_processing = false;
+        self.image_processor.cancel_all();
+        self.state.reset_all_images();
 
         match ImageData::load(&path, ctx) {
             Ok(image_data) => {
-                self.state.reset_all_images();
                 self.state.input_path = Some(path);
                 self.state.input_image = Some(image_data);
-
                 self.state.zoom = 1.0;
                 self.state.pan_offset = egui::Vec2::ZERO;
             }
-            Err(e) => {
-                log::error!("File load Error {e}");
-                self.state.reset_all_images();
-            }
+            Err(e) => log::error!("File load Error {e}"),
         }
     }
 
+    /// Start the pending quantization once the debounce delay has passed and
+    /// the previous run is done. Tile reduction is requested again by
+    /// [`Self::check_qualetize_completion`] once the new base image exists.
     fn handle_settings_changes(&mut self) {
         let Some(color_corrected_image) = &self.state.color_corrected_image else {
             return;
         };
-        // debounce functionality: start preview generation after a certain delay from settings change
         let Some(request) = &self.state.request_update_qualetized_image else {
             return;
         };
-        if request.time.elapsed() < self.state.debounce_delay {
-            return;
-        }
-        if self.image_processor.is_processing() {
+        if request.time.elapsed() < self.state.debounce_delay
+            || self.image_processor.is_qualetizing()
+        {
             return;
         }
 
         self.state.request_update_qualetized_image = None;
         self.image_processor.cancel_tile_reduce();
-        self.state.tile_reduce_processing = false;
-        self.image_processor
-            .start_qualetize(color_corrected_image, self.state.settings.clone());
-
-        // request tile reduce after qualetize finishes
-        self.state.request_update_tile_reduce = self.state.settings.tile_reduce_post_enabled;
+        self.image_processor.start_qualetize(
+            &color_corrected_image.rgba_data,
+            color_corrected_image.width,
+            color_corrected_image.height,
+            self.state.settings.clone(),
+        );
     }
 
     /// Extend the input image so both sides are a multiple of the tile size,
@@ -152,132 +127,11 @@ impl QualetizeApp {
         true
     }
 
-    fn update_color_corrected_image(&mut self, ctx: &egui::Context) {
-        if self.state.color_correction_changed() {
-            self.apply_color_correct_image(ctx);
-            self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                time: std::time::Instant::now(),
-            });
-            self.state.update_color_correction_tracking();
-        }
-    }
-
-    fn check_preview_completion(&mut self, ctx: &egui::Context) {
-        if let Some(result) = self.image_processor.check_preview_complete(ctx) {
-            match result {
-                Ok(image_data) => {
-                    self.state.base_output_image = Some(image_data.clone());
-                    self.state.base_tile_count = Self::count_tiles(
-                        &image_data,
-                        self.state.settings.tile_width,
-                        self.state.settings.tile_height,
-                        self.state.tile_count.options(),
-                    );
-                    if !self.state.settings.tile_reduce_post_enabled
-                        || self.state.settings.tile_reduce_post_threshold <= 0.0
-                    {
-                        self.state.output_image = Some(image_data);
-                        self.state.reduced_tile_count = self.state.base_tile_count;
-                        self.state.tile_reduce_processing = false;
-                    } else {
-                        self.state.request_update_tile_reduce = true;
-                        self.handle_tile_reduce_changes(ctx);
-                    }
-                    self.state.invalidate_palette_sort();
-                    self.state.tile_count.reset();
-                }
-                Err(e) => {
-                    log::error!("Failed to generate preview image: {e}");
-                    self.state.reset_qualetize_outputs();
-                    self.state.tile_reduce_processing = false;
-                }
-            }
-        }
-    }
-
-    fn check_tile_reduce_completion(&mut self, ctx: &egui::Context) {
-        if let Some(result) = self.image_processor.check_tile_reduce_complete() {
-            match result {
-                Ok(res) => {
-                    if res.generation_id != self.state.tile_reduce_generation_id {
-                        log::debug!("Ignoring stale tile reduce result");
-                        return;
-                    }
-                    let Some(base) = &self.state.base_output_image else {
-                        return;
-                    };
-                    let Some(base_indexed) = &base.indexed else {
-                        return;
-                    };
-                    let mut pixels = Vec::with_capacity((base.width * base.height * 4) as usize);
-                    for &pixel_index in &res.indexed_pixels {
-                        let palette_index = pixel_index as usize;
-                        if let Some(color) = base_indexed.palettes.get(palette_index) {
-                            pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
-                        } else {
-                            pixels.extend_from_slice(&[0, 0, 0, 255]);
-                        }
-                    }
-                    let size = [base.width as usize, base.height as usize];
-                    let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
-                    let texture =
-                        ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
-
-                    let mut output = base.clone();
-                    output.texture = texture;
-                    output.rgba_data = pixels;
-                    output.indexed = Some(ImageDataIndexed {
-                        palettes_for_ui: base_indexed.palettes_for_ui.clone(),
-                        palettes: base_indexed.palettes.clone(),
-                        indexed_pixels: res.indexed_pixels,
-                    });
-                    self.state.output_image = Some(output);
-                    self.state.invalidate_palette_sort();
-                    self.state.reduced_tile_count = Self::count_tiles(
-                        self.state.output_image.as_ref().unwrap(),
-                        self.state.settings.tile_width,
-                        self.state.settings.tile_height,
-                        self.state.tile_count.options(),
-                    );
-                    self.state.tile_reduce_processing = false;
-                    let diff = self
-                        .state
-                        .base_tile_count
-                        .and_then(|base| {
-                            self.state
-                                .reduced_tile_count
-                                .map(|reduced| base.saturating_sub(reduced))
-                        })
-                        .unwrap_or(res.merged);
-                    self.state.tile_reduce_toast =
-                        Some(Toast::new(format!("Reduced {diff} tiles")));
-                    self.state.tile_count.mark_dirty();
-                    log::info!("Tile reduce completed: merged {}", res.merged);
-                }
-                Err(e) => {
-                    log::error!("Tile reduce failed: {e}");
-                    self.state.tile_reduce_processing = false;
-                }
-            }
-        }
-    }
-    fn apply_theme(&self, ctx: &egui::Context) {
-        let visuals = match self.state.preferences.appearance_mode {
-            AppearanceMode::Dark => egui::Visuals::dark(),
-            AppearanceMode::Light => egui::Visuals::light(),
-            AppearanceMode::System => match ctx.system_theme() {
-                Some(egui::Theme::Dark) => egui::Visuals::dark(),
-                Some(egui::Theme::Light) => egui::Visuals::light(),
-                None => egui::Visuals::dark(),
-            },
-        };
-        if ctx.global_style().visuals != visuals {
-            ctx.set_visuals(visuals);
-        }
-    }
-
-    fn apply_color_correct_image(&mut self, ctx: &egui::Context) {
+    /// Rebuild the color corrected image from the current pipeline input and
+    /// queue a re-quantization of it.
+    fn refresh_color_corrected_image(&mut self, ctx: &egui::Context) {
         let Some(image) = self.state.processing_input() else {
+            self.state.color_corrected_image = None;
             return;
         };
 
@@ -288,71 +142,145 @@ impl QualetizeApp {
         } else {
             image.clone()
         });
+        self.state.update_color_correction_tracking();
+        self.state.request_qualetize();
     }
 
+    fn check_qualetize_completion(&mut self, ctx: &egui::Context) {
+        let Some(result) = self.image_processor.poll_qualetize() else {
+            return;
+        };
+        match result {
+            Ok(res) => {
+                let indexed = ImageDataIndexed::new(
+                    res.palette_data,
+                    res.colors_per_palette,
+                    res.indexed_data,
+                );
+                let image = ImageData::from_indexed(indexed, res.width, res.height, ctx);
+                self.state.base_output_image = Some(image);
+                // Shows the base image right away and starts the reduction
+                // pass on it when that is enabled.
+                self.state.request_update_tile_reduce = true;
+            }
+            Err(e) => {
+                log::error!("Failed to generate preview image: {e}");
+                self.state.reset_qualetize_outputs();
+            }
+        }
+    }
+
+    fn check_tile_reduce_completion(&mut self, ctx: &egui::Context) {
+        let Some(res) = self.image_processor.poll_tile_reduce() else {
+            return;
+        };
+        let Some(base_indexed) = self
+            .state
+            .base_output_image
+            .as_ref()
+            .and_then(|base| base.indexed.as_ref())
+        else {
+            return;
+        };
+        let base = self.state.base_output_image.as_ref().unwrap();
+
+        let indexed = ImageDataIndexed::new(
+            base_indexed.palettes.clone(),
+            base_indexed.colors_per_palette(),
+            res.indexed_pixels,
+        );
+        let output = ImageData::from_indexed(indexed, base.width, base.height, ctx);
+        self.state.output_image = Some(output);
+        self.state.invalidate_palette_sort();
+        self.state.tile_count.mark_dirty();
+        self.update_tile_counts();
+
+        let diff = match (self.state.base_tile_count, self.state.reduced_tile_count) {
+            (Some(base), Some(reduced)) => base.saturating_sub(reduced),
+            _ => res.merged,
+        };
+        self.state.tile_reduce_toast = Some(Toast::new(format!("Reduced {diff} tiles")));
+        log::info!("Tile reduce completed: merged {}", res.merged);
+    }
+
+    fn apply_theme(&self, ctx: &egui::Context) {
+        let visuals = match self.state.preferences.appearance_mode {
+            AppearanceMode::Dark => egui::Visuals::dark(),
+            AppearanceMode::Light => egui::Visuals::light(),
+            AppearanceMode::System => match ctx.system_theme() {
+                Some(egui::Theme::Light) => egui::Visuals::light(),
+                _ => egui::Visuals::dark(),
+            },
+        };
+        if ctx.global_style().visuals != visuals {
+            ctx.set_visuals(visuals);
+        }
+    }
+
+    /// Show the base image and, when enabled, start the tile reduction pass on it.
     fn handle_tile_reduce_changes(&mut self, ctx: &egui::Context) {
         if !self.state.request_update_tile_reduce {
             return;
         }
         self.state.request_update_tile_reduce = false;
+        self.image_processor.cancel_tile_reduce();
 
         let Some(base) = &self.state.base_output_image else {
             return;
         };
-
-        // Snapshot everything the worker needs before mutating state below.
-        let base_image = base.clone();
         let reduce_input = base
             .indexed
             .as_ref()
             .map(|indexed| (indexed.indexed_pixels.clone(), indexed.palettes.clone()));
-        let (base_width, base_height) = (base.width, base.height);
+        let (width, height) = (base.width, base.height);
 
-        self.state.output_image = Some(base_image);
+        self.state.output_image = Some(base.clone());
         self.state.invalidate_palette_sort();
-        self.state.reduced_tile_count = self.state.base_tile_count;
         self.state.tile_count.mark_dirty();
-        if !self.state.settings.tile_reduce_post_enabled
-            || self.state.settings.tile_reduce_post_threshold <= 0.0
-        {
-            self.state.tile_reduce_processing = false;
+
+        let settings = &self.state.settings;
+        if !settings.tile_reduce_post_enabled || settings.tile_reduce_post_threshold <= 0.0 {
             return;
         }
-
         let Some((indexed_pixels, palettes)) = reduce_input else {
-            self.state.tile_reduce_processing = false;
             return;
         };
 
-        let opts = crate::image_processor::TileReduceOptions {
-            tile_width: self.state.settings.tile_width,
-            tile_height: self.state.settings.tile_height,
-            threshold: self.state.settings.tile_reduce_post_threshold,
-            allow_flip_x: self.state.settings.tile_reduce_allow_flip_x,
-            allow_flip_y: self.state.settings.tile_reduce_allow_flip_y,
-            use_blur: true,
+        let opts = TileReduceOptions {
+            tile_width: settings.tile_width,
+            tile_height: settings.tile_height,
+            threshold: settings.tile_reduce_post_threshold,
+            allow_flip_x: settings.tile_reduce_allow_flip_x,
+            allow_flip_y: settings.tile_reduce_allow_flip_y,
         };
-
-        let generation_id = self.image_processor.start_tile_reduce(
-            indexed_pixels,
-            palettes,
-            base_width,
-            base_height,
-            opts,
-        );
-        self.state.tile_reduce_generation_id = generation_id;
-        self.state.tile_reduce_processing = true;
+        self.image_processor
+            .start_tile_reduce(indexed_pixels, palettes, width, height, opts);
         ctx.request_repaint();
     }
 
-    fn count_tiles(
-        image: &ImageData,
-        tile_w: u16,
-        tile_h: u16,
-        options: TileCountOptions,
-    ) -> Option<usize> {
-        let indexed = image.indexed.as_ref()?;
-        ImageData::count_unique_tiles(indexed, image.width, image.height, tile_w, tile_h, options)
+    /// Recount the unique tiles of both output images once something they
+    /// depend on changed: the images themselves or the counting options.
+    /// Both numbers are derived here, in one place, so the footer count and
+    /// the "Reduced N tiles" label can never disagree about the options.
+    fn update_tile_counts(&mut self) {
+        if !self.state.tile_count.dirty {
+            return;
+        }
+        self.state.tile_count.dirty = false;
+
+        let count = |image: &Option<ImageData>| {
+            let image = image.as_ref()?;
+            ImageData::count_unique_tiles(
+                image.indexed.as_ref()?,
+                image.width,
+                image.height,
+                self.state.settings.tile_width,
+                self.state.settings.tile_height,
+                self.state.tile_count.options(),
+            )
+        };
+        self.state.base_tile_count = count(&self.state.base_output_image);
+        self.state.reduced_tile_count = count(&self.state.output_image);
     }
 
     /// Write `source` to `output_path` on a worker thread.
@@ -419,78 +347,40 @@ impl QualetizeApp {
     }
 
     fn handle_requests(&mut self, ctx: &egui::Context) {
-        // Check for file dialog results first
-        let Ok(app_state_request) = &self.state.app_state_request_receiver.try_recv() else {
+        let Ok(request) = self.state.app_state_request_receiver.try_recv() else {
             return;
         };
-        match app_state_request {
+        match request {
             AppStateRequest::LoadImage { path } => {
-                self.load_image_file(path.clone(), ctx);
+                self.load_image_file(path, ctx);
                 self.update_tile_fit(ctx);
-                self.apply_color_correct_image(ctx);
-                self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                    time: std::time::Instant::now(),
-                });
-                self.state.update_color_correction_tracking();
+                self.refresh_color_corrected_image(ctx);
             }
             AppStateRequest::ExportImage {
                 source,
                 format,
                 output_path,
             } => {
-                self.export_image(*source, *format, output_path.clone());
+                self.export_image(source, format, output_path);
             }
             AppStateRequest::SaveSettings { path } => {
-                let settings_bundle = SettingsBundle::new(
-                    self.state.settings.clone(),
-                    self.state.color_correction.clone(),
-                    self.state.palette_sort_settings,
-                );
-
-                match settings_bundle.save_to_file(path) {
-                    Ok(()) => {
-                        log::info!("Settings saved successfully to: {path}");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to save settings: {e}");
-                    }
+                match self.state.settings_bundle().save_to_file(&path) {
+                    Ok(()) => log::info!("Settings saved successfully to: {path}"),
+                    Err(e) => log::error!("Failed to save settings: {e}"),
                 }
             }
-            AppStateRequest::LoadSettings { path } => {
-                match SettingsBundle::load_from_file(path) {
-                    Ok(settings_bundle) => {
-                        // Cancel any existing processing
-                        if self.image_processor.is_processing() {
-                            self.image_processor.cancel_current_processing();
-                            self.image_processor = ImageProcessor::new();
-                        }
-
-                        // Apply loaded settings
-                        self.state.settings = settings_bundle.qualetize_settings;
-                        self.state.color_correction = settings_bundle.color_correction;
-                        self.state.palette_sort_settings = settings_bundle.sort_settings;
-
-                        self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                            time: std::time::Instant::now(),
-                        });
-
-                        if self.state.input_image.is_some() {
-                            self.update_tile_fit(ctx);
-                            self.apply_color_correct_image(ctx);
-                        } else {
-                            self.state.color_corrected_image = None;
-                        }
-
-                        // Update tracking
-                        self.state.update_color_correction_tracking();
-
-                        log::info!("Settings loaded successfully from: {path}");
-                    }
-                    Err(e) => {
-                        log::error!("Failed to load settings: {e}");
-                    }
+            AppStateRequest::LoadSettings { path } => match SettingsBundle::load_from_file(&path) {
+                Ok(bundle) => {
+                    self.image_processor.cancel_all();
+                    self.state.settings = bundle.qualetize_settings;
+                    self.state.color_correction = bundle.color_correction;
+                    self.state.palette_sort_settings = bundle.sort_settings;
+                    self.update_tile_fit(ctx);
+                    self.refresh_color_corrected_image(ctx);
+                    log::info!("Settings loaded successfully from: {path}");
                 }
-            }
+                Err(e) => log::error!("Failed to load settings: {e}"),
+            },
             AppStateRequest::OpenImageDialog => {
                 self.spawn_file_dialog(|dialog| {
                     let path = dialog
@@ -505,7 +395,6 @@ impl QualetizeApp {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
-                let (source, format) = (*source, *format);
                 let default_path =
                     get_export_path(&input_path, &format, Some(source.file_suffix()));
 
@@ -562,24 +451,20 @@ impl QualetizeApp {
         }
 
         let col0_is_clear = self.state.settings.col0_is_clear;
-        let sorted = self
+        self.state.output_palette_sorted_indexed_image = self
             .state
             .output_image
             .as_ref()
             .and_then(|image| image.indexed.as_ref())
             .map(|indexed| indexed.sorted(settings.mode, settings.order, col0_is_clear));
-
-        self.state.output_palette_sorted_indexed_image = sorted;
     }
 }
 
 impl Drop for QualetizeApp {
     fn drop(&mut self) {
-        // Cancel any ongoing processing
-        self.image_processor.cancel_current_processing();
+        self.image_processor.cancel_all();
         // Flush a change made in the last moments before quitting
         self.state.save_session_now();
-        log::debug!("QualetizeApp dropped, resources cleaned up");
     }
 }
 
@@ -587,11 +472,7 @@ impl eframe::App for QualetizeApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let ctx = &ctx;
-        // The Qualetized and Tile Reduced panels show their own spinners, so the
-        // two stages are tracked separately (`state.tile_reduce_processing`).
-        let qualetize_processing = self.image_processor.is_processing();
 
-        // apply theme
         self.apply_theme(ctx);
 
         // Handle drag and drop first
@@ -599,19 +480,13 @@ impl eframe::App for QualetizeApp {
             self.handle_dropped_files(ctx);
         }
 
-        // Check preview completion
-        self.check_preview_completion(ctx);
-        // Check tile reduce completion
+        self.check_qualetize_completion(ctx);
         self.check_tile_reduce_completion(ctx);
 
         // Re-extend if the tile size changed, then update the corrected image
-        if self.update_tile_fit(ctx) {
-            self.apply_color_correct_image(ctx);
-            self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                time: std::time::Instant::now(),
-            });
+        if self.update_tile_fit(ctx) || self.state.color_correction_changed() {
+            self.refresh_color_corrected_image(ctx);
         }
-        self.update_color_corrected_image(ctx);
 
         // Handle settings changes after checking completion
         self.handle_settings_changes();
@@ -620,13 +495,17 @@ impl eframe::App for QualetizeApp {
         self.handle_tile_reduce_changes(ctx);
 
         self.update_palette_sort_settings();
+        self.update_tile_counts();
 
-        // Handle export requests
         self.handle_requests(ctx);
 
         // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
         self.state.check_and_save_session(ctx);
+
+        // The Qualetized and Tile Reduced panels show their own spinners.
+        let qualetize_processing = self.image_processor.is_qualetizing();
+        self.state.tile_reduce_processing = self.image_processor.is_tile_reducing();
 
         let mut settings_changed = false;
         let mut tile_reduce_changed = false;
@@ -684,16 +563,14 @@ impl eframe::App for QualetizeApp {
             });
 
         if settings_changed {
-            self.state.request_update_qualetized_image = Some(QualetizeRequest {
-                time: std::time::Instant::now(),
-            });
+            self.state.request_qualetize();
         }
         if tile_reduce_changed {
             self.state.request_update_tile_reduce = true;
         }
 
-        // Repaint drawing while updating image
-        if self.image_processor.is_processing()
+        // Keep repainting while work is pending or in flight
+        if qualetize_processing
             || self.state.tile_reduce_processing
             || self.state.request_update_qualetized_image.is_some()
             || self.state.request_update_tile_reduce

@@ -98,11 +98,8 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             }
             if ui.button("Use Top-Left Pixel Color").clicked()
                 && let Some(color_corrected_image) = &state.color_corrected_image
-                && let Some(color) = color_corrected_image.get_top_left_pixel_color()
             {
-                *r = color.r();
-                *g = color.g();
-                *b = color.b();
+                [*r, *g, *b, _] = color_corrected_image.top_left_pixel();
                 settings_changed = true;
             }
             ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));

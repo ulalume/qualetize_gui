@@ -1,7 +1,6 @@
 use super::BGRA8;
 use super::ColorCorrection;
 use crate::color_processor::ColorProcessor;
-use crate::image_processor::QualetizeResult;
 use egui::{Color32, ColorImage, TextureHandle};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -87,6 +86,44 @@ impl SortMode {
 }
 
 impl ImageDataIndexed {
+    /// `palettes` is the flat palette buffer as the library produces it; the
+    /// per-palette rows for the UI are derived from it here so the two can
+    /// never disagree.
+    pub fn new(palettes: Vec<BGRA8>, colors_per_palette: usize, indexed_pixels: Vec<u8>) -> Self {
+        let palettes_for_ui = palettes
+            .chunks(colors_per_palette.max(1))
+            .map(|chunk| {
+                chunk
+                    .iter()
+                    .map(|c| Color32::from_rgba_unmultiplied(c.r, c.g, c.b, c.a))
+                    .collect()
+            })
+            .collect();
+        Self {
+            palettes_for_ui,
+            palettes,
+            indexed_pixels,
+        }
+    }
+
+    pub fn colors_per_palette(&self) -> usize {
+        self.palettes_for_ui.first().map_or(0, Vec::len)
+    }
+
+    /// Every pixel resolved through the palette, as RGBA bytes. Indices past
+    /// the end of the palette come out opaque black.
+    pub fn to_rgba(&self) -> Vec<u8> {
+        let mut pixels = Vec::with_capacity(self.indexed_pixels.len() * 4);
+        for &index in &self.indexed_pixels {
+            let px = self
+                .palettes
+                .get(index as usize)
+                .map_or([0, 0, 0, 255], |c| [c.r, c.g, c.b, c.a]);
+            pixels.extend_from_slice(&px);
+        }
+        pixels
+    }
+
     /// Reorder the colors inside every palette, rewriting the pixel indices so
     /// each pixel still resolves to the same color.
     pub fn sorted(
@@ -95,15 +132,11 @@ impl ImageDataIndexed {
         order: SortOrder,
         first_color_is_transparent: bool,
     ) -> Self {
-        let Some(first_palette) = self.palettes_for_ui.first() else {
-            return self.clone();
-        };
-        let colors_per_palette = first_palette.len();
+        let colors_per_palette = self.colors_per_palette();
         if colors_per_palette == 0 {
             return self.clone();
         }
 
-        let mut new_palettes_for_ui = self.palettes_for_ui.clone();
         let mut new_palettes = self.palettes.clone();
 
         // One global old-index -> new-index table for every palette, so the
@@ -125,7 +158,6 @@ impl ImageDataIndexed {
             });
 
             for (new_idx, &old_idx) in order_of.iter().enumerate() {
-                new_palettes_for_ui[palette_idx][new_idx] = palette[old_idx];
                 new_palettes[palette_start + new_idx] = self.palettes[palette_start + old_idx];
                 if let Some(slot) = remap.get_mut(palette_start + old_idx) {
                     *slot = (palette_start + new_idx) as u8;
@@ -133,15 +165,12 @@ impl ImageDataIndexed {
             }
         }
 
-        ImageDataIndexed {
-            palettes_for_ui: new_palettes_for_ui,
-            palettes: new_palettes,
-            indexed_pixels: self
-                .indexed_pixels
-                .iter()
-                .map(|&pixel| remap[pixel as usize])
-                .collect(),
-        }
+        let indexed_pixels = self
+            .indexed_pixels
+            .iter()
+            .map(|&pixel| remap[pixel as usize])
+            .collect();
+        Self::new(new_palettes, colors_per_palette, indexed_pixels)
     }
 
     /// Ordering of two entries of the same palette. When the first color is the
@@ -234,18 +263,6 @@ impl ImageData {
         }
     }
 
-    /// Get the color of the top-left pixel (0, 0)
-    pub fn get_top_left_pixel_color(&self) -> Option<Color32> {
-        if self.rgba_data.len() >= 4 && self.width > 0 && self.height > 0 {
-            let r = self.rgba_data[0];
-            let g = self.rgba_data[1];
-            let b = self.rgba_data[2];
-            Some(Color32::from_rgb(r, g, b))
-        } else {
-            None
-        }
-    }
-
     pub fn color_corrected(
         &self,
         color_correction: &ColorCorrection,
@@ -276,76 +293,25 @@ impl ImageData {
         }
     }
 
-    pub fn create_from_qualetize_result(
-        result: QualetizeResult,
+    /// An indexed image together with the RGBA texture it resolves to.
+    pub fn from_indexed(
+        indexed: ImageDataIndexed,
+        width: u32,
+        height: u32,
         ctx: &egui::Context,
-    ) -> Result<ImageData, String> {
-        let QualetizeResult {
-            indexed_data,
-            palette_data,
-            settings,
-            width,
-            height,
-            generation_id: _,
-        } = result;
-
-        let mut pixels = Vec::with_capacity((width * height * 4) as usize);
-        for &pixel_index in &indexed_data {
-            let palette_index = pixel_index as usize;
-            if palette_index < palette_data.len() {
-                let color = &palette_data[palette_index];
-                pixels.extend_from_slice(&[color.r, color.g, color.b, color.a]);
-            } else {
-                pixels.extend_from_slice(&[0, 0, 0, 255]);
-            }
-        }
-
+    ) -> ImageData {
+        let pixels = indexed.to_rgba();
         let size = [width as usize, height as usize];
         let color_image = ColorImage::from_rgba_unmultiplied(size, &pixels);
         let texture = ctx.load_texture("output", color_image, egui::TextureOptions::NEAREST);
 
-        // Split the flat palette into per-palette rows for the overlay.
-        let palettes_for_ui = Self::convert_palette_data(
-            &palette_data,
-            settings.n_palettes as usize,
-            settings.n_colors as usize,
-        );
-
-        Ok(ImageData {
+        ImageData {
             texture,
             width,
             height,
             rgba_data: pixels,
-            indexed: Some(ImageDataIndexed {
-                palettes_for_ui,
-                palettes: palette_data,
-                indexed_pixels: indexed_data,
-            }),
-        })
-    }
-    fn convert_palette_data(
-        palette_data: &[BGRA8],
-        n_palettes: usize,
-        n_colors: usize,
-    ) -> Vec<Vec<egui::Color32>> {
-        let colors_per_palette = n_colors;
-        let mut palettes = Vec::new();
-
-        let egui_colors: Vec<egui::Color32> = palette_data
-            .iter()
-            .map(|bgra| egui::Color32::from_rgba_unmultiplied(bgra.r, bgra.g, bgra.b, bgra.a))
-            .collect();
-
-        for chunk in egui_colors.chunks(colors_per_palette) {
-            palettes.push(chunk.to_vec());
+            indexed: Some(indexed),
         }
-
-        while palettes.len() < n_palettes {
-            palettes.push(vec![egui::Color32::BLACK; colors_per_palette]);
-        }
-        palettes.truncate(n_palettes);
-
-        palettes
     }
 
     pub fn count_unique_tiles(
@@ -396,39 +362,14 @@ impl ImageData {
                     continue;
                 }
 
-                let base = tile;
-                let mut best = base.clone();
-
-                if options.allow_flip_x {
-                    let mut flipped = Vec::with_capacity(tile_area);
-                    for y in 0..tile_h {
-                        let row_start = y * tile_w;
-                        let row = &base[row_start..row_start + tile_w];
-                        flipped.extend(row.iter().rev());
+                // Canonical form: the smallest of the tile and its allowed
+                // flips, so mirrored tiles collapse into one entry.
+                let mut best = tile.clone();
+                for (flip_x, flip_y) in [(true, false), (false, true), (true, true)] {
+                    if (flip_x && !options.allow_flip_x) || (flip_y && !options.allow_flip_y) {
+                        continue;
                     }
-                    if flipped < best {
-                        best = flipped;
-                    }
-                }
-
-                if options.allow_flip_y {
-                    let mut flipped = Vec::with_capacity(tile_area);
-                    for y in (0..tile_h).rev() {
-                        let row_start = y * tile_w;
-                        flipped.extend_from_slice(&base[row_start..row_start + tile_w]);
-                    }
-                    if flipped < best {
-                        best = flipped;
-                    }
-                }
-
-                if options.allow_flip_x && options.allow_flip_y {
-                    let mut flipped = Vec::with_capacity(tile_area);
-                    for y in (0..tile_h).rev() {
-                        let row_start = y * tile_w;
-                        let row = &base[row_start..row_start + tile_w];
-                        flipped.extend(row.iter().rev());
-                    }
+                    let flipped = flip_tile(&tile, tile_w, flip_x, flip_y);
                     if flipped < best {
                         best = flipped;
                     }
@@ -457,6 +398,23 @@ impl ImageData {
             indexed: None,
         })
     }
+}
+
+/// `tile` (row-major, `tile_w` wide) mirrored along the requested axes.
+fn flip_tile(tile: &[u8], tile_w: usize, flip_x: bool, flip_y: bool) -> Vec<u8> {
+    let mut rows: Vec<&[u8]> = tile.chunks_exact(tile_w).collect();
+    if flip_y {
+        rows.reverse();
+    }
+    let mut flipped = Vec::with_capacity(tile.len());
+    for row in rows {
+        if flip_x {
+            flipped.extend(row.iter().rev());
+        } else {
+            flipped.extend_from_slice(row);
+        }
+    }
+    flipped
 }
 
 /// Place `src` at the top left of a `width` x `height` RGBA buffer, filling the
@@ -508,7 +466,7 @@ mod tests {
         assert_eq!(&out[8..12], &fill, "padding to the right");
         assert_eq!(&out[12..16], &fill, "padding to the right");
         assert!(
-            out[16..].chunks_exact(4).all(|px| px == fill),
+            out[16..].as_chunks::<4>().0.iter().all(|px| *px == fill),
             "every added row is filled"
         );
     }
@@ -532,15 +490,7 @@ mod tests {
         colors_per_palette: usize,
         pixels: Vec<u8>,
     ) -> ImageDataIndexed {
-        let palettes_for_ui = palettes
-            .chunks(colors_per_palette)
-            .map(|chunk| chunk.iter().map(ui_color).collect())
-            .collect();
-        ImageDataIndexed {
-            palettes_for_ui,
-            palettes,
-            indexed_pixels: pixels,
-        }
+        ImageDataIndexed::new(palettes, colors_per_palette, pixels)
     }
 
     fn opts(visible_only: bool, flip_x: bool, flip_y: bool) -> TileCountOptions {
@@ -696,11 +646,7 @@ mod tests {
 
     #[test]
     fn sorted_is_a_noop_without_palettes() {
-        let empty = ImageDataIndexed {
-            palettes_for_ui: Vec::new(),
-            palettes: Vec::new(),
-            indexed_pixels: vec![0, 1, 2],
-        };
+        let empty = ImageDataIndexed::new(Vec::new(), 4, vec![0, 1, 2]);
         let sorted = empty.sorted(SortMode::Luminance, SortOrder::Ascending, false);
         assert_eq!(sorted.indexed_pixels, vec![0, 1, 2]);
     }
