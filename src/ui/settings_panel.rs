@@ -456,6 +456,14 @@ const SHADOWS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
 const HIGHLIGHTS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
 const GAMMA_RANGE: RangeInclusive<f32> = 0.1..=3.0;
 const GAMMA_DISPLAY_RANGE: RangeInclusive<f32> = -100.0..=100.0;
+/// Gamma is edited in hundredths, like the other decimal fields.
+const GAMMA_STEP: f32 = 0.01;
+
+/// Round `value` to the nearest multiple of `step`, so a slider drag lands on
+/// the same values the number field can show and type.
+fn snap(value: f32, step: f32) -> f32 {
+    (value / step).round() * step
+}
 
 /// How the numeric field next to a color correction slider is shown and parsed.
 #[derive(Clone, Copy)]
@@ -469,7 +477,9 @@ enum ValueFormat {
 }
 
 impl ValueFormat {
-    fn drag_speed(self) -> f64 {
+    /// Granularity of the value: one percent, one hundredth, or one degree.
+    /// Both the slider and the number field move in these steps.
+    fn step(self) -> f32 {
         match self {
             ValueFormat::Percentage | ValueFormat::Decimal => 0.01,
             ValueFormat::Degrees => 1.0,
@@ -513,18 +523,22 @@ fn draw_slider_row(
 ) -> bool {
     draw_row_label(ui, label);
 
+    let step = format.step();
     let mut changed = ui
         .add_sized(
             [slider_width, ROW_HEIGHT],
-            egui::Slider::new(value, range.clone()).show_value(false),
+            egui::Slider::new(value, range.clone())
+                .step_by(step as f64)
+                .show_value(false),
         )
         .changed();
 
-    let drag = egui::DragValue::new(value)
-        .range(range)
-        .speed(format.drag_speed());
+    let drag = egui::DragValue::new(value).range(range).speed(step as f64);
     changed |= ui.add(format.apply(drag)).changed();
 
+    if changed {
+        *value = snap(*value, step);
+    }
     ui.end_row();
     changed
 }
@@ -551,12 +565,15 @@ fn draw_gamma_row(ui: &mut egui::Ui, gamma: &mut f32, slider_width: f32) -> bool
         .add(
             egui::DragValue::new(gamma)
                 .range(GAMMA_RANGE)
-                .speed(0.01)
+                .speed(GAMMA_STEP as f64)
                 .custom_formatter(|n, _| format_gamma(n as f32))
                 .custom_parser(|s| s.parse::<f64>().ok()),
         )
         .changed();
 
+    if changed {
+        *gamma = snap(*gamma, GAMMA_STEP).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
+    }
     ui.end_row();
     changed
 }
@@ -741,6 +758,15 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snap_rounds_to_the_nearest_step() {
+        assert_eq!(snap(0.123, 0.01), 0.12);
+        assert_eq!(snap(0.126, 0.01), 0.13);
+        assert_eq!(snap(-0.007, 0.01), -0.01);
+        assert_eq!(snap(37.4, 1.0), 37.0);
+        assert_eq!(snap(1.0, 0.01), 1.0);
+    }
 
     #[test]
     fn valid_rgba_depths_report_no_error() {
