@@ -13,14 +13,10 @@ impl ColorProcessor {
         let tone_curve = Self::tone_curve(corrections);
         let mut output: RgbaImage = ImageBuffer::new(width, height);
 
-        // chunks_exact and pixels_mut walk the buffers in the same row-major
-        // order, so no per-pixel coordinate arithmetic is needed.
-        for (source, target) in pixels.chunks_exact(4).zip(output.pixels_mut()) {
-            *target = Self::apply_pixel_corrections(
-                &Rgba([source[0], source[1], source[2], source[3]]),
-                corrections,
-                &tone_curve,
-            );
+        // Both sides walk the buffers in the same row-major order, so no
+        // per-pixel coordinate arithmetic is needed.
+        for (source, target) in pixels.as_chunks::<4>().0.iter().zip(output.pixels_mut()) {
+            *target = Self::apply_pixel_corrections(&Rgba(*source), corrections, &tone_curve);
         }
 
         output

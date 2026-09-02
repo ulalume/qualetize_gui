@@ -49,6 +49,14 @@ pub fn save_indexed_bmp(
     width: u32,
     height: u32,
 ) -> Result<(), String> {
+    if indexed_pixel_data.len() != (width * height) as usize {
+        return Err(format!(
+            "indexed data has {} pixels, expected {}x{}",
+            indexed_pixel_data.len(),
+            width,
+            height
+        ));
+    }
     // Create 8-bit indexed BMP with palette (always 256 entries)
     let palette_size = palette_data.len().min(256); // Max 256 colors for 8-bit
     let row_size = width.div_ceil(4) * 4; // 4-byte aligned for 8-bit data
@@ -91,18 +99,10 @@ pub fn save_indexed_bmp(
         bmp_data.extend_from_slice(&[0, 0, 0, 0]);
     }
 
-    // Image data (bottom-up, 8-bit indexed)
-    for y in (0..height).rev() {
-        for x in 0..width {
-            let pixel_idx = (y * width + x) as usize;
-            if pixel_idx < indexed_pixel_data.len() {
-                bmp_data.push(indexed_pixel_data[pixel_idx]);
-            } else {
-                bmp_data.push(0);
-            }
-        }
-        // Add padding if necessary
-        let padding = (row_size - width) as usize;
+    // Image data (bottom-up, 8-bit indexed), each row padded to 4 bytes
+    let padding = (row_size - width) as usize;
+    for row in indexed_pixel_data.chunks_exact(width as usize).rev() {
+        bmp_data.extend_from_slice(row);
         bmp_data.extend(std::iter::repeat_n(0, padding));
     }
 
@@ -125,25 +125,56 @@ pub fn save_rgba_image(
 
     let dynamic_img = image::DynamicImage::ImageRgba8(img_buffer);
 
-    match export_format {
+    let format = match export_format {
+        crate::types::ExportFormat::Png => image::ImageFormat::Png,
+        crate::types::ExportFormat::Bmp => image::ImageFormat::Bmp,
         crate::types::ExportFormat::PngIndexed => {
-            return Err(
-                "Indexed PNG format requires palette data, use ExportableImageData::Indexed"
-                    .to_string(),
-            );
+            return Err("indexed PNG needs palette data, use save_indexed_png".to_string());
         }
-        crate::types::ExportFormat::Png => {
-            dynamic_img
-                .save_with_format(output_path, image::ImageFormat::Png)
-                .map_err(|e| format!("PNG save error: {e}"))?;
-        }
-        crate::types::ExportFormat::Bmp => {
-            dynamic_img
-                .save_with_format(output_path, image::ImageFormat::Bmp)
-                .map_err(|e| format!("BMP save error: {e}"))?;
+    };
+    dynamic_img
+        .save_with_format(output_path, format)
+        .map_err(|e| format!("{format:?} save error: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn gray(v: u8) -> BGRA8 {
+        BGRA8 {
+            b: v,
+            g: v,
+            r: v,
+            a: 255,
         }
     }
 
-    log::info!("RGBA image exported successfully to: {output_path}");
-    Ok(())
+    /// Rows are stored bottom-up and padded to a multiple of four bytes, which
+    /// is where a hand-rolled BMP writer usually goes wrong.
+    #[test]
+    fn bmp_rows_are_bottom_up_and_padded() {
+        let dir = std::env::temp_dir().join(format!("qualetize_gui_bmp_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("out.bmp");
+
+        // 3x2 image: top row 1,2,3 / bottom row 4,5,6
+        let pixels = [1, 2, 3, 4, 5, 6];
+        save_indexed_bmp(path.to_str().unwrap(), &pixels, &[gray(0), gray(10)], 3, 2).unwrap();
+
+        let bytes = std::fs::read(&path).unwrap();
+        let data_offset = 54 + 256 * 4;
+        assert_eq!(bytes.len(), data_offset + 2 * 4);
+        assert_eq!(&bytes[data_offset..data_offset + 4], &[4, 5, 6, 0]);
+        assert_eq!(&bytes[data_offset + 4..], &[1, 2, 3, 0]);
+        // second palette entry, BGRA
+        assert_eq!(&bytes[54 + 4..54 + 8], &[10, 10, 10, 255]);
+
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn bmp_rejects_a_pixel_buffer_of_the_wrong_size() {
+        assert!(save_indexed_bmp("unused.bmp", &[0; 5], &[gray(0)], 3, 2).is_err());
+    }
 }
