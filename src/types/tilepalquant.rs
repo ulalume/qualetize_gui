@@ -19,15 +19,6 @@ pub enum ColorZero {
 }
 
 impl ColorZero {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            ColorZero::Unique => "Unique",
-            ColorZero::Shared => "Shared color",
-            ColorZero::TransparentFromAlpha => "Transparent, from transparent pixels",
-            ColorZero::TransparentFromColor => "Transparent, from color",
-        }
-    }
-
     pub fn description(&self) -> &'static str {
         match self {
             ColorZero::Unique => "Index 0 is a normal color, chosen per palette",
@@ -39,15 +30,6 @@ impl ColorZero {
                 "Index 0 is transparent; pixels matching the color below map to it"
             }
         }
-    }
-
-    pub fn all() -> &'static [ColorZero] {
-        &[
-            ColorZero::Unique,
-            ColorZero::Shared,
-            ColorZero::TransparentFromAlpha,
-            ColorZero::TransparentFromColor,
-        ]
     }
 
     /// Whether index 0 is reserved and must stay in place (palette sort,
@@ -76,14 +58,6 @@ pub enum TpqDitherMode {
 }
 
 impl TpqDitherMode {
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            TpqDitherMode::Off => "off",
-            TpqDitherMode::Fast => "fast",
-            TpqDitherMode::Slow => "slow",
-        }
-    }
-
     pub fn description(&self) -> &'static str {
         match self {
             TpqDitherMode::Off => "No dithering",
@@ -94,6 +68,7 @@ impl TpqDitherMode {
         }
     }
 
+    #[cfg(test)]
     pub fn all() -> &'static [TpqDitherMode] {
         &[TpqDitherMode::Off, TpqDitherMode::Fast, TpqDitherMode::Slow]
     }
@@ -124,6 +99,7 @@ impl DitherPattern {
         }
     }
 
+    #[cfg(test)]
     pub fn all() -> &'static [DitherPattern] {
         &[
             DitherPattern::Diagonal4,

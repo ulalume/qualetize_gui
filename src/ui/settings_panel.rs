@@ -42,8 +42,6 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
             ui.separator();
             settings_changed |= draw_tpq_dithering_settings(ui, state);
             ui.separator();
-            settings_changed |= draw_tpq_misc_settings(ui, state);
-            ui.separator();
         }
     }
 
@@ -142,6 +140,11 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
             ),
         );
+    }
+
+    if state.engine == QuantEngine::TilePalQuant {
+        ui.separator();
+        settings_changed |= draw_tpq_misc_settings(ui, state);
     }
 
     settings_changed
@@ -360,19 +363,79 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .hover("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".")
         .show(ui, &mut state.settings.dither_mode);
 
-    ui.horizontal(|ui| {
-        ui.label("Dither Level:")
-            .on_hover_text("Dithering intensity level");
-        settings_changed |= ui
-            .add(egui::Slider::new(
-                &mut state.settings.dither_level,
-                0.0..=2.0,
-            ))
-            .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
-            .changed();
-    });
+    if state.settings.dither_mode != DitherMode::None {
+        ui.horizontal(|ui| {
+            ui.label("Dither Level:")
+                .on_hover_text("Dithering intensity level");
+            settings_changed |= ui
+                .add(egui::Slider::new(
+                    &mut state.settings.dither_level,
+                    0.0..=2.0,
+                ))
+                .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
+                .changed();
+        });
+    }
 
     settings_changed
+}
+
+/// UI-only grouping over [`ColorZero`] for the combo box: the two transparent
+/// variants collapse into a single "Transparent" entry, since which one
+/// applies is picked by the radio buttons shown below the combo.
+#[derive(Clone, Copy, PartialEq)]
+enum ColorZeroKind {
+    Unique,
+    Shared,
+    Transparent,
+}
+
+impl ColorZeroKind {
+    fn from(color_zero: ColorZero) -> Self {
+        match color_zero {
+            ColorZero::Unique => ColorZeroKind::Unique,
+            ColorZero::Shared => ColorZeroKind::Shared,
+            ColorZero::TransparentFromAlpha | ColorZero::TransparentFromColor => {
+                ColorZeroKind::Transparent
+            }
+        }
+    }
+
+    /// Applies the picked kind to `color_zero`. Picking "Transparent" while
+    /// already on one of the two transparent variants preserves that
+    /// sub-choice instead of resetting it.
+    fn apply(self, color_zero: &mut ColorZero) {
+        *color_zero = match self {
+            ColorZeroKind::Unique => ColorZero::Unique,
+            ColorZeroKind::Shared => ColorZero::Shared,
+            ColorZeroKind::Transparent if color_zero.is_transparent() => *color_zero,
+            ColorZeroKind::Transparent => ColorZero::TransparentFromAlpha,
+        };
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            ColorZeroKind::Unique => "Unique",
+            ColorZeroKind::Shared => "Shared color",
+            ColorZeroKind::Transparent => "Transparent",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            ColorZeroKind::Unique => ColorZero::Unique.description(),
+            ColorZeroKind::Shared => ColorZero::Shared.description(),
+            ColorZeroKind::Transparent => "Index 0 is transparent; choose how below",
+        }
+    }
+
+    fn all() -> &'static [ColorZeroKind] {
+        &[
+            ColorZeroKind::Unique,
+            ColorZeroKind::Shared,
+            ColorZeroKind::Transparent,
+        ]
+    }
 }
 
 /// tilepalquant-only: what goes into index 0 of every palette, and the color
@@ -381,65 +444,141 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
     let mut settings_changed = false;
 
     ui.subheading_with_margin("Color index zero");
-    settings_changed |=
-        widgets::EnumCombo::new("tpq_color_zero", ColorZero::all(), ColorZero::display_name)
-            .description(ColorZero::description)
-            .show(ui, &mut state.tpq_settings.color_zero);
 
-    match state.tpq_settings.color_zero {
-        ColorZero::Unique => {}
-        ColorZero::Shared => {
-            ui.horizontal(|ui| {
-                ui.label("Shared color:");
-                settings_changed |= ui
-                    .color_edit_button_srgb(&mut state.tpq_settings.shared_color)
-                    .changed();
-            });
+    let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
+    ui.horizontal(|ui| {
+        if widgets::EnumCombo::new(
+            "tpq_color_zero",
+            ColorZeroKind::all(),
+            ColorZeroKind::display_name,
+        )
+        .description(ColorZeroKind::description)
+        .show(ui, &mut kind)
+        {
+            kind.apply(&mut state.tpq_settings.color_zero);
+            settings_changed = true;
         }
-        ColorZero::TransparentFromAlpha | ColorZero::TransparentFromColor => {
-            ui.horizontal(|ui| {
-                ui.label("Transparent color:");
+
+        if kind == ColorZeroKind::Shared {
+            settings_changed |= ui
+                .color_edit_button_srgb(&mut state.tpq_settings.shared_color)
+                .changed();
+            if ui.button("Use Top-Left Pixel Color").clicked()
+                && let Some(color_corrected_image) = &state.color_corrected_image
+            {
+                let [r, g, b, _] = color_corrected_image.top_left_pixel();
+                state.tpq_settings.shared_color = [r, g, b];
+                settings_changed = true;
+            }
+        }
+    });
+
+    if kind == ColorZeroKind::Transparent {
+        ui.horizontal(|ui| {
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.color_zero,
+                    ColorZero::TransparentFromAlpha,
+                    "from transparent pixels",
+                )
+                .on_hover_text(ColorZero::TransparentFromAlpha.description())
+                .changed();
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.color_zero,
+                    ColorZero::TransparentFromColor,
+                    "from color",
+                )
+                .on_hover_text(ColorZero::TransparentFromColor.description())
+                .changed();
+
+            if state.tpq_settings.color_zero == ColorZero::TransparentFromColor {
                 settings_changed |= ui
                     .color_edit_button_srgb(&mut state.tpq_settings.transparent_color)
                     .changed();
-
-                if state.tpq_settings.color_zero == ColorZero::TransparentFromColor
-                    && ui.button("Use Top-Left Pixel Color").clicked()
+                if ui.button("Use Top-Left Pixel Color").clicked()
                     && let Some(color_corrected_image) = &state.color_corrected_image
                 {
                     let [r, g, b, _] = color_corrected_image.top_left_pixel();
                     state.tpq_settings.transparent_color = [r, g, b];
                     settings_changed = true;
                 }
-            });
-        }
+            }
+        });
     }
 
     settings_changed
 }
 
-/// tilepalquant-only: dither mode, and (when enabled) the pattern and weight.
+/// Pattern combo entries for the tilepalquant Dithering section: `None`
+/// stands for `TpqDitherMode::Off`, in display order (which differs from
+/// [`DitherPattern::all`]'s declaration order).
+const TPQ_DITHER_PATTERN_OPTIONS: [Option<DitherPattern>; 7] = [
+    None,
+    Some(DitherPattern::Diagonal2),
+    Some(DitherPattern::Diagonal4),
+    Some(DitherPattern::Horizontal2),
+    Some(DitherPattern::Horizontal4),
+    Some(DitherPattern::Vertical2),
+    Some(DitherPattern::Vertical4),
+];
+
+fn tpq_dither_pattern_option_name(option: &Option<DitherPattern>) -> &'static str {
+    match option {
+        None => "None",
+        Some(pattern) => pattern.display_name(),
+    }
+}
+
+/// tilepalquant-only: dither pattern (or off), and (when enabled) the
+/// fast/slow mode and weight.
 fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     ui.subheading_with_margin("Dithering");
-    settings_changed |= widgets::EnumCombo::new(
-        "tpq_dither_mode",
-        TpqDitherMode::all(),
-        TpqDitherMode::display_name,
-    )
-    .description(TpqDitherMode::description)
-    .show(ui, &mut state.tpq_settings.dither_mode);
+
+    let mut pattern_option = (state.tpq_settings.dither_mode != TpqDitherMode::Off)
+        .then_some(state.tpq_settings.dither_pattern);
+    ui.horizontal(|ui| {
+        ui.label("Pattern:");
+        if widgets::EnumCombo::new(
+            "tpq_dither_pattern",
+            &TPQ_DITHER_PATTERN_OPTIONS,
+            tpq_dither_pattern_option_name,
+        )
+        .show(ui, &mut pattern_option)
+        {
+            match pattern_option {
+                None => state.tpq_settings.dither_mode = TpqDitherMode::Off,
+                Some(pattern) => {
+                    state.tpq_settings.dither_pattern = pattern;
+                    if state.tpq_settings.dither_mode == TpqDitherMode::Off {
+                        state.tpq_settings.dither_mode = TpqDitherMode::Fast;
+                    }
+                }
+            }
+            settings_changed = true;
+        }
+    });
 
     if state.tpq_settings.dither_mode != TpqDitherMode::Off {
         ui.horizontal(|ui| {
-            ui.label("Pattern:");
-            settings_changed |= widgets::EnumCombo::new(
-                "tpq_dither_pattern",
-                DitherPattern::all(),
-                DitherPattern::display_name,
-            )
-            .show(ui, &mut state.tpq_settings.dither_pattern);
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.dither_mode,
+                    TpqDitherMode::Fast,
+                    "fast",
+                )
+                .on_hover_text(TpqDitherMode::Fast.description())
+                .changed();
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.dither_mode,
+                    TpqDitherMode::Slow,
+                    "slow",
+                )
+                .on_hover_text(TpqDitherMode::Slow.description())
+                .changed();
         });
 
         ui.horizontal(|ui| {
@@ -457,6 +596,8 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
 }
 
 /// tilepalquant-only: the iteration budget, PRNG seed and progress preview.
+/// Drawn at the bottom of Advanced Settings, not in the engine-specific
+/// block above, since these are secondary/advanced controls.
 fn draw_tpq_misc_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
