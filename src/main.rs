@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 mod app;
 mod color_processor;
+mod engine;
 mod exporter;
 mod image_processor;
 mod settings_manager;

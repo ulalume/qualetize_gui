@@ -1,5 +1,7 @@
+use crate::engine::QuantEngine;
 use crate::types::{
     QualetizeSettings, color_correction::ColorCorrection, image::PaletteSortSettings,
+    tilepalquant::TpqSettings,
 };
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -30,6 +32,10 @@ pub struct SettingsBundle {
     #[serde(default)]
     pub sort_settings: PaletteSortSettings,
     #[serde(default)]
+    pub engine: QuantEngine,
+    #[serde(default)]
+    pub tpq_settings: TpqSettings,
+    #[serde(default)]
     pub version: String,
 }
 
@@ -43,6 +49,8 @@ impl SettingsBundle {
             qualetize_settings,
             color_correction,
             sort_settings,
+            engine: QuantEngine::default(),
+            tpq_settings: TpqSettings::default(),
             version: env!("CARGO_PKG_VERSION").to_string(),
         }
     }
@@ -52,6 +60,8 @@ impl SettingsBundle {
         self.qualetize_settings == other.qualetize_settings
             && self.color_correction == other.color_correction
             && self.sort_settings == other.sort_settings
+            && self.engine == other.engine
+            && self.tpq_settings == other.tpq_settings
     }
 
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
@@ -76,6 +86,7 @@ impl SettingsBundle {
         // clamp them before they can reach the C library. See
         // `QualetizeSettings::sanitize`.
         settings.qualetize_settings.sanitize();
+        settings.tpq_settings.sanitize();
 
         log::info!("Settings loaded from: {}", path.as_ref().display());
         Ok(settings)
