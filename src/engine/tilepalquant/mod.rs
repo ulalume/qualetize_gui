@@ -632,9 +632,12 @@ mod tests {
     fn progress_climbs_to_a_hundred_and_carries_previews() {
         let cancel = AtomicBool::new(false);
         let (sender, receiver) = mpsc::channel();
+        let report = |progress: Progress| {
+            let _ = sender.send(progress);
+        };
         let ctx = RunContext {
             cancel: &cancel,
-            progress: Some(&sender),
+            progress: Some(&report),
         };
         let settings = TpqSettings {
             show_progress: true,
@@ -677,9 +680,12 @@ mod tests {
     fn previews_stay_away_when_they_are_switched_off() {
         let cancel = AtomicBool::new(false);
         let (sender, receiver) = mpsc::channel();
+        let report = |progress: Progress| {
+            let _ = sender.send(progress);
+        };
         let ctx = RunContext {
             cancel: &cancel,
-            progress: Some(&sender),
+            progress: Some(&report),
         };
         run(
             &two_tiles(),
@@ -934,9 +940,12 @@ mod timing {
             };
             let cancel = AtomicBool::new(false);
             let (sender, receiver) = mpsc::channel();
+            let report = |progress: Progress| {
+                let _ = sender.send(progress);
+            };
             let ctx = RunContext {
                 cancel: &cancel,
-                progress: Some(&sender),
+                progress: Some(&report),
             };
             let started = crate::time::Instant::now();
             let result = run(&data, w, h, &target, &settings, &ctx);

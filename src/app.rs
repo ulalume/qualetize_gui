@@ -27,14 +27,12 @@ pub struct QualetizeApp {
 }
 
 impl QualetizeApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, initial_image: Option<String>) -> Self {
+    /// `initial` is handled on the first frame, e.g. an image to open.
+    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<AppStateRequest>) -> Self {
         crate::ui::styles::init_styles(&cc.egui_ctx);
         let app = Self::default();
-        if let Some(path) = initial_image {
-            _ = app
-                .state
-                .app_state_request_sender
-                .send(AppStateRequest::LoadImage { path });
+        if let Some(request) = initial {
+            _ = app.state.app_state_request_sender.send(request);
         }
         app
     }
@@ -42,23 +40,43 @@ impl QualetizeApp {
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
 
-        if let Some(path) = dropped_files.first().and_then(|file| file.path.as_ref()) {
-            _ = self
-                .state
-                .app_state_request_sender
-                .send(AppStateRequest::LoadImage {
-                    path: path.display().to_string(),
-                });
-        }
+        let Some(file) = dropped_files.first() else {
+            return;
+        };
+        // Native drops carry a path; browser drops carry the bytes.
+        let request = if let Some(path) = &file.path {
+            AppStateRequest::LoadImage {
+                path: path.display().to_string(),
+            }
+        } else if let Some(bytes) = &file.bytes {
+            AppStateRequest::LoadImageBytes {
+                name: file.name.clone(),
+                bytes: bytes.to_vec(),
+            }
+        } else {
+            return;
+        };
+        _ = self.state.app_state_request_sender.send(request);
     }
 
     fn load_image_file(&mut self, path: String, ctx: &egui::Context) {
+        let loaded = ImageData::load(&path, ctx);
+        self.install_input_image(path, loaded);
+    }
+
+    fn load_image_bytes(&mut self, name: String, bytes: &[u8], ctx: &egui::Context) {
+        let loaded = ImageData::load_from_bytes(bytes, &name, ctx);
+        self.install_input_image(name, loaded);
+    }
+
+    /// Replace the input image (and everything derived from it) with `loaded`.
+    fn install_input_image(&mut self, name: String, loaded: Result<ImageData, String>) {
         self.image_processor.cancel_all();
         self.state.reset_all_images();
 
-        match ImageData::load(&path, ctx) {
+        match loaded {
             Ok(image_data) => {
-                self.state.input_path = Some(path);
+                self.state.input_path = Some(name);
                 self.state.input_image = Some(image_data);
                 self.state.zoom = 1.0;
                 self.state.pan_offset = egui::Vec2::ZERO;
@@ -391,6 +409,11 @@ impl QualetizeApp {
         match request {
             AppStateRequest::LoadImage { path } => {
                 self.load_image_file(path, ctx);
+                self.update_tile_fit(ctx);
+                self.refresh_color_corrected_image(ctx);
+            }
+            AppStateRequest::LoadImageBytes { name, bytes } => {
+                self.load_image_bytes(name, &bytes, ctx);
                 self.update_tile_fit(ctx);
                 self.refresh_color_corrected_image(ctx);
             }

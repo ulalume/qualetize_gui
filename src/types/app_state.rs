@@ -92,6 +92,12 @@ pub enum AppStateRequest {
     LoadImage {
         path: String,
     },
+    /// An image that arrived as bytes (drag and drop on the web, a fetched
+    /// URL); `name` stands in for the path.
+    LoadImageBytes {
+        name: String,
+        bytes: Vec<u8>,
+    },
     ExportImage {
         source: ExportSource,
         format: ExportFormat,

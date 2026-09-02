@@ -3,10 +3,12 @@ pub mod color_processor;
 pub mod engine;
 pub mod exporter;
 pub mod image_processor;
+pub mod platform;
 pub mod settings_manager;
 pub mod time;
 pub mod types;
 pub mod ui;
+pub mod worker;
 
 pub mod wasm_smoke;
 

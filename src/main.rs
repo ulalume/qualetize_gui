@@ -17,12 +17,14 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     // An image path on the command line is opened at startup.
-    let initial_image = std::env::args().nth(1);
+    let initial = std::env::args()
+        .nth(1)
+        .map(|path| qualetize_gui::types::app_state::AppStateRequest::LoadImage { path });
 
     eframe::run_native(
         "Qualetize GUI - Image Quantization Tool",
         options,
-        Box::new(move |cc| Ok(Box::new(QualetizeApp::new(cc, initial_image)))),
+        Box::new(move |cc| Ok(Box::new(QualetizeApp::new(cc, initial)))),
     )
 }
 
