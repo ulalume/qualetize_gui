@@ -1,8 +1,11 @@
 use super::export::ExportFormat;
+use crate::platform::storage;
 use crate::types::app_state::AppearanceMode;
 use egui::Color32;
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+
+/// Key the preferences are kept under.
+const PREFERENCES_KEY: &str = "preferences";
 
 mod color32_def {
     use super::*;
@@ -63,32 +66,22 @@ impl Default for UserPreferences {
 }
 
 impl UserPreferences {
-    pub fn config_path() -> PathBuf {
-        if let Some(config_dir) = dirs::config_dir() {
-            config_dir.join("QualetizeGUI").join("preferences.json")
-        } else {
-            PathBuf::from("preferences.json")
-        }
-    }
-
     pub fn load() -> Self {
-        let path = Self::config_path();
-        // A missing file just means first run: not worth a warning, so only the
-        // parse failure of an existing file is logged.
-        if let Ok(content) = std::fs::read_to_string(&path) {
+        // A missing value just means first run: not worth a warning, so only
+        // the parse failure of a stored one is logged.
+        if let Some(content) = storage::load(PREFERENCES_KEY) {
             match serde_json::from_str(&content) {
                 Ok(prefs) => return prefs,
-                Err(e) => log::warn!("Failed to parse preferences at {}: {e}", path.display()),
+                Err(e) => log::warn!("Failed to parse preferences: {e}"),
             }
         }
         Self::default()
     }
 
-    pub fn save(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let path = Self::config_path();
-        let content = serde_json::to_string_pretty(self)?;
-        crate::settings_manager::write_atomically(&path, content.as_bytes())?;
-        Ok(())
+    pub fn save(&self) -> Result<(), String> {
+        let content = serde_json::to_string_pretty(self)
+            .map_err(|e| format!("Failed to serialize preferences: {e}"))?;
+        storage::save(PREFERENCES_KEY, &content)
     }
 }
 

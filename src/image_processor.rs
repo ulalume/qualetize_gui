@@ -1,103 +1,23 @@
-use crate::engine::{self, Progress, QuantEngine, QuantizeResult};
+use crate::engine::{Progress, QuantEngine, QuantizeResult};
+use crate::platform::Job;
 use crate::types::tilepalquant::TpqSettings;
 use crate::types::{BGRA8, QualetizeSettings};
+use crate::worker::{WorkerReply, WorkerRequest};
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, mpsc};
 
-/// One background computation whose result is polled from the UI thread.
-///
-/// Starting a job replaces the receivers, so a result from an earlier thread
-/// can never be observed: its send fails against the dropped receiver and the
-/// thread simply exits. No generation counter or join bookkeeping is needed.
-///
-/// `P` is what the worker reports while it runs; `()` for workers that
-/// report nothing.
-struct Job<T, P = ()> {
-    receiver: Option<mpsc::Receiver<T>>,
-    progress: Option<mpsc::Receiver<P>>,
-    cancel: Arc<AtomicBool>,
-}
-
-impl<T, P> Default for Job<T, P> {
-    fn default() -> Self {
-        Self {
-            receiver: None,
-            progress: None,
-            cancel: Arc::new(AtomicBool::new(false)),
-        }
-    }
-}
-
-impl<T: Send + 'static, P: Send + 'static> Job<T, P> {
-    /// Cancel the running job, if any, and run `work` on a new thread.
-    /// `work` returns `None` when it stopped early because of the cancel flag.
-    fn start(
-        &mut self,
-        work: impl FnOnce(&AtomicBool, &mpsc::Sender<P>) -> Option<T> + Send + 'static,
-    ) {
-        self.cancel();
-        let cancel = Arc::new(AtomicBool::new(false));
-        let (sender, receiver) = mpsc::channel();
-        let (progress_sender, progress_receiver) = mpsc::channel();
-        let flag = cancel.clone();
-        std::thread::spawn(move || {
-            if let Some(result) = work(&flag, &progress_sender) {
-                let _ = sender.send(result);
-            }
-        });
-        self.receiver = Some(receiver);
-        self.progress = Some(progress_receiver);
-        self.cancel = cancel;
-    }
-
-    /// Ask the worker to stop and forget about its result.
-    fn cancel(&mut self) {
-        self.cancel.store(true, Ordering::Relaxed);
-        self.receiver = None;
-        self.progress = None;
-    }
-
-    fn is_running(&self) -> bool {
-        self.receiver.is_some()
-    }
-
-    /// The finished result, once. A worker that exited without one (cancelled
-    /// or panicked) just ends the job.
-    fn poll(&mut self) -> Option<T> {
-        let receiver = self.receiver.as_ref()?;
-        match receiver.try_recv() {
-            Ok(result) => {
-                self.receiver = None;
-                self.progress = None;
-                Some(result)
-            }
-            Err(mpsc::TryRecvError::Disconnected) => {
-                self.receiver = None;
-                self.progress = None;
-                None
-            }
-            Err(mpsc::TryRecvError::Empty) => None,
-        }
-    }
-
-    /// The most recent progress report, dropping any older ones queued
-    /// behind it.
-    fn poll_progress(&mut self) -> Option<P> {
-        let receiver = self.progress.as_ref()?;
-        let mut latest = None;
-        while let Ok(report) = receiver.try_recv() {
-            latest = Some(report);
-        }
-        latest
-    }
-}
-
+/// The two background computations of the pipeline, each one request at a
+/// time, with their replies sorted into what the UI polls for.
 #[derive(Default)]
 pub struct ImageProcessor {
-    quantize: Job<Result<QuantizeResult, String>, Progress>,
-    tile_reduce: Job<TileReduceResult>,
+    quantize: Job,
+    tile_reduce: Job,
+    quantize_progress: Option<Progress>,
+    quantize_result: Option<Result<QuantizeResult, String>>,
+    tile_reduce_result: Option<TileReduceResult>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileReduceOptions {
     pub tile_width: u16,
     pub tile_height: u16,
@@ -106,6 +26,7 @@ pub struct TileReduceOptions {
     pub allow_flip_y: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TileReduceResult {
     pub indexed_pixels: Vec<u8>,
     pub merged: usize,
@@ -121,22 +42,39 @@ impl ImageProcessor {
         settings: QualetizeSettings,
         tpq: TpqSettings,
     ) {
-        let rgba_data = rgba_data.to_vec();
-        self.quantize.start(move |cancel, progress| {
-            let ctx = engine::RunContext {
-                cancel,
-                progress: Some(progress),
-            };
-            engine::run(engine, &rgba_data, width, height, &settings, &tpq, &ctx)
+        self.quantize_progress = None;
+        self.quantize_result = None;
+        self.quantize.start(WorkerRequest::Quantize {
+            engine,
+            settings,
+            tpq,
+            rgba: rgba_data.to_vec(),
+            width,
+            height,
         });
     }
 
-    pub fn poll_quantize(&mut self) -> Option<Result<QuantizeResult, String>> {
-        self.quantize.poll()
+    /// Sort the replies that arrived since the last call into the pending
+    /// progress and result.
+    fn pump_quantize(&mut self) {
+        for reply in self.quantize.drain() {
+            match reply {
+                WorkerReply::Progress(progress) => self.quantize_progress = Some(progress),
+                WorkerReply::QuantizeDone(result) => self.quantize_result = result,
+                WorkerReply::TileReduceDone(_) => {}
+            }
+        }
     }
 
+    pub fn poll_quantize(&mut self) -> Option<Result<QuantizeResult, String>> {
+        self.pump_quantize();
+        self.quantize_result.take()
+    }
+
+    /// The most recent progress report, dropping any older ones behind it.
     pub fn poll_quantize_progress(&mut self) -> Option<Progress> {
-        self.quantize.poll_progress()
+        self.pump_quantize();
+        self.quantize_progress.take()
     }
 
     pub fn is_quantizing(&self) -> bool {
@@ -145,6 +83,8 @@ impl ImageProcessor {
 
     pub fn cancel_quantize(&mut self) {
         self.quantize.cancel();
+        self.quantize_progress = None;
+        self.quantize_result = None;
     }
 
     pub fn start_tile_reduce(
@@ -155,19 +95,23 @@ impl ImageProcessor {
         height: u32,
         opts: TileReduceOptions,
     ) {
-        self.tile_reduce.start(move |cancel, _| {
-            let mut indexed_pixels = indexed;
-            let merged =
-                reduce_tiles_indexed(&mut indexed_pixels, &palettes, width, height, &opts, cancel)?;
-            Some(TileReduceResult {
-                indexed_pixels,
-                merged,
-            })
+        self.tile_reduce_result = None;
+        self.tile_reduce.start(WorkerRequest::TileReduce {
+            indexed,
+            palettes,
+            width,
+            height,
+            opts,
         });
     }
 
     pub fn poll_tile_reduce(&mut self) -> Option<TileReduceResult> {
-        self.tile_reduce.poll()
+        for reply in self.tile_reduce.drain() {
+            if let WorkerReply::TileReduceDone(result) = reply {
+                self.tile_reduce_result = result;
+            }
+        }
+        self.tile_reduce_result.take()
     }
 
     pub fn is_tile_reducing(&self) -> bool {
@@ -176,6 +120,7 @@ impl ImageProcessor {
 
     pub fn cancel_tile_reduce(&mut self) {
         self.tile_reduce.cancel();
+        self.tile_reduce_result = None;
     }
 
     pub fn cancel_all(&mut self) {

@@ -57,7 +57,7 @@ unsafe extern "C" {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct BGRA8 {
     pub b: u8,
     pub g: u8,

@@ -1,21 +1,17 @@
+//! Encoders for the export formats. Each one returns the finished file as
+//! bytes; where those bytes go is up to the platform.
+
 use crate::types::BGRA8;
 
-pub fn save_indexed_png(
-    output_path: &str,
+pub fn encode_indexed_png(
     indexed_pixel_data: &[u8],
     palette_data: &[BGRA8],
     width: u32,
     height: u32,
-) -> Result<(), String> {
-    use std::fs::File;
-    use std::io::BufWriter;
+) -> Result<Vec<u8>, String> {
+    let mut out = Vec::new();
 
-    // Create PNG encoder
-    let file =
-        File::create(output_path).map_err(|e| format!("Failed to create output file: {e}"))?;
-    let w = BufWriter::new(file);
-
-    let mut encoder = png::Encoder::new(w, width, height);
+    let mut encoder = png::Encoder::new(&mut out, width, height);
     encoder.set_color(png::ColorType::Indexed);
     encoder.set_depth(png::BitDepth::Eight);
 
@@ -40,15 +36,19 @@ pub fn save_indexed_png(
         .write_image_data(indexed_pixel_data)
         .map_err(|e| format!("Failed to write PNG image data: {e}"))?;
 
-    Ok(())
+    writer
+        .finish()
+        .map_err(|e| format!("Failed to finish the PNG stream: {e}"))?;
+
+    Ok(out)
 }
-pub fn save_indexed_bmp(
-    output_path: &str,
+
+pub fn encode_indexed_bmp(
     indexed_pixel_data: &[u8],
     palette_data: &[BGRA8],
     width: u32,
     height: u32,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     if indexed_pixel_data.len() != (width * height) as usize {
         return Err(format!(
             "indexed data has {} pixels, expected {}x{}",
@@ -106,19 +106,17 @@ pub fn save_indexed_bmp(
         bmp_data.extend(std::iter::repeat_n(0, padding));
     }
 
-    std::fs::write(output_path, bmp_data).map_err(|e| format!("File write error: {e}"))?;
-
-    Ok(())
+    Ok(bmp_data)
 }
 
-pub fn save_rgba_image(
-    output_path: &str,
+pub fn encode_rgba_image(
     rgba_data: &[u8],
     width: u32,
     height: u32,
     export_format: crate::types::ExportFormat,
-) -> Result<(), String> {
+) -> Result<Vec<u8>, String> {
     use image::{ImageBuffer, Rgba};
+    use std::io::Cursor;
 
     let img_buffer = ImageBuffer::<Rgba<u8>, _>::from_raw(width, height, rgba_data.to_vec())
         .ok_or_else(|| "Failed to create image buffer from RGBA data".to_string())?;
@@ -129,12 +127,15 @@ pub fn save_rgba_image(
         crate::types::ExportFormat::Png => image::ImageFormat::Png,
         crate::types::ExportFormat::Bmp => image::ImageFormat::Bmp,
         crate::types::ExportFormat::PngIndexed => {
-            return Err("indexed PNG needs palette data, use save_indexed_png".to_string());
+            return Err("indexed PNG needs palette data, use encode_indexed_png".to_string());
         }
     };
+
+    let mut out = Vec::new();
     dynamic_img
-        .save_with_format(output_path, format)
-        .map_err(|e| format!("{format:?} save error: {e}"))
+        .write_to(&mut Cursor::new(&mut out), format)
+        .map_err(|e| format!("{format:?} encode error: {e}"))?;
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -154,27 +155,53 @@ mod tests {
     /// is where a hand-rolled BMP writer usually goes wrong.
     #[test]
     fn bmp_rows_are_bottom_up_and_padded() {
-        let dir = std::env::temp_dir().join(format!("qualetize_gui_bmp_{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let path = dir.join("out.bmp");
-
         // 3x2 image: top row 1,2,3 / bottom row 4,5,6
         let pixels = [1, 2, 3, 4, 5, 6];
-        save_indexed_bmp(path.to_str().unwrap(), &pixels, &[gray(0), gray(10)], 3, 2).unwrap();
+        let bytes = encode_indexed_bmp(&pixels, &[gray(0), gray(10)], 3, 2).unwrap();
 
-        let bytes = std::fs::read(&path).unwrap();
         let data_offset = 54 + 256 * 4;
         assert_eq!(bytes.len(), data_offset + 2 * 4);
         assert_eq!(&bytes[data_offset..data_offset + 4], &[4, 5, 6, 0]);
         assert_eq!(&bytes[data_offset + 4..], &[1, 2, 3, 0]);
         // second palette entry, BGRA
         assert_eq!(&bytes[54 + 4..54 + 8], &[10, 10, 10, 255]);
-
-        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
     fn bmp_rejects_a_pixel_buffer_of_the_wrong_size() {
-        assert!(save_indexed_bmp("unused.bmp", &[0; 5], &[gray(0)], 3, 2).is_err());
+        assert!(encode_indexed_bmp(&[0; 5], &[gray(0)], 3, 2).is_err());
+    }
+
+    /// The encoded PNG is a complete file: signature, palette and transparency
+    /// chunks, and an end marker.
+    #[test]
+    fn indexed_png_is_a_complete_file_with_palette_and_transparency() {
+        let pixels = [0, 1, 1, 0];
+        let bytes = encode_indexed_png(&pixels, &[gray(0), gray(255)], 2, 2).unwrap();
+
+        assert_eq!(&bytes[..8], b"\x89PNG\r\n\x1a\n");
+        let contains = |chunk: &[u8]| bytes.windows(chunk.len()).any(|w| w == chunk);
+        assert!(contains(b"PLTE"));
+        assert!(contains(b"tRNS"));
+        assert!(contains(b"IEND"));
+
+        let decoded = image::load_from_memory(&bytes).expect("decodes");
+        assert_eq!((decoded.width(), decoded.height()), (2, 2));
+    }
+
+    #[test]
+    fn rgba_encodes_to_the_requested_format() {
+        let rgba = vec![255u8; 2 * 2 * 4];
+        let png = encode_rgba_image(&rgba, 2, 2, crate::types::ExportFormat::Png).unwrap();
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");
+
+        let bmp = encode_rgba_image(&rgba, 2, 2, crate::types::ExportFormat::Bmp).unwrap();
+        assert_eq!(&bmp[..2], b"BM");
+    }
+
+    #[test]
+    fn rgba_rejects_the_indexed_format() {
+        let rgba = vec![255u8; 2 * 2 * 4];
+        assert!(encode_rgba_image(&rgba, 2, 2, crate::types::ExportFormat::PngIndexed).is_err());
     }
 }

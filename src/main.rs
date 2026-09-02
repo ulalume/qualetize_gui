@@ -1,16 +1,8 @@
 #![windows_subsystem = "windows"]
-mod app;
-mod color_processor;
-mod engine;
-mod exporter;
-mod image_processor;
-mod settings_manager;
-mod types;
-mod ui;
-
-use app::QualetizeApp;
 use eframe::egui;
+use qualetize_gui::app::QualetizeApp;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
 
@@ -25,11 +17,16 @@ fn main() -> Result<(), eframe::Error> {
     };
 
     // An image path on the command line is opened at startup.
-    let initial_image = std::env::args().nth(1);
+    let initial = std::env::args()
+        .nth(1)
+        .map(|path| qualetize_gui::types::app_state::AppStateRequest::LoadImage { path });
 
     eframe::run_native(
         "Qualetize GUI - Image Quantization Tool",
         options,
-        Box::new(move |cc| Ok(Box::new(QualetizeApp::new(cc, initial_image)))),
+        Box::new(move |cc| Ok(Box::new(QualetizeApp::new(cc, initial)))),
     )
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

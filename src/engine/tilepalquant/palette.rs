@@ -406,7 +406,7 @@ pub fn quantize_1_color(
     for palette_count in 2..=p.n_palettes {
         palettes.push(palettes[split_index].clone());
         for _ in 0..p.iterations {
-            let pixel = pixels[shuffle.next()];
+            let pixel = pixels[shuffle.next_index()];
             move_palettes_closer(&mut palettes, tiles, &pixel, p.alpha, p);
         }
         let mut distances = vec![0.0; palette_count];
@@ -452,7 +452,7 @@ pub fn expand_by_one_color(
     }
 
     for _ in 0..p.iterations {
-        let pixel = pixels[shuffle.next()];
+        let pixel = pixels[shuffle.next_index()];
         move_palettes_closer(palettes, tiles, &pixel, p.alpha, p);
     }
 }

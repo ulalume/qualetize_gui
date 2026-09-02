@@ -1,29 +1,14 @@
 use crate::engine::QuantEngine;
+use crate::platform::storage;
 use crate::types::{
     QualetizeSettings, color_correction::ColorCorrection, image::PaletteSortSettings,
     tilepalquant::TpqSettings,
 };
 use serde::{Deserialize, Serialize};
-use std::fs;
 use std::path::Path;
 
-/// Write `bytes` to `path` without ever leaving a truncated file behind.
-///
-/// Writes go to a sibling `<path>.tmp` file first and are only made visible by an
-/// atomic rename over the real target, so a crash or power loss mid-write can lose
-/// the new content but never corrupts what was already on disk.
-pub(crate) fn write_atomically(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    let mut tmp_name = path.as_os_str().to_owned();
-    tmp_name.push(".tmp");
-    let tmp_path = Path::new(&tmp_name);
-
-    fs::write(tmp_path, bytes)?;
-    fs::rename(tmp_path, path)
-}
+/// Key the settings in use are kept under so they survive a restart.
+const SESSION_KEY: &str = "session";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SettingsBundle {
@@ -64,22 +49,13 @@ impl SettingsBundle {
             && self.tpq_settings == other.tpq_settings
     }
 
-    pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), String> {
-        let json_data = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Failed to serialize settings: {e}"))?;
-
-        write_atomically(path.as_ref(), json_data.as_bytes())
-            .map_err(|e| format!("Failed to write settings file: {e}"))?;
-
-        log::info!("Settings saved to: {}", path.as_ref().display());
-        Ok(())
+    pub fn to_json(&self) -> Result<String, String> {
+        serde_json::to_string_pretty(self).map_err(|e| format!("Failed to serialize settings: {e}"))
     }
 
-    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
-        let json_data =
-            fs::read_to_string(&path).map_err(|e| format!("Failed to read settings file: {e}"))?;
-
-        let mut settings = serde_json::from_str::<SettingsBundle>(&json_data)
+    /// Read a bundle from the JSON of a `.qset` file or of a stored session.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        let mut settings = serde_json::from_str::<SettingsBundle>(json)
             .map_err(|e| format!("Failed to parse settings file: {e}"))?;
 
         // A hand-edited or older-version `.qset` may carry out-of-range values;
@@ -88,53 +64,29 @@ impl SettingsBundle {
         settings.qualetize_settings.sanitize();
         settings.tpq_settings.sanitize();
 
-        log::info!("Settings loaded from: {}", path.as_ref().display());
         Ok(settings)
     }
 
-    pub fn get_default_settings_dir() -> Result<std::path::PathBuf, String> {
-        if let Some(config_dir) = dirs::config_dir() {
-            let app_config_dir = config_dir.join("QualetizeGUI");
-            if !app_config_dir.exists() {
-                fs::create_dir_all(&app_config_dir)
-                    .map_err(|e| format!("Failed to create config directory: {e}"))?;
-            }
-            Ok(app_config_dir)
-        } else {
-            Err("Could not determine config directory".to_string())
-        }
+    pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, String> {
+        let json_data = std::fs::read_to_string(&path)
+            .map_err(|e| format!("Failed to read settings file: {e}"))?;
+        let settings = Self::from_json(&json_data)?;
+
+        log::info!("Settings loaded from: {}", path.as_ref().display());
+        Ok(settings)
     }
 
     pub fn get_settings_file_extension() -> &'static str {
         "qset"
     }
 
-    /// Where the settings in use are mirrored so they survive a restart.
-    /// Same format as a hand-saved `.qset`, so it can be inspected or reused.
-    pub fn session_path() -> Option<std::path::PathBuf> {
-        Some(
-            dirs::config_dir()?
-                .join("QualetizeGUI")
-                .join("session.qset"),
-        )
-    }
-
     /// Restore the settings from the last run, falling back to the defaults.
     pub fn load_session() -> Self {
-        let bundle = Self::session_path().and_then(|path| {
-            if !path.exists() {
-                // Nothing to restore yet, e.g. first run: not worth a warning.
-                return None;
-            }
-            match Self::load_from_file(&path) {
-                Ok(bundle) => Some(bundle),
-                Err(e) => {
-                    log::warn!(
-                        "Failed to load session settings from {}: {e}",
-                        path.display()
-                    );
-                    None
-                }
+        let bundle = storage::load(SESSION_KEY).and_then(|json| match Self::from_json(&json) {
+            Ok(bundle) => Some(bundle),
+            Err(e) => {
+                log::warn!("Failed to load session settings: {e}");
+                None
             }
         });
 
@@ -147,13 +99,10 @@ impl SettingsBundle {
         })
     }
 
+    /// Mirror the settings in use so they survive a restart. Same format as a
+    /// hand-saved `.qset`, so the stored value can be inspected or reused.
     pub fn save_session(&self) -> Result<(), String> {
-        let path = Self::session_path().ok_or("Could not determine config directory")?;
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|e| format!("Failed to create config directory: {e}"))?;
-        }
-        self.save_to_file(path)
+        storage::save(SESSION_KEY, &self.to_json()?)
     }
 }
 
@@ -252,6 +201,54 @@ mod tests {
              genesis: {:#?}",
             bundle.qualetize_settings, preset
         );
+    }
+
+    /// `from_json` is the one door settings come in through, so the clamping
+    /// of out-of-range values has to happen there rather than in the callers.
+    #[test]
+    fn from_json_clamps_out_of_range_values() {
+        let json = r#"{
+            "qualetize_settings": {
+                "tile_width": 0, "tile_height": 1000, "n_palettes": 65535, "n_colors": 0,
+                "rgba_depth": "9a3!", "premul_alpha": false, "color_space": "RgbLinear",
+                "dither_mode": "Floyd", "dither_level": 99.0, "tile_passes": 4000000,
+                "color_passes": 4000000, "col0_is_clear": false, "clear_color": "None"
+            },
+            "color_correction": {
+                "brightness": 0.0, "contrast": 1.0, "gamma": 1.0, "saturation": 1.0,
+                "hue_shift": 0.0, "shadows": 0.0, "highlights": 0.0
+            }
+        }"#;
+
+        let bundle = SettingsBundle::from_json(json).expect("loads");
+        assert_eq!(bundle.qualetize_settings.tile_width, 1);
+        assert_eq!(bundle.qualetize_settings.tile_height, 64);
+        assert_eq!(bundle.qualetize_settings.n_colors, 1);
+        assert_eq!(bundle.qualetize_settings.tile_passes, 1000);
+        assert_eq!(bundle.qualetize_settings.color_passes, 100);
+        assert_eq!(bundle.qualetize_settings.dither_level, 2.0);
+    }
+
+    #[test]
+    fn from_json_rejects_text_that_is_not_a_bundle() {
+        assert!(SettingsBundle::from_json("not json").is_err());
+        assert!(SettingsBundle::from_json("{}").is_err());
+    }
+
+    /// The session and a `.qset` file carry the same JSON, so a bundle written
+    /// by `to_json` has to come back through `from_json` unchanged.
+    #[test]
+    fn to_json_and_from_json_round_trip() {
+        let mut bundle = SettingsBundle::new(
+            QualetizeSettings::genesis(),
+            ColorCorrection::default(),
+            PaletteSortSettings::default(),
+        );
+        bundle.qualetize_settings.tile_width = 16;
+
+        let restored = SettingsBundle::from_json(&bundle.to_json().unwrap()).expect("loads");
+        assert!(bundle.matches(&restored));
+        assert_eq!(restored.version, bundle.version);
     }
 
     #[test]

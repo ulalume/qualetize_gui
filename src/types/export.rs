@@ -23,6 +23,13 @@ impl ExportFormat {
         }
     }
 
+    pub fn mime(&self) -> &'static str {
+        match self {
+            ExportFormat::PngIndexed | ExportFormat::Png => "image/png",
+            ExportFormat::Bmp => "image/bmp",
+        }
+    }
+
     /// Formats offered in the export UI. `Png` is reached only through the
     /// dedicated "Color Corrected PNG" menu entry.
     pub fn indexed_list() -> &'static [ExportFormat] {

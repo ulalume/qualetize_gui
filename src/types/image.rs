@@ -385,7 +385,22 @@ impl ImageData {
     }
 
     pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {
-        let (rgba_data, width, height) = load_rgba(path)?;
+        Self::from_rgba(load_rgba(path)?, ctx)
+    }
+
+    /// An image decoded from `bytes`; `name` labels log messages.
+    pub fn load_from_bytes(
+        bytes: &[u8],
+        name: &str,
+        ctx: &egui::Context,
+    ) -> Result<ImageData, String> {
+        Self::from_rgba(load_rgba_from_bytes(bytes, name)?, ctx)
+    }
+
+    fn from_rgba(
+        (rgba_data, width, height): (Vec<u8>, u32, u32),
+        ctx: &egui::Context,
+    ) -> Result<ImageData, String> {
         let size = [width as usize, height as usize];
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
@@ -404,8 +419,20 @@ impl ImageData {
 /// ICC profile converted to sRGB. Split out from [`ImageData::load`] so it can
 /// be tested without an egui context.
 fn load_rgba(path: &str) -> Result<(Vec<u8>, u32, u32), String> {
-    let mut decoder = ImageReader::open(path)
-        .map_err(|e| format!("Image loading error: {e}"))?
+    let reader = ImageReader::open(path).map_err(|e| format!("Image loading error: {e}"))?;
+    decode_rgba(reader, path)
+}
+
+/// [`load_rgba`] for an image already in memory; `name` labels log messages.
+fn load_rgba_from_bytes(bytes: &[u8], name: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    decode_rgba(ImageReader::new(std::io::Cursor::new(bytes)), name)
+}
+
+fn decode_rgba<R: std::io::BufRead + std::io::Seek>(
+    reader: ImageReader<R>,
+    path: &str,
+) -> Result<(Vec<u8>, u32, u32), String> {
+    let mut decoder = reader
         .with_guessed_format()
         .map_err(|e| format!("Image loading error: {e}"))?
         .into_decoder()

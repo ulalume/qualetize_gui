@@ -9,7 +9,6 @@ use crate::types::QualetizeSettings;
 use crate::types::tilepalquant::TpqSettings;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::AtomicBool;
-use std::sync::mpsc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum QuantEngine {
@@ -34,7 +33,7 @@ impl QuantEngine {
 /// Indexed output of either engine. `palette_data` holds
 /// `n_palettes * colors_per_palette` entries and each pixel index is
 /// `palette_idx * colors_per_palette + color_idx`.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QuantizeResult {
     pub indexed_data: Vec<u8>,
     pub palette_data: Vec<BGRA8>,
@@ -44,7 +43,7 @@ pub struct QuantizeResult {
 }
 
 /// Intermediate state reported by an engine while it runs.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Progress {
     pub percent: u8,
     /// A quantization of the current palettes, in the shape of the final
@@ -79,7 +78,8 @@ impl TargetFormat {
 /// What a running engine can observe about the outside world.
 pub struct RunContext<'a> {
     pub cancel: &'a AtomicBool,
-    pub progress: Option<&'a mpsc::Sender<Progress>>,
+    /// Receives progress reports; `None` when nobody is listening.
+    pub progress: Option<&'a dyn Fn(Progress)>,
 }
 
 impl RunContext<'_> {
@@ -88,8 +88,8 @@ impl RunContext<'_> {
     }
 
     pub fn report(&self, progress: Progress) {
-        if let Some(sender) = self.progress {
-            let _ = sender.send(progress);
+        if let Some(listener) = self.progress {
+            listener(progress);
         }
     }
 }
@@ -104,7 +104,7 @@ pub fn run(
     tpq: &TpqSettings,
     ctx: &RunContext,
 ) -> Option<Result<QuantizeResult, String>> {
-    let started = std::time::Instant::now();
+    let started = crate::time::Instant::now();
     let result = match engine {
         QuantEngine::Qualetize => {
             // The C call cannot be interrupted, so this only saves work when

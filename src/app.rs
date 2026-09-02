@@ -1,7 +1,6 @@
-use std::path::Path;
-
-use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
+use crate::exporter::{encode_indexed_bmp, encode_indexed_png, encode_rgba_image};
 use crate::image_processor::{ImageProcessor, TileReduceOptions};
+use crate::platform::{self, DialogContext};
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
 use crate::types::app_state::{AppStateRequest, AppearanceMode, ExportSource, FittedInput, Toast};
@@ -12,11 +11,7 @@ use crate::ui::{
 };
 use eframe::egui;
 use egui::Margin;
-use rfd::FileDialog;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::atomic::Ordering;
 
 #[derive(Default)]
 pub struct QualetizeApp {
@@ -25,14 +20,12 @@ pub struct QualetizeApp {
 }
 
 impl QualetizeApp {
-    pub fn new(cc: &eframe::CreationContext<'_>, initial_image: Option<String>) -> Self {
+    /// `initial` is handled on the first frame, e.g. an image to open.
+    pub fn new(cc: &eframe::CreationContext<'_>, initial: Option<AppStateRequest>) -> Self {
         crate::ui::styles::init_styles(&cc.egui_ctx);
         let app = Self::default();
-        if let Some(path) = initial_image {
-            _ = app
-                .state
-                .app_state_request_sender
-                .send(AppStateRequest::LoadImage { path });
+        if let Some(request) = initial {
+            _ = app.state.app_state_request_sender.send(request);
         }
         app
     }
@@ -40,23 +33,43 @@ impl QualetizeApp {
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
         let dropped_files = ctx.input(|i| i.raw.dropped_files.clone());
 
-        if let Some(path) = dropped_files.first().and_then(|file| file.path.as_ref()) {
-            _ = self
-                .state
-                .app_state_request_sender
-                .send(AppStateRequest::LoadImage {
-                    path: path.display().to_string(),
-                });
-        }
+        let Some(file) = dropped_files.first() else {
+            return;
+        };
+        // Native drops carry a path; browser drops carry the bytes.
+        let request = if let Some(path) = &file.path {
+            AppStateRequest::LoadImage {
+                path: path.display().to_string(),
+            }
+        } else if let Some(bytes) = &file.bytes {
+            AppStateRequest::LoadImageBytes {
+                name: file.name.clone(),
+                bytes: bytes.to_vec(),
+            }
+        } else {
+            return;
+        };
+        _ = self.state.app_state_request_sender.send(request);
     }
 
     fn load_image_file(&mut self, path: String, ctx: &egui::Context) {
+        let loaded = ImageData::load(&path, ctx);
+        self.install_input_image(path, loaded);
+    }
+
+    fn load_image_bytes(&mut self, name: String, bytes: &[u8], ctx: &egui::Context) {
+        let loaded = ImageData::load_from_bytes(bytes, &name, ctx);
+        self.install_input_image(name, loaded);
+    }
+
+    /// Replace the input image (and everything derived from it) with `loaded`.
+    fn install_input_image(&mut self, name: String, loaded: Result<ImageData, String>) {
         self.image_processor.cancel_all();
         self.state.reset_all_images();
 
-        match ImageData::load(&path, ctx) {
+        match loaded {
             Ok(image_data) => {
-                self.state.input_path = Some(path);
+                self.state.input_path = Some(name);
                 self.state.input_image = Some(image_data);
                 self.state.zoom = 1.0;
                 self.state.pan_offset = egui::Vec2::ZERO;
@@ -318,67 +331,49 @@ impl QualetizeApp {
         self.state.reduced_tile_count = count(&self.state.output_image);
     }
 
-    /// Write `source` to `output_path` on a worker thread.
-    fn export_image(&self, source: ExportSource, format: ExportFormat, output_path: String) {
+    /// Encode `source` in `format`, ready to be written out.
+    fn encode_export(&self, source: ExportSource, format: ExportFormat) -> Result<Vec<u8>, String> {
         if source == ExportSource::ColorCorrected {
-            let Some(image) = &self.state.color_corrected_image else {
-                log::error!("Export failed: no color corrected image in memory");
-                return;
-            };
-            let rgba_data = image.rgba_data.clone();
-            let (width, height) = (image.width, image.height);
-
-            std::thread::spawn(move || {
-                match save_rgba_image(&output_path, &rgba_data, width, height, format) {
-                    Ok(()) => log::info!("Color corrected export completed: {output_path}"),
-                    Err(e) => log::error!("Color corrected export failed: {e}"),
-                }
-            });
-            return;
+            let image = self
+                .state
+                .color_corrected_image
+                .as_ref()
+                .ok_or("no color corrected image in memory")?;
+            return encode_rgba_image(&image.rgba_data, image.width, image.height, format);
         }
 
-        let Some((indexed, width, height)) = self.state.indexed_for_export(source) else {
-            log::error!("Export failed: no indexed image available for {source:?}");
-            return;
-        };
-
-        std::thread::spawn(move || {
-            let pixels = &indexed.indexed_pixels;
-            let palettes = &indexed.palettes;
-            let result = match format {
-                ExportFormat::Bmp => {
-                    save_indexed_bmp(&output_path, pixels, palettes, width, height)
-                }
-                ExportFormat::PngIndexed => {
-                    save_indexed_png(&output_path, pixels, palettes, width, height)
-                }
-                ExportFormat::Png => Err("indexed export needs an indexed format".to_string()),
-            };
-            match result {
-                Ok(()) => log::info!("Indexed export completed: {output_path}"),
-                Err(e) => log::error!("Indexed export failed: {e}"),
-            }
-        });
+        let (indexed, width, height) = self
+            .state
+            .indexed_for_export(source)
+            .ok_or_else(|| format!("no indexed image available for {source:?}"))?;
+        let pixels = &indexed.indexed_pixels;
+        let palettes = &indexed.palettes;
+        match format {
+            ExportFormat::Bmp => encode_indexed_bmp(pixels, palettes, width, height),
+            ExportFormat::PngIndexed => encode_indexed_png(pixels, palettes, width, height),
+            ExportFormat::Png => Err("indexed export needs an indexed format".to_string()),
+        }
     }
 
-    /// Run a native file dialog on a worker thread so the UI keeps repainting,
-    /// and feed whatever the user picked back into the request channel.
-    ///
-    /// `file_dialog_open` is held for the lifetime of the dialog so drag & drop
-    /// is ignored while it is up.
-    fn spawn_file_dialog<F>(&self, pick: F)
-    where
-        F: FnOnce(FileDialog) -> Option<AppStateRequest> + Send + 'static,
-    {
-        let sender = self.state.app_state_request_sender.clone();
-        let dialog_flag = self.state.file_dialog_open.clone();
+    /// What a file dialog needs to report its result back to the app.
+    fn dialog_context(&self, ctx: &egui::Context) -> DialogContext {
+        DialogContext {
+            sender: self.state.app_state_request_sender.clone(),
+            dialog_open: self.state.file_dialog_open.clone(),
+            egui_ctx: ctx.clone(),
+        }
+    }
 
-        std::thread::spawn(move || {
-            let _guard = FileDialogGuard::new(dialog_flag);
-            if let Some(request) = pick(FileDialog::new()) {
-                _ = sender.send(request);
-            }
-        });
+    /// Replace the settings in use with `bundle`.
+    fn apply_settings_bundle(&mut self, bundle: SettingsBundle, ctx: &egui::Context) {
+        self.image_processor.cancel_all();
+        self.state.engine = bundle.engine;
+        self.state.settings = bundle.qualetize_settings;
+        self.state.tpq_settings = bundle.tpq_settings;
+        self.state.color_correction = bundle.color_correction;
+        self.state.palette_sort_settings = bundle.sort_settings;
+        self.update_tile_fit(ctx);
+        self.refresh_color_corrected_image(ctx);
     }
 
     fn handle_requests(&mut self, ctx: &egui::Context) {
@@ -391,86 +386,61 @@ impl QualetizeApp {
                 self.update_tile_fit(ctx);
                 self.refresh_color_corrected_image(ctx);
             }
-            AppStateRequest::ExportImage {
-                source,
-                format,
-                output_path,
-            } => {
-                self.export_image(source, format, output_path);
-            }
-            AppStateRequest::SaveSettings { path } => {
-                match self.state.settings_bundle().save_to_file(&path) {
-                    Ok(()) => log::info!("Settings saved successfully to: {path}"),
-                    Err(e) => log::error!("Failed to save settings: {e}"),
-                }
+            AppStateRequest::LoadImageBytes { name, bytes } => {
+                self.load_image_bytes(name, &bytes, ctx);
+                self.update_tile_fit(ctx);
+                self.refresh_color_corrected_image(ctx);
             }
             AppStateRequest::LoadSettings { path } => match SettingsBundle::load_from_file(&path) {
                 Ok(bundle) => {
-                    self.image_processor.cancel_all();
-                    self.state.engine = bundle.engine;
-                    self.state.settings = bundle.qualetize_settings;
-                    self.state.tpq_settings = bundle.tpq_settings;
-                    self.state.color_correction = bundle.color_correction;
-                    self.state.palette_sort_settings = bundle.sort_settings;
-                    self.update_tile_fit(ctx);
-                    self.refresh_color_corrected_image(ctx);
+                    self.apply_settings_bundle(bundle, ctx);
                     log::info!("Settings loaded successfully from: {path}");
                 }
                 Err(e) => log::error!("Failed to load settings: {e}"),
             },
-            AppStateRequest::OpenImageDialog => {
-                self.spawn_file_dialog(|dialog| {
-                    let path = dialog
-                        .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"])
-                        .pick_file()?;
-                    Some(AppStateRequest::LoadImage {
-                        path: path.display().to_string(),
-                    })
-                });
+            AppStateRequest::LoadSettingsBytes { name, bytes } => {
+                match String::from_utf8(bytes)
+                    .map_err(|e| format!("Settings file is not text: {e}"))
+                    .and_then(|json| SettingsBundle::from_json(&json))
+                {
+                    Ok(bundle) => {
+                        self.apply_settings_bundle(bundle, ctx);
+                        log::info!("Settings loaded successfully from: {name}");
+                    }
+                    Err(e) => log::error!("Failed to load settings: {e}"),
+                }
             }
+            AppStateRequest::OpenImageDialog => platform::pick_image(self.dialog_context(ctx)),
             AppStateRequest::ExportImageDialog { source, format } => {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
                 };
+                let bytes = match self.encode_export(source, format) {
+                    Ok(bytes) => bytes,
+                    Err(e) => {
+                        log::error!("Export failed: {e}");
+                        return;
+                    }
+                };
                 let default_path =
-                    get_export_path(&input_path, &format, Some(source.file_suffix()));
-
-                self.spawn_file_dialog(move |dialog| {
-                    let mut dialog = dialog.add_filter(
-                        format!("{} files", format.display_name()),
-                        &[format.extension()],
-                    );
-                    if let Some(file_name) = default_path.file_name() {
-                        dialog = dialog.set_file_name(file_name.to_string_lossy().to_string());
-                    }
-                    if let Some(parent) = default_path.parent() {
-                        dialog = dialog.set_directory(parent);
-                    }
-
-                    Some(AppStateRequest::ExportImage {
-                        source,
-                        format,
-                        output_path: dialog.save_file()?.display().to_string(),
-                    })
-                });
+                    platform::export_path(&input_path, format, Some(source.file_suffix()));
+                platform::export_image(
+                    bytes,
+                    default_path.display().to_string(),
+                    format,
+                    self.dialog_context(ctx),
+                );
             }
-            AppStateRequest::SaveSettingsDialog => {
-                self.spawn_file_dialog(|dialog| {
-                    let path = settings_file_dialog(dialog)
-                        .set_file_name("qualetize_settings.qset")
-                        .save_file()?;
-                    Some(AppStateRequest::SaveSettings {
-                        path: path.display().to_string(),
-                    })
-                });
-            }
+            AppStateRequest::SaveSettingsDialog => match self.state.settings_bundle().to_json() {
+                Ok(json) => platform::save_settings(
+                    json,
+                    platform::DEFAULT_SETTINGS_FILE_NAME,
+                    self.dialog_context(ctx),
+                ),
+                Err(e) => log::error!("Failed to save settings: {e}"),
+            },
             AppStateRequest::LoadSettingsDialog => {
-                self.spawn_file_dialog(|dialog| {
-                    let path = settings_file_dialog(dialog).pick_file()?;
-                    Some(AppStateRequest::LoadSettings {
-                        path: path.display().to_string(),
-                    })
-                });
+                platform::pick_settings_file(self.dialog_context(ctx))
             }
         }
     }
@@ -636,70 +606,9 @@ fn tile_fit_target(size: (u32, u32), tile_width: u16, tile_height: u16) -> (u32,
     )
 }
 
-/// Build the default export path for `input_path`.
-///
-/// The extension is appended rather than set via [`std::path::Path::with_extension`],
-/// which would treat everything after the last dot of the *new* name as an extension
-/// and silently truncate it (`hero.idle.png` -> `hero.png`).
-fn get_export_path(
-    input_path: &str,
-    format: &ExportFormat,
-    suffix: Option<&str>,
-) -> std::path::PathBuf {
-    let path = Path::new(input_path);
-
-    let parent = path.parent().unwrap_or(Path::new("."));
-    let stem = path
-        .file_stem()
-        .unwrap_or(std::ffi::OsStr::new("output"))
-        .to_string_lossy();
-    let extension = format.extension();
-    let file_name = match suffix {
-        Some(suffix) => format!("{stem}_{suffix}.{extension}"),
-        None => format!("{stem}.{extension}"),
-    };
-    parent.join(file_name)
-}
-
-/// Filter and starting directory shared by the settings load/save dialogs.
-fn settings_file_dialog(dialog: FileDialog) -> FileDialog {
-    let mut dialog = dialog.add_filter(
-        "QualetizeGUI Settings",
-        &[SettingsBundle::get_settings_file_extension()],
-    );
-    if let Ok(settings_dir) = SettingsBundle::get_default_settings_dir() {
-        dialog = dialog.set_directory(&settings_dir);
-    }
-    dialog
-}
-
-pub struct FileDialogGuard {
-    flag: Arc<AtomicBool>,
-}
-
-impl FileDialogGuard {
-    pub fn new(flag: Arc<AtomicBool>) -> Self {
-        flag.store(true, Ordering::Relaxed);
-        Self { flag }
-    }
-}
-
-impl Drop for FileDialogGuard {
-    fn drop(&mut self) {
-        self.flag.store(false, Ordering::Relaxed);
-        log::debug!("FileDialogGuard dropped - dialog closed");
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn export_path(input: &str, format: ExportFormat, suffix: Option<&str>) -> String {
-        get_export_path(input, &format, suffix)
-            .to_string_lossy()
-            .into_owned()
-    }
 
     #[test]
     fn a_size_already_on_the_tile_grid_is_left_alone() {
@@ -723,55 +632,5 @@ mod tests {
     #[test]
     fn an_image_smaller_than_a_tile_grows_to_one_tile() {
         assert_eq!(tile_fit_target((3, 5), 8, 8), (8, 8));
-    }
-
-    #[test]
-    fn export_path_appends_suffix_and_extension() {
-        assert_eq!(
-            export_path(
-                "/img/hero.png",
-                ExportFormat::PngIndexed,
-                Some("qualetized")
-            ),
-            "/img/hero_qualetized.png"
-        );
-        assert_eq!(
-            export_path("/img/hero.png", ExportFormat::Bmp, Some("qualetized")),
-            "/img/hero_qualetized.bmp"
-        );
-    }
-
-    #[test]
-    fn export_path_without_suffix_keeps_stem() {
-        assert_eq!(
-            export_path("/img/hero.png", ExportFormat::Bmp, None),
-            "/img/hero.bmp"
-        );
-    }
-
-    /// `with_extension` would truncate `hero.idle.png` to `hero.png`,
-    /// dropping both the suffix and part of the original file name.
-    #[test]
-    fn export_path_preserves_dots_in_file_name() {
-        assert_eq!(
-            export_path(
-                "/img/hero.idle.png",
-                ExportFormat::PngIndexed,
-                Some("qualetized")
-            ),
-            "/img/hero.idle_qualetized.png"
-        );
-        assert_eq!(
-            export_path("/img/tile.v2.bmp", ExportFormat::Bmp, None),
-            "/img/tile.v2.bmp"
-        );
-    }
-
-    #[test]
-    fn export_path_handles_missing_extension_and_parent() {
-        assert_eq!(
-            export_path("hero", ExportFormat::Bmp, Some("qualetized")),
-            "hero_qualetized.bmp"
-        );
     }
 }

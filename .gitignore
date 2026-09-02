@@ -1,2 +1,5 @@
 /target
 /.cargo
+/.wasm-tools
+/web/dist
+/.claude/launch.json

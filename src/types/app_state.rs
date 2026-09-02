@@ -10,9 +10,9 @@ use super::{
 };
 use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
+use crate::time::Instant;
 use crate::types::image::TileCountOptions;
 use crate::types::tilepalquant::TpqSettings;
-use std::time::Instant;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
@@ -92,16 +92,19 @@ pub enum AppStateRequest {
     LoadImage {
         path: String,
     },
-    ExportImage {
-        source: ExportSource,
-        format: ExportFormat,
-        output_path: String,
-    },
-    SaveSettings {
-        path: String,
+    /// An image that arrived as bytes (drag and drop on the web, a fetched
+    /// URL); `name` stands in for the path.
+    LoadImageBytes {
+        name: String,
+        bytes: Vec<u8>,
     },
     LoadSettings {
         path: String,
+    },
+    /// Settings that arrived as bytes, from a browser file dialog.
+    LoadSettingsBytes {
+        name: String,
+        bytes: Vec<u8>,
     },
 
     OpenImageDialog,
@@ -115,7 +118,7 @@ pub enum AppStateRequest {
 
 #[derive(Debug, Clone)]
 pub struct QualetizeRequest {
-    pub time: std::time::Instant,
+    pub time: Instant,
 }
 
 pub struct AppState {
