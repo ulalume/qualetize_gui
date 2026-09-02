@@ -13,6 +13,7 @@ pub enum ShuffleMode {
     Seeded(u32),
     /// Leave the pixels in their natural order, so a run has no random input
     /// at all. Parity tests against the reference implementation use it.
+    #[cfg_attr(not(test), allow(dead_code))]
     Fixed,
 }
 

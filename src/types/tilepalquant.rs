@@ -1,8 +1,6 @@
 //! Settings specific to the tilepalquant engine. The target format (tile
 //! size, palettes, colors, channel levels) is shared with Qualetize and lives
 //! in `QualetizeSettings`.
-// Consumed by the tilepalquant engine and its settings panel.
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 

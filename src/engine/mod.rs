@@ -1,7 +1,5 @@
 //! Quantization engines. Each engine turns an RGBA image into indexed
 //! pixels plus a flat palette, in the shape `ImageDataIndexed` consumes.
-// Consumed by the tilepalquant engine and its settings panel.
-#![allow(dead_code)]
 
 pub mod qualetize;
 pub mod tilepalquant;

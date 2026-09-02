@@ -49,6 +49,7 @@ impl ChannelLut {
         lut
     }
 
+    #[cfg(test)]
     pub fn levels(&self) -> &[u8] {
         &self.levels
     }
