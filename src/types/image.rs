@@ -2,6 +2,8 @@ use super::BGRA8;
 use super::ColorCorrection;
 use crate::color_processor::ColorProcessor;
 use egui::{Color32, ColorImage, TextureHandle};
+use image::{DynamicImage, ImageDecoder, ImageReader, metadata::Orientation};
+use moxcms::{ColorProfile, DataColorSpace, Layout, TransformOptions, Xyzd};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 
@@ -383,20 +385,136 @@ impl ImageData {
     }
 
     pub fn load(path: &str, ctx: &egui::Context) -> Result<ImageData, String> {
-        let img = image::open(path).map_err(|e| format!("Image loading error: {e}"))?;
-        let rgba_img = img.to_rgba8();
-        let size = [rgba_img.width() as usize, rgba_img.height() as usize];
-        let rgba_data = rgba_img.into_raw();
+        let (rgba_data, width, height) = load_rgba(path)?;
+        let size = [width as usize, height as usize];
 
         let color_image = ColorImage::from_rgba_unmultiplied(size, &rgba_data);
         let texture = ctx.load_texture("input", color_image, egui::TextureOptions::NEAREST);
         Ok(ImageData {
             texture,
-            width: size[0] as u32,
-            height: size[1] as u32,
+            width,
+            height,
             rgba_data,
             indexed: None,
         })
+    }
+}
+
+/// `path` decoded to RGBA8 with the Exif orientation applied and the embedded
+/// ICC profile converted to sRGB. Split out from [`ImageData::load`] so it can
+/// be tested without an egui context.
+fn load_rgba(path: &str) -> Result<(Vec<u8>, u32, u32), String> {
+    let mut decoder = ImageReader::open(path)
+        .map_err(|e| format!("Image loading error: {e}"))?
+        .with_guessed_format()
+        .map_err(|e| format!("Image loading error: {e}"))?
+        .into_decoder()
+        .map_err(|e| format!("Image loading error: {e}"))?;
+
+    // Decoding consumes the decoder, so the metadata is read first.
+    let icc = decoder.icc_profile().unwrap_or_else(|e| {
+        log::warn!("{path}: unreadable ICC profile: {e}");
+        None
+    });
+    let orientation = decoder.orientation().unwrap_or_else(|e| {
+        log::warn!("{path}: unreadable orientation: {e}");
+        Orientation::NoTransforms
+    });
+
+    let mut img =
+        DynamicImage::from_decoder(decoder).map_err(|e| format!("Image loading error: {e}"))?;
+    img.apply_orientation(orientation);
+
+    let rgba_img = img.to_rgba8();
+    let (width, height) = (rgba_img.width(), rgba_img.height());
+    let mut rgba_data = rgba_img.into_raw();
+
+    if let Some(icc) = icc {
+        match to_srgb(&mut rgba_data, &icc) {
+            Ok(true) => log::info!("{path}: embedded ICC profile converted to sRGB"),
+            Ok(false) => {}
+            Err(e) => log::warn!("{path}: embedded ICC profile ignored: {e}"),
+        }
+    }
+
+    Ok((rgba_data, width, height))
+}
+
+/// The RGB channels of `rgba` converted from the ICC profile `icc` to sRGB,
+/// in place, with alpha untouched.
+///
+/// `Ok(false)` means the buffer is left as it is, because the profile already
+/// describes sRGB or its color space is one this does not handle (gray, CMYK
+/// and the rest).
+fn to_srgb(rgba: &mut [u8], icc: &[u8]) -> Result<bool, String> {
+    if !rgba.len().is_multiple_of(4) {
+        return Err(format!("{} bytes is not whole RGBA pixels", rgba.len()));
+    }
+
+    let source = ColorProfile::new_from_slice(icc).map_err(|e| format!("unreadable: {e}"))?;
+    if source.color_space != DataColorSpace::Rgb {
+        return Ok(false);
+    }
+    let srgb = ColorProfile::new_srgb();
+    if is_srgb(&source, &srgb) {
+        return Ok(false);
+    }
+
+    let transform = source
+        .create_transform_8bit(
+            Layout::Rgba,
+            &srgb,
+            Layout::Rgba,
+            TransformOptions::default(),
+        )
+        .map_err(|e| format!("no transform to sRGB: {e}"))?;
+
+    // The executor reads and writes separate slices, so the pixels pass
+    // through a fixed scratch buffer rather than a copy of the whole image.
+    const CHUNK_PIXELS: usize = 8192;
+    let mut scratch = vec![0u8; CHUNK_PIXELS * 4];
+    for chunk in rgba.chunks_mut(CHUNK_PIXELS * 4) {
+        let scratch = &mut scratch[..chunk.len()];
+        scratch.copy_from_slice(chunk);
+        transform
+            .transform(scratch, chunk)
+            .map_err(|e| format!("transform failed: {e}"))?;
+    }
+
+    Ok(true)
+}
+
+/// Whether `profile` describes sRGB already: the same primaries and white
+/// point, and the same transfer curve on each of the three channels.
+fn is_srgb(profile: &ColorProfile, srgb: &ColorProfile) -> bool {
+    let same_xyz = |a: Xyzd, b: Xyzd| {
+        (a.x - b.x).abs() < 1e-3 && (a.y - b.y).abs() < 1e-3 && (a.z - b.z).abs() < 1e-3
+    };
+
+    same_xyz(profile.red_colorant, srgb.red_colorant)
+        && same_xyz(profile.green_colorant, srgb.green_colorant)
+        && same_xyz(profile.blue_colorant, srgb.blue_colorant)
+        && same_xyz(profile.white_point, srgb.white_point)
+        && same_curve(
+            profile.build_r_linearize_table::<u8, 256, 8>(false).ok(),
+            srgb.build_r_linearize_table::<u8, 256, 8>(false).ok(),
+        )
+        && same_curve(
+            profile.build_g_linearize_table::<u8, 256, 8>(false).ok(),
+            srgb.build_g_linearize_table::<u8, 256, 8>(false).ok(),
+        )
+        && same_curve(
+            profile.build_b_linearize_table::<u8, 256, 8>(false).ok(),
+            srgb.build_b_linearize_table::<u8, 256, 8>(false).ok(),
+        )
+}
+
+/// Two 8-bit linearization tables that agree everywhere. A table that could not
+/// be built counts as a mismatch.
+fn same_curve(a: Option<Box<[f32; 256]>>, b: Option<Box<[f32; 256]>>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => a.iter().zip(b.iter()).all(|(a, b)| (a - b).abs() < 1e-3),
+        _ => false,
     }
 }
 
@@ -649,5 +767,116 @@ mod tests {
         let empty = ImageDataIndexed::new(Vec::new(), 4, vec![0, 1, 2]);
         let sorted = empty.sorted(SortMode::Luminance, SortOrder::Ascending, false);
         assert_eq!(sorted.indexed_pixels, vec![0, 1, 2]);
+    }
+
+    /// Fixtures written by `tests/fixtures/icc/gen.py`.
+    fn fixture(name: &str) -> String {
+        format!("{}/tests/fixtures/icc/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    /// The ICC profile embedded in a fixture.
+    fn fixture_icc(name: &str) -> Vec<u8> {
+        ImageReader::open(fixture(name))
+            .unwrap()
+            .with_guessed_format()
+            .unwrap()
+            .into_decoder()
+            .unwrap()
+            .icc_profile()
+            .unwrap()
+            .expect("the fixture carries an ICC profile")
+    }
+
+    #[test]
+    fn p3_red_converts_to_clipped_srgb_red() {
+        let mut rgba = vec![255, 0, 0, 255];
+        assert_eq!(to_srgb(&mut rgba, &fixture_icc("red_p3.png")), Ok(true));
+
+        println!("P3 (255, 0, 0, 255) -> sRGB {rgba:?}");
+        // P3 red is outside the sRGB gamut, so it clips to the red corner.
+        assert_eq!(rgba[0], 255, "red");
+        assert!(rgba[1] <= 40, "green {}", rgba[1]);
+        assert!(rgba[2] <= 40, "blue {}", rgba[2]);
+        assert_eq!(rgba[3], 255, "alpha is untouched");
+    }
+
+    #[test]
+    fn p3_gray_stays_gray() {
+        let mut rgba = vec![128, 128, 128, 64];
+        assert_eq!(to_srgb(&mut rgba, &fixture_icc("red_p3.png")), Ok(true));
+
+        println!("P3 (128, 128, 128, 64) -> sRGB {rgba:?}");
+        // The two spaces share a white point, so the gray axis is common.
+        for (channel, value) in ["red", "green", "blue"].iter().zip(&rgba[..3]) {
+            assert!((*value as i32 - 128).abs() <= 1, "{channel} {value}");
+        }
+        assert_eq!(rgba[3], 64, "alpha is untouched");
+    }
+
+    #[test]
+    fn an_srgb_profile_is_left_alone() {
+        let mut rgba = vec![255, 0, 0, 255, 12, 34, 56, 78];
+        let before = rgba.clone();
+        assert_eq!(to_srgb(&mut rgba, &fixture_icc("red_srgb.png")), Ok(false));
+        assert_eq!(rgba, before);
+    }
+
+    #[test]
+    fn an_unreadable_profile_is_an_error() {
+        let mut rgba = vec![1, 2, 3, 4];
+        assert!(to_srgb(&mut rgba, b"not a profile").is_err());
+        assert_eq!(rgba, vec![1, 2, 3, 4], "the buffer is left as it is");
+    }
+
+    #[test]
+    fn loading_a_p3_image_gives_srgb_pixels() {
+        let (rgba, width, height) = load_rgba(&fixture("red_p3.png")).unwrap();
+        assert_eq!((width, height), (8, 8));
+        assert_eq!(rgba[0], 255);
+        assert!(rgba[1] <= 40 && rgba[2] <= 40, "{:?}", &rgba[..4]);
+    }
+
+    /// Prints what the loader does to the Display P3 fixture:
+    /// `cargo test -- --ignored --nocapture icc_conversion_report`
+    #[test]
+    #[ignore = "prints measurements rather than asserting"]
+    fn icc_conversion_report() {
+        let icc = fixture_icc("red_p3.png");
+        let raw = image::open(fixture("red_p3.png")).unwrap().to_rgba8();
+        let (converted, _, _) = load_rgba(&fixture("red_p3.png")).unwrap();
+        println!(
+            "red_p3.png: {:?} -> {:?}",
+            &raw.as_raw()[..4],
+            &converted[..4]
+        );
+
+        for probe in [
+            [255u8, 0, 0, 255],
+            [0, 255, 0, 255],
+            [0, 0, 255, 255],
+            [200, 50, 50, 255],
+            [128, 128, 128, 255],
+            [64, 192, 32, 128],
+        ] {
+            let mut rgba = probe.to_vec();
+            let converted = to_srgb(&mut rgba, &icc);
+            println!("P3 {probe:?} -> sRGB {rgba:?} ({converted:?})");
+        }
+    }
+
+    #[test]
+    fn loading_applies_the_exif_orientation() {
+        // Stored 32x16 with the left half red; orientation 6 turns it 90 CW.
+        let (rgba, width, height) = load_rgba(&fixture("rotated_90.jpg")).unwrap();
+        assert_eq!((width, height), (16, 32), "width and height are swapped");
+
+        let pixel = |x: u32, y: u32| {
+            let i = ((y * width + x) * 4) as usize;
+            [rgba[i], rgba[i + 1], rgba[i + 2]]
+        };
+        let top = pixel(0, 0);
+        let bottom = pixel(0, 31);
+        assert!(top[0] > 200 && top[1] < 60, "top row is red: {top:?}");
+        assert!(bottom[0] < 60, "bottom row is black: {bottom:?}");
     }
 }
