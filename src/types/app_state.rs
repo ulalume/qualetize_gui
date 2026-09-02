@@ -10,9 +10,9 @@ use super::{
 };
 use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
+use crate::time::Instant;
 use crate::types::image::TileCountOptions;
 use crate::types::tilepalquant::TpqSettings;
-use std::time::Instant;
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
@@ -115,7 +115,7 @@ pub enum AppStateRequest {
 
 #[derive(Debug, Clone)]
 pub struct QualetizeRequest {
-    pub time: std::time::Instant,
+    pub time: Instant,
 }
 
 pub struct AppState {

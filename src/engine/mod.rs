@@ -104,7 +104,7 @@ pub fn run(
     tpq: &TpqSettings,
     ctx: &RunContext,
 ) -> Option<Result<QuantizeResult, String>> {
-    let started = std::time::Instant::now();
+    let started = crate::time::Instant::now();
     let result = match engine {
         QuantEngine::Qualetize => {
             // The C call cannot be interrupted, so this only saves work when

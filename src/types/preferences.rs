@@ -64,7 +64,7 @@ impl Default for UserPreferences {
 
 impl UserPreferences {
     pub fn config_path() -> PathBuf {
-        if let Some(config_dir) = dirs::config_dir() {
+        if let Some(config_dir) = crate::settings_manager::config_dir() {
             config_dir.join("QualetizeGUI").join("preferences.json")
         } else {
             PathBuf::from("preferences.json")

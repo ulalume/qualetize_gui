@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use std::path::Path;
 
 use crate::exporter::{save_indexed_bmp, save_indexed_png, save_rgba_image};
@@ -12,6 +13,7 @@ use crate::ui::{
 };
 use eframe::egui;
 use egui::Margin;
+#[cfg(not(target_arch = "wasm32"))]
 use rfd::FileDialog;
 use std::sync::{
     Arc,
@@ -366,6 +368,7 @@ impl QualetizeApp {
     ///
     /// `file_dialog_open` is held for the lifetime of the dialog so drag & drop
     /// is ignored while it is up.
+    #[cfg(not(target_arch = "wasm32"))]
     fn spawn_file_dialog<F>(&self, pick: F)
     where
         F: FnOnce(FileDialog) -> Option<AppStateRequest> + Send + 'static,
@@ -418,6 +421,7 @@ impl QualetizeApp {
                 }
                 Err(e) => log::error!("Failed to load settings: {e}"),
             },
+            #[cfg(not(target_arch = "wasm32"))]
             AppStateRequest::OpenImageDialog => {
                 self.spawn_file_dialog(|dialog| {
                     let path = dialog
@@ -428,6 +432,7 @@ impl QualetizeApp {
                     })
                 });
             }
+            #[cfg(not(target_arch = "wasm32"))]
             AppStateRequest::ExportImageDialog { source, format } => {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
@@ -454,6 +459,7 @@ impl QualetizeApp {
                     })
                 });
             }
+            #[cfg(not(target_arch = "wasm32"))]
             AppStateRequest::SaveSettingsDialog => {
                 self.spawn_file_dialog(|dialog| {
                     let path = settings_file_dialog(dialog)
@@ -464,6 +470,7 @@ impl QualetizeApp {
                     })
                 });
             }
+            #[cfg(not(target_arch = "wasm32"))]
             AppStateRequest::LoadSettingsDialog => {
                 self.spawn_file_dialog(|dialog| {
                     let path = settings_file_dialog(dialog).pick_file()?;
@@ -472,6 +479,8 @@ impl QualetizeApp {
                     })
                 });
             }
+            #[cfg(target_arch = "wasm32")]
+            _ => log::warn!("file dialogs are not available on this platform"),
         }
     }
 
@@ -641,6 +650,7 @@ fn tile_fit_target(size: (u32, u32), tile_width: u16, tile_height: u16) -> (u32,
 /// The extension is appended rather than set via [`std::path::Path::with_extension`],
 /// which would treat everything after the last dot of the *new* name as an extension
 /// and silently truncate it (`hero.idle.png` -> `hero.png`).
+#[cfg(not(target_arch = "wasm32"))]
 fn get_export_path(
     input_path: &str,
     format: &ExportFormat,
@@ -662,6 +672,7 @@ fn get_export_path(
 }
 
 /// Filter and starting directory shared by the settings load/save dialogs.
+#[cfg(not(target_arch = "wasm32"))]
 fn settings_file_dialog(dialog: FileDialog) -> FileDialog {
     let mut dialog = dialog.add_filter(
         "QualetizeGUI Settings",

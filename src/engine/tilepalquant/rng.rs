@@ -83,7 +83,7 @@ impl RandomShuffle {
     pub fn new(count: usize, mode: ShuffleMode) -> Self {
         Self {
             values: (0..count as u32).collect(),
-            // The first `next` runs past the end and so always shuffles first.
+            // The first `next_index` runs past the end and so always shuffles first.
             current_index: count.saturating_sub(1),
             rng: match mode {
                 ShuffleMode::Seeded(seed) => Some(Rng::new(seed)),
@@ -94,7 +94,7 @@ impl RandomShuffle {
 
     /// The next index. Consumes exactly `len` random numbers on the draws that
     /// reshuffle, and none on the others.
-    pub fn next(&mut self) -> usize {
+    pub fn next_index(&mut self) -> usize {
         if self.values.is_empty() {
             // No pixel to draw. `run` rejects an image with no opaque pixels
             // before the optimization starts, so this is unreachable there.
@@ -126,7 +126,7 @@ mod tests {
 
     fn draw(count: usize, mode: ShuffleMode, draws: usize) -> Vec<usize> {
         let mut shuffle = RandomShuffle::new(count, mode);
-        (0..draws).map(|_| shuffle.next()).collect()
+        (0..draws).map(|_| shuffle.next_index()).collect()
     }
 
     #[test]
@@ -154,7 +154,7 @@ mod tests {
         // Eight draws over four values reshuffle twice, four numbers each.
         let mut shuffle = RandomShuffle::new(4, ShuffleMode::Seeded(3));
         for _ in 0..8 {
-            shuffle.next();
+            shuffle.next_index();
         }
         let mut expected = Rng::new(3);
         for _ in 0..8 {

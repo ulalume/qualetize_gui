@@ -1,16 +1,8 @@
 #![windows_subsystem = "windows"]
-mod app;
-mod color_processor;
-mod engine;
-mod exporter;
-mod image_processor;
-mod settings_manager;
-mod types;
-mod ui;
-
-use app::QualetizeApp;
 use eframe::egui;
+use qualetize_gui::app::QualetizeApp;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> Result<(), eframe::Error> {
     env_logger::init();
 
@@ -33,3 +25,6 @@ fn main() -> Result<(), eframe::Error> {
         Box::new(move |cc| Ok(Box::new(QualetizeApp::new(cc, initial_image)))),
     )
 }
+
+#[cfg(target_arch = "wasm32")]
+fn main() {}

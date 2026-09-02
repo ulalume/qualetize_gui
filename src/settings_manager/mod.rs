@@ -7,6 +7,18 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 
+/// The per-user configuration directory, or `None` where the platform has no
+/// filesystem to put one in.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn config_dir() -> Option<std::path::PathBuf> {
+    dirs::config_dir()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn config_dir() -> Option<std::path::PathBuf> {
+    None
+}
+
 /// Write `bytes` to `path` without ever leaving a truncated file behind.
 ///
 /// Writes go to a sibling `<path>.tmp` file first and are only made visible by an
@@ -93,7 +105,7 @@ impl SettingsBundle {
     }
 
     pub fn get_default_settings_dir() -> Result<std::path::PathBuf, String> {
-        if let Some(config_dir) = dirs::config_dir() {
+        if let Some(config_dir) = config_dir() {
             let app_config_dir = config_dir.join("QualetizeGUI");
             if !app_config_dir.exists() {
                 fs::create_dir_all(&app_config_dir)
@@ -112,11 +124,7 @@ impl SettingsBundle {
     /// Where the settings in use are mirrored so they survive a restart.
     /// Same format as a hand-saved `.qset`, so it can be inspected or reused.
     pub fn session_path() -> Option<std::path::PathBuf> {
-        Some(
-            dirs::config_dir()?
-                .join("QualetizeGUI")
-                .join("session.qset"),
-        )
+        Some(config_dir()?.join("QualetizeGUI").join("session.qset"))
     }
 
     /// Restore the settings from the last run, falling back to the defaults.

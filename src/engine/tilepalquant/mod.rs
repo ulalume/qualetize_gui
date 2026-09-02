@@ -241,7 +241,7 @@ struct Reporter<'a> {
     image: &'a SourceImage,
     p: &'a Params,
     use_dither: bool,
-    last_preview: Option<std::time::Instant>,
+    last_preview: Option<crate::time::Instant>,
     last_cost: std::time::Duration,
 }
 
@@ -255,10 +255,10 @@ impl Reporter<'_> {
             Some(at) => at.elapsed() >= PREVIEW_MIN_GAP.max(self.last_cost * 4),
         };
         let preview = palettes.filter(|_| wants_preview && due).map(|palettes| {
-            let started = std::time::Instant::now();
+            let started = crate::time::Instant::now();
             let preview = quantize_tiles(palettes, self.image, self.use_dither, self.p);
             self.last_cost = started.elapsed();
-            self.last_preview = Some(std::time::Instant::now());
+            self.last_preview = Some(crate::time::Instant::now());
             preview
         });
         self.ctx.report(Progress {
@@ -335,7 +335,7 @@ fn quantize(
             p,
         );
         for _ in 0..p.iterations {
-            let pixel = pixels[shuffle.next()];
+            let pixel = pixels[shuffle.next_index()];
             move_palettes_closer(&mut palettes, tiles, &pixel, p.alpha, p);
         }
         let mse = mean_square_error(&palettes, tiles);
@@ -367,7 +367,7 @@ fn quantize(
     let final_iterations = i64::from(p.iterations) * 10;
     let mut next_update = i64::from(p.iterations);
     for iteration in 0..final_iterations {
-        let pixel = pixels[shuffle.next()];
+        let pixel = pixels[shuffle.next_index()];
         move_palettes_closer(&mut palettes, tiles, &pixel, p.final_alpha, p);
         if iteration >= next_update {
             next_update += i64::from(p.iterations);
@@ -938,7 +938,7 @@ mod timing {
                 cancel: &cancel,
                 progress: Some(&sender),
             };
-            let started = std::time::Instant::now();
+            let started = crate::time::Instant::now();
             let result = run(&data, w, h, &target, &settings, &ctx);
             let elapsed = started.elapsed();
             assert!(matches!(result, Some(Ok(_))));

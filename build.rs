@@ -18,11 +18,12 @@ fn main() {
         panic!("MSVC compilation is not supported. Use MinGW target: x86_64-pc-windows-gnu");
     }
 
+    let is_wasm = target.starts_with("wasm32");
+
     let mut build = cc::Build::new();
     build
         .files([
             "external/qualetize/source/Qualetize.c",
-            "external/qualetize/source/Bitmap.c",
             "external/qualetize/source/Cluster.c",
             "external/qualetize/source/Cluster_Vec4f.c",
             "external/qualetize/source/DitherImage.c",
@@ -30,6 +31,12 @@ fn main() {
         .include("external/qualetize/include")
         .include("external/qualetize/source")
         .warnings(false);
+
+    // Bitmap.c is the CLI's file I/O; the library never calls it, and it is the
+    // only translation unit that needs stdio.
+    if !is_wasm {
+        build.file("external/qualetize/source/Bitmap.c");
+    }
 
     // GCC/Clang/MinGW flags
     build.flag("-std=c99");
@@ -44,6 +51,25 @@ fn main() {
         // header ties to `__SSE__`) matches the C side of the ABI. See
         // `src/types/qualetize.rs`.
         println!("cargo:rustc-cfg=qualetize_sse");
+    }
+
+    if is_wasm {
+        build.define("M_PI", "3.14159265358979323846");
+        // `WASI_SDK_PATH` names the sysroot that provides the C headers and the
+        // `libc.a` the C objects are linked against.
+        let wasi_sdk = env::var("WASI_SDK_PATH")
+            .expect("WASI_SDK_PATH must point at a wasi-sdk install for wasm32 targets");
+        let sysroot = format!("{wasi_sdk}/share/wasi-sysroot");
+        build.flag(format!("--sysroot={sysroot}"));
+        build.flag(format!("-isystem{sysroot}/include/wasm32-wasip1"));
+        // The wasi-libc headers refuse to be included unless they believe the
+        // platform is WASI; nothing the C sources use pulls in a WASI import.
+        build.define("__wasi__", None);
+        // malloc/free/calloc/qsort and the float math the C sources call.
+        println!("cargo:rustc-link-search=native={sysroot}/lib/wasm32-wasip1");
+        println!("cargo:rustc-link-lib=static=c");
+        build.compile("qualetize_c");
+        return;
     }
 
     if host != target {
