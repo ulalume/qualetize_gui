@@ -44,18 +44,22 @@ impl DitherMode {
         }
     }
 
+    /// Matches the C header's `DITHER_*` constants (`external/qualetize/include/Qualetize.h`):
+    /// `DITHER_ORDERED(n)` is `n` itself, with a kernel of size `(2^n) x (2^n)`, so `OrdN`
+    /// maps to `log2(N)` rather than to `N`. The CLI's mapping table
+    /// (`external/qualetize/source/qualetize-cli.c`) confirms `ord2..ord64` -> `1..=6`.
     pub fn to_id(self) -> u8 {
         match self {
             DitherMode::None => 0,
             DitherMode::Floyd => 0xFE,
             DitherMode::Atkinson => 0xFD,
             DitherMode::Checker => 0xFF,
-            DitherMode::Ord2 => 2,
-            DitherMode::Ord4 => 4,
-            DitherMode::Ord8 => 6,
-            DitherMode::Ord16 => 7,
-            DitherMode::Ord32 => 8,
-            DitherMode::Ord64 => 9,
+            DitherMode::Ord2 => 1,
+            DitherMode::Ord4 => 2,
+            DitherMode::Ord8 => 3,
+            DitherMode::Ord16 => 4,
+            DitherMode::Ord32 => 5,
+            DitherMode::Ord64 => 6,
         }
     }
 
@@ -72,5 +76,31 @@ impl DitherMode {
             DitherMode::Ord32,
             DitherMode::Ord64,
         ]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `DITHER_ORDERED(n)` in Qualetize.h is `n` itself (kernel `(2^n) x (2^n)`), so
+    /// each `OrdN` variant must map to `log2(N)`, not to `N`.
+    #[test]
+    fn ordered_dither_ids_are_log2_of_the_kernel_size() {
+        assert_eq!(DitherMode::Ord2.to_id(), 1);
+        assert_eq!(DitherMode::Ord4.to_id(), 2);
+        assert_eq!(DitherMode::Ord8.to_id(), 3);
+        assert_eq!(DitherMode::Ord16.to_id(), 4);
+        assert_eq!(DitherMode::Ord32.to_id(), 5);
+        assert_eq!(DitherMode::Ord64.to_id(), 6);
+    }
+
+    /// Non-ordered modes are fixed sentinel values defined by the C header.
+    #[test]
+    fn non_ordered_dither_ids_match_the_header_constants() {
+        assert_eq!(DitherMode::None.to_id(), 0);
+        assert_eq!(DitherMode::Floyd.to_id(), 0xFE);
+        assert_eq!(DitherMode::Atkinson.to_id(), 0xFD);
+        assert_eq!(DitherMode::Checker.to_id(), 0xFF);
     }
 }

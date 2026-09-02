@@ -3,6 +3,7 @@ mod header;
 mod image_viewer;
 mod settings_panel;
 pub mod styles;
+mod widgets;
 
 pub use footer::draw_footer;
 pub use header::draw_header;

@@ -9,13 +9,16 @@ use std::sync::LazyLock;
 /// at most 255 entries.
 pub const MAX_CUSTOM_LEVELS: usize = u8::MAX as usize;
 
-#[cfg(target_arch = "x86_64")]
+// The C header aligns `Vec4f_t` to 16 only when `__SSE__` is defined, which build.rs
+// enables (and mirrors as the `qualetize_sse` cfg) only for x86_64 targets. Key off
+// that cfg rather than the target arch directly so the two stay in lockstep.
+#[cfg(qualetize_sse)]
 #[repr(C, align(16))]
 pub struct Vec4f {
     pub f32: [f32; 4],
 }
 
-#[cfg(not(target_arch = "x86_64"))]
+#[cfg(not(qualetize_sse))]
 #[repr(C)]
 pub struct Vec4f {
     pub f32: [f32; 4],
@@ -176,28 +179,18 @@ impl QualetizeSettings {
         self.tile_reduce_allow_flip_y = default_tile_reduce_allow_flip();
     }
 
+    /// Identical to [`Self::genesis`] apart from the pixel format and color space;
+    /// expressed as a struct update over it so the two presets can't drift apart on
+    /// the fields they share.
     pub fn gba_nds() -> Self {
         let rgba_depth = "5551".to_string();
+        let custom_levels = default_level_strings_from_depth(&rgba_depth);
         Self {
-            tile_width: 8,
-            tile_height: 8,
-            n_palettes: 1,
-            n_colors: 16,
-            rgba_depth: rgba_depth.clone(),
-            premul_alpha: false,
+            rgba_depth,
             color_space: ColorSpace::YcbcrPsy,
-            dither_mode: DitherMode::Floyd,
-            dither_level: 0.5,
-            tile_passes: 1000,
-            color_passes: 100,
-            col0_is_clear: false,
-            clear_color: ClearColor::default(),
-            tile_reduce_post_enabled: false,
-            tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
-            tile_reduce_allow_flip_x: default_tile_reduce_allow_flip(),
-            tile_reduce_allow_flip_y: default_tile_reduce_allow_flip(),
             use_custom_levels: false,
-            custom_levels: default_level_strings_from_depth(&rgba_depth),
+            custom_levels,
+            ..Self::genesis()
         }
     }
     pub fn gba_nds_full_palettes() -> Self {
@@ -238,6 +231,43 @@ impl QualetizeSettings {
             ..Self::genesis()
         }
     }
+
+    /// Clamp settings loaded from disk into the ranges the UI enforces (see the
+    /// `DragValue`/`Slider` ranges in `src/ui/settings_panel.rs`).
+    ///
+    /// A hand-edited or corrupted `.qset` can otherwise carry values the UI would
+    /// never produce, and those reach the C `Qualetize` library unchecked: a
+    /// `tile_width` of 0 is an integer divide by zero there, and an oversized
+    /// `n_colors * n_palettes` product overruns the output palette buffer.
+    pub fn sanitize(&mut self) {
+        self.tile_width = self.tile_width.clamp(1, 64);
+        self.tile_height = self.tile_height.clamp(1, 64);
+        self.n_colors = self.n_colors.clamp(1, 256);
+        let max_palettes = 256 / self.n_colors;
+        self.n_palettes = self.n_palettes.clamp(1, max_palettes);
+        self.tile_passes = self.tile_passes.clamp(0, 1000);
+        self.color_passes = self.color_passes.clamp(0, 100);
+
+        if !self.dither_level.is_finite() {
+            self.dither_level = 0.5;
+        }
+        self.dither_level = self.dither_level.clamp(0.0, 2.0);
+
+        if !self.tile_reduce_post_threshold.is_finite() || self.tile_reduce_post_threshold < 0.0 {
+            self.tile_reduce_post_threshold = default_tile_reduce_post_threshold();
+        }
+
+        if !is_valid_rgba_depth(&self.rgba_depth) {
+            self.rgba_depth = DEFAULT_RGBA_DEPTH.to_string();
+        }
+    }
+}
+
+/// A valid RGBA depth string is exactly 4 characters, each a digit `1'..='8'`
+/// (bits per channel); anything else can't be turned into a sane [`Vec4f`] depth.
+fn is_valid_rgba_depth(rgba_depth: &str) -> bool {
+    let chars: Vec<char> = rgba_depth.chars().collect();
+    chars.len() == 4 && chars.iter().all(|c| ('1'..='8').contains(c))
 }
 
 impl Default for QualetizeSettings {
@@ -246,16 +276,11 @@ impl Default for QualetizeSettings {
     }
 }
 
+/// A digit `d` in `1..=8` means `d` bits per channel, i.e. `2^d - 1` levels; anything
+/// else (including non-digit characters) falls back to a full 8-bit channel.
 fn char_to_depth(c: char) -> f32 {
-    match c {
-        '1' => 1.0,
-        '2' => 3.0,
-        '3' => 7.0,
-        '4' => 15.0,
-        '5' => 31.0,
-        '6' => 63.0,
-        '7' => 127.0,
-        '8' => 255.0,
+    match c.to_digit(10) {
+        Some(d @ 1..=8) => ((1u32 << d) - 1) as f32,
         _ => 255.0,
     }
 }
@@ -268,14 +293,19 @@ fn default_tile_reduce_allow_flip() -> bool {
     true
 }
 
+/// Parses a 4-character RGBA depth string into per-channel level counts.
+///
+/// Counts *characters*, not bytes: a non-ASCII string can have `len() == 4` in bytes
+/// while holding fewer than 4 `char`s (or vice versa), and indexing a byte-based
+/// `Vec<char>` built from the wrong count used to panic.
 fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
-    if rgba_depth.len() == 4 {
-        let chars: Vec<char> = rgba_depth.chars().collect();
+    let chars: Vec<char> = rgba_depth.chars().collect();
+    if let [a, b, c, d] = chars[..] {
         [
-            char_to_depth(chars[0]),
-            char_to_depth(chars[1]),
-            char_to_depth(chars[2]),
-            char_to_depth(chars[3]),
+            char_to_depth(a),
+            char_to_depth(b),
+            char_to_depth(c),
+            char_to_depth(d),
         ]
     } else {
         [255.0, 255.0, 255.0, 255.0] // Default to 8-bit
@@ -300,7 +330,7 @@ fn levels_to_string(levels: Vec<u8>) -> String {
         .join(",")
 }
 
-pub fn default_level_strings_from_depth(rgba_depth: &str) -> [String; 4] {
+pub(crate) fn default_level_strings_from_depth(rgba_depth: &str) -> [String; 4] {
     let depth = parse_rgba_depth(rgba_depth);
     [
         levels_to_string(depth_to_levels(depth[0])),
@@ -329,7 +359,7 @@ static LEVEL_LIST_RE: LazyLock<Regex> = LazyLock::new(|| {
         .expect("level list regex is valid")
 });
 
-pub fn validate_0_255_array(array_str: &str) -> bool {
+pub(crate) fn validate_0_255_array(array_str: &str) -> bool {
     if array_str.is_empty() {
         return false;
     }
@@ -355,13 +385,22 @@ fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {
 }
 
 pub struct QualetizePlanOwned {
-    pub plan: QualetizePlan,
+    // Private: `plan.custom_levels` points into `custom_level_storage` below, so
+    // handing the plan out by value would let it outlive the storage that backs
+    // its pointers. Only borrow it through `as_ptr`.
+    plan: QualetizePlan,
+    // Never read directly: it exists purely to keep the boxed slices `plan`
+    // points into alive for as long as `self` is. Dropping them early would
+    // dangle `plan.custom_levels`.
+    #[allow(dead_code)]
     custom_level_storage: [Option<Box<[f32]>>; 4],
 }
 
 impl QualetizePlanOwned {
+    /// Invariant: `plan.custom_levels` points into the boxed slices held in
+    /// `custom_level_storage`, which live exactly as long as `self`. Callers must
+    /// not use the returned pointer beyond `self`'s lifetime.
     pub fn as_ptr(&self) -> *const QualetizePlan {
-        let _ = &self.custom_level_storage;
         &self.plan
     }
 }
@@ -413,6 +452,87 @@ impl From<QualetizeSettings> for QualetizePlanOwned {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `rgba_depth.len() == 4` used to check bytes, not characters, so a 4-byte
+    /// string that isn't 4 characters (e.g. containing multi-byte UTF-8) would pass
+    /// the length check and then panic indexing a shorter `Vec<char>`.
+    #[test]
+    fn parse_rgba_depth_does_not_panic_on_non_ascii_input() {
+        // "é" is 2 bytes but 1 char: "é331" is 5 bytes / 4 chars, "éé31" is 6 bytes
+        // / 4 chars, and "é31" is 4 bytes / 3 chars. None of these should panic, and
+        // none is a valid 4-digit depth string other than the 4-char ones, which
+        // fall back to the "not a digit" branch of `char_to_depth` for 'é'.
+        assert_eq!(parse_rgba_depth("é31"), [255.0, 255.0, 255.0, 255.0]);
+        assert_eq!(
+            parse_rgba_depth("éé31"),
+            [255.0, 255.0, char_to_depth('3'), char_to_depth('1')]
+        );
+        assert_eq!(parse_rgba_depth("é3331"), [255.0, 255.0, 255.0, 255.0]);
+    }
+
+    /// `char_to_depth`'s formula (`2^d - 1` for a digit `d` in `1..=8`) must agree
+    /// with the explicit table it replaced.
+    #[test]
+    fn char_to_depth_formula_matches_the_old_table() {
+        let old_table = [
+            ('1', 1.0),
+            ('2', 3.0),
+            ('3', 7.0),
+            ('4', 15.0),
+            ('5', 31.0),
+            ('6', 63.0),
+            ('7', 127.0),
+            ('8', 255.0),
+        ];
+        for (c, expected) in old_table {
+            assert_eq!(char_to_depth(c), expected, "digit {c}");
+        }
+        // Out of range or non-digit characters still fall back to 8-bit.
+        assert_eq!(char_to_depth('0'), 255.0);
+        assert_eq!(char_to_depth('9'), 255.0);
+        assert_eq!(char_to_depth('x'), 255.0);
+    }
+
+    /// The C library divides by `tile_width`/`tile_height` and writes
+    /// `n_colors * n_palettes` palette entries, so out-of-range values loaded from a
+    /// hand-edited `.qset` must be clamped rather than passed straight through.
+    #[test]
+    fn sanitize_clamps_out_of_range_values_loaded_from_disk() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.tile_width = 0;
+        settings.tile_height = 1000;
+        settings.n_colors = 0;
+        settings.n_palettes = u16::MAX;
+        settings.tile_passes = u32::MAX;
+        settings.color_passes = u32::MAX;
+        settings.dither_level = f32::NAN;
+        settings.tile_reduce_post_threshold = -5.0;
+        settings.rgba_depth = "9a3!".to_string();
+
+        settings.sanitize();
+
+        assert!((1..=64).contains(&settings.tile_width));
+        assert!((1..=64).contains(&settings.tile_height));
+        assert!((1..=256).contains(&settings.n_colors));
+        assert!(settings.n_colors as u32 * settings.n_palettes as u32 <= 256);
+        assert!(settings.tile_passes <= 1000);
+        assert!(settings.color_passes <= 100);
+        assert_eq!(settings.dither_level, 0.5);
+        assert!(settings.tile_reduce_post_threshold >= 0.0);
+        assert_eq!(settings.rgba_depth, DEFAULT_RGBA_DEPTH);
+    }
+
+    /// A well-formed settings struct (e.g. any preset) must survive `sanitize`
+    /// unchanged.
+    #[test]
+    fn sanitize_leaves_in_range_values_alone() {
+        let mut settings = QualetizeSettings::genesis();
+        let before = settings.clone();
+
+        settings.sanitize();
+
+        assert_eq!(settings, before);
+    }
 
     #[test]
     fn validate_0_255_array_accepts_well_formed_lists() {

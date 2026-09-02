@@ -1,41 +1,85 @@
 use crate::types::qualetize::{Qualetize, QualetizePlanOwned, Vec4f};
-use crate::types::{BGRA8, ImageData, QualetizeSettings};
-use egui::Context;
-use std::sync::mpsc;
+use crate::types::{BGRA8, QualetizeSettings};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, mpsc};
 
 #[derive(Debug)]
 pub struct QualetizeResult {
     pub indexed_data: Vec<u8>,
     pub palette_data: Vec<BGRA8>,
-    pub settings: QualetizeSettings,
+    pub colors_per_palette: usize,
     pub width: u32,
     pub height: u32,
-    pub generation_id: u64,
+}
+
+/// One background computation whose result is polled from the UI thread.
+///
+/// Starting a job replaces the receiver, so a result from an earlier thread
+/// can never be observed: its send fails against the dropped receiver and the
+/// thread simply exits. No generation counter or join bookkeeping is needed.
+struct Job<T> {
+    receiver: Option<mpsc::Receiver<T>>,
+    cancel: Arc<AtomicBool>,
+}
+
+impl<T> Default for Job<T> {
+    fn default() -> Self {
+        Self {
+            receiver: None,
+            cancel: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
+impl<T: Send + 'static> Job<T> {
+    /// Cancel the running job, if any, and run `work` on a new thread.
+    /// `work` returns `None` when it stopped early because of the cancel flag.
+    fn start(&mut self, work: impl FnOnce(&AtomicBool) -> Option<T> + Send + 'static) {
+        self.cancel();
+        let cancel = Arc::new(AtomicBool::new(false));
+        let (sender, receiver) = mpsc::channel();
+        let flag = cancel.clone();
+        std::thread::spawn(move || {
+            if let Some(result) = work(&flag) {
+                let _ = sender.send(result);
+            }
+        });
+        self.receiver = Some(receiver);
+        self.cancel = cancel;
+    }
+
+    /// Ask the worker to stop and forget about its result.
+    fn cancel(&mut self) {
+        self.cancel.store(true, Ordering::Relaxed);
+        self.receiver = None;
+    }
+
+    fn is_running(&self) -> bool {
+        self.receiver.is_some()
+    }
+
+    /// The finished result, once. A worker that exited without one (cancelled
+    /// or panicked) just ends the job.
+    fn poll(&mut self) -> Option<T> {
+        let receiver = self.receiver.as_ref()?;
+        match receiver.try_recv() {
+            Ok(result) => {
+                self.receiver = None;
+                Some(result)
+            }
+            Err(mpsc::TryRecvError::Disconnected) => {
+                self.receiver = None;
+                None
+            }
+            Err(mpsc::TryRecvError::Empty) => None,
+        }
+    }
 }
 
 #[derive(Default)]
 pub struct ImageProcessor {
-    preview_thread: Option<std::thread::JoinHandle<()>>,
-    preview_receiver: Option<mpsc::Receiver<Result<QualetizeResult, String>>>,
-    cancel_sender: Option<mpsc::Sender<()>>,
-    current_generation_id: u64,
-    active_threads: Vec<std::thread::JoinHandle<()>>,
-    tile_reduce_thread: Option<std::thread::JoinHandle<()>>,
-    tile_reduce_receiver: Option<mpsc::Receiver<Result<TileReduceResult, String>>>,
-    tile_reduce_generation_id: u64,
-    tile_reduce_cancel: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-}
-
-struct ClusterMember {
-    indices: Vec<u8>,
-    blurred_colors: Vec<[u8; 4]>,
-}
-
-struct ClusterRep {
-    indices: Vec<u8>,
-    blurred_colors: Vec<[u8; 4]>,
-    members: Vec<ClusterMember>,
-    insert_cursor: usize,
+    qualetize: Job<Result<QualetizeResult, String>>,
+    tile_reduce: Job<TileReduceResult>,
 }
 
 pub struct TileReduceOptions {
@@ -44,126 +88,43 @@ pub struct TileReduceOptions {
     pub threshold: f32,
     pub allow_flip_x: bool,
     pub allow_flip_y: bool,
-    pub use_blur: bool,
 }
 
 pub struct TileReduceResult {
     pub indexed_pixels: Vec<u8>,
     pub merged: usize,
-    pub generation_id: u64,
 }
 
 impl ImageProcessor {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn start_qualetize(
         &mut self,
-        color_corrected_image: &ImageData,
+        rgba_data: &[u8],
+        width: u32,
+        height: u32,
         settings: QualetizeSettings,
     ) {
-        // Cancel any existing processing
-        self.cancel_current_processing();
-
         // Convert up front so the worker thread starts on data it can use directly.
-        let bgra_data = to_bgra(&color_corrected_image.rgba_data);
-        let width = color_corrected_image.width;
-        let height = color_corrected_image.height;
-
-        let (result_sender, result_receiver) = mpsc::channel();
-        let (cancel_sender, cancel_receiver) = mpsc::channel();
-        let generation_id = self.current_generation_id;
-
-        self.preview_receiver = Some(result_receiver);
-        self.cancel_sender = Some(cancel_sender);
-
-        let thread = std::thread::spawn(move || {
-            let result = Self::generate_preview(
-                bgra_data,
-                width,
-                height,
-                settings,
-                cancel_receiver,
-                generation_id,
-            );
-            let _ = result_sender.send(result);
+        let bgra_data = to_bgra(rgba_data);
+        self.qualetize.start(move |cancel| {
+            // The C call cannot be interrupted, so this only saves work when the
+            // job was superseded before its thread got scheduled.
+            if cancel.load(Ordering::Relaxed) {
+                return None;
+            }
+            Some(run_qualetize(&bgra_data, width, height, &settings))
         });
-        self.preview_thread = Some(thread);
     }
 
-    pub fn check_preview_complete(&mut self, ctx: &Context) -> Option<Result<ImageData, String>> {
-        self.cleanup_finished_threads();
-
-        if let Some(receiver) = &mut self.preview_receiver
-            && let Ok(result) = receiver.try_recv()
-        {
-            self.preview_thread = None;
-            self.preview_receiver = None;
-
-            return match result {
-                Ok(qualetize_result) => {
-                    if qualetize_result.generation_id != self.current_generation_id {
-                        log::debug!(
-                            "Ignoring outdated result from generation {} (current: {})",
-                            qualetize_result.generation_id,
-                            self.current_generation_id
-                        );
-                        return None;
-                    }
-                    log::debug!(
-                        "Accepting result from generation {}",
-                        qualetize_result.generation_id
-                    );
-                    Some(ImageData::create_from_qualetize_result(
-                        qualetize_result,
-                        ctx,
-                    ))
-                }
-                // A cancelled run is not a failure worth reporting.
-                Err(e) if e.contains("Processing cancelled") => None,
-                Err(e) => Some(Err(e)),
-            };
-        }
-        None
+    pub fn poll_qualetize(&mut self) -> Option<Result<QualetizeResult, String>> {
+        self.qualetize.poll()
     }
 
-    pub fn is_processing(&self) -> bool {
-        self.preview_thread.is_some()
+    pub fn is_qualetizing(&self) -> bool {
+        self.qualetize.is_running()
     }
 
-    pub fn cancel_tile_reduce(&mut self) {
-        if let Some(cancel) = &self.tile_reduce_cancel {
-            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-        }
-        if let Some(old_thread) = self.tile_reduce_thread.take() {
-            self.active_threads.push(old_thread);
-        }
-        self.tile_reduce_receiver = None;
-        self.tile_reduce_cancel = None;
-    }
-
-    pub fn cancel_current_processing(&mut self) {
-        if let Some(cancel_sender) = &self.cancel_sender {
-            let _ = cancel_sender.send(());
-        }
-
-        // Let the old thread run to completion in the background; its result is
-        // discarded because the generation ID below no longer matches.
-        if let Some(old_thread) = self.preview_thread.take() {
-            self.active_threads.push(old_thread);
-        }
-
-        self.preview_thread = None;
-        self.preview_receiver = None;
-        self.cancel_sender = None;
-        self.current_generation_id += 1;
-
-        self.cleanup_finished_threads();
-    }
-
-    fn cleanup_finished_threads(&mut self) {
-        self.active_threads.retain(|thread| !thread.is_finished());
+    pub fn cancel_qualetize(&mut self) {
+        self.qualetize.cancel();
     }
 
     pub fn start_tile_reduce(
@@ -173,451 +134,385 @@ impl ImageProcessor {
         width: u32,
         height: u32,
         opts: TileReduceOptions,
-    ) -> u64 {
-        // cancel previous
-        self.cancel_tile_reduce();
-        let cancel_flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
-        self.tile_reduce_cancel = Some(cancel_flag.clone());
-        self.tile_reduce_generation_id = self.tile_reduce_generation_id.wrapping_add(1);
-
-        let (sender, receiver) = mpsc::channel();
-        self.tile_reduce_receiver = Some(receiver);
-
-        let generation_id = self.tile_reduce_generation_id;
-        let thread = std::thread::spawn(move || {
+    ) {
+        self.tile_reduce.start(move |cancel| {
             let mut indexed_pixels = indexed;
-            let merged = Self::reduce_tiles_indexed(
-                &mut indexed_pixels,
-                &palettes,
-                width,
-                height,
-                &opts,
-                Some(cancel_flag),
-            );
-            if merged == usize::MAX {
-                return;
-            }
-            let result = TileReduceResult {
+            let merged =
+                reduce_tiles_indexed(&mut indexed_pixels, &palettes, width, height, &opts, cancel)?;
+            Some(TileReduceResult {
                 indexed_pixels,
                 merged,
-                generation_id,
-            };
-            let _ = sender.send(Ok(result));
+            })
         });
-        self.tile_reduce_thread = Some(thread);
-        generation_id
     }
 
-    pub fn check_tile_reduce_complete(&mut self) -> Option<Result<TileReduceResult, String>> {
-        self.cleanup_finished_threads();
-        if let Some(receiver) = &mut self.tile_reduce_receiver {
-            match receiver.try_recv() {
-                Ok(result) => {
-                    self.tile_reduce_thread = None;
-                    self.tile_reduce_receiver = None;
-                    self.tile_reduce_cancel = None;
-                    return Some(result);
-                }
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    self.tile_reduce_thread = None;
-                    self.tile_reduce_receiver = None;
-                    self.tile_reduce_cancel = None;
-                    return Some(Err("Tile reduce cancelled".to_string()));
-                }
-                Err(mpsc::TryRecvError::Empty) => {}
-            }
-        }
-        None
+    pub fn poll_tile_reduce(&mut self) -> Option<TileReduceResult> {
+        self.tile_reduce.poll()
     }
 
-    fn generate_preview(
-        bgra_data: Vec<BGRA8>,
-        width: u32,
-        height: u32,
-        settings: QualetizeSettings,
-        cancel_receiver: mpsc::Receiver<()>,
-        generation_id: u64,
-    ) -> Result<QualetizeResult, String> {
-        log::info!("Starting preview generation from BGRA data (generation {generation_id})");
-
-        // Check for cancellation
-        if cancel_receiver.try_recv().is_ok() {
-            log::info!("Processing cancelled for generation {generation_id}");
-            return Err("Processing cancelled".to_string());
-        }
-
-        // Use the common qualetize processing function
-        let mut qualetize_result =
-            Self::perform_qualetize_processing(bgra_data, width, height, settings)?;
-
-        // Set the generation ID for preview tracking
-        qualetize_result.generation_id = generation_id;
-
-        Ok(qualetize_result)
+    pub fn is_tile_reducing(&self) -> bool {
+        self.tile_reduce.is_running()
     }
 
-    pub fn perform_qualetize_processing(
-        bgra_data: Vec<BGRA8>,
-        width: u32,
-        height: u32,
-        settings: QualetizeSettings,
-    ) -> Result<QualetizeResult, String> {
-        // Create qualetize plan
-        let plan = QualetizePlanOwned::from(settings.clone());
+    pub fn cancel_tile_reduce(&mut self) {
+        self.tile_reduce.cancel();
+    }
 
-        // Prepare output buffers
-        let output_size = (width * height) as usize;
-        let mut output_data: Vec<u8> = vec![0; output_size];
-        let palette_size = (settings.n_palettes * settings.n_colors) as usize;
-        let mut output_palette: Vec<BGRA8> = vec![
-            BGRA8 {
-                b: 0,
-                g: 0,
-                r: 0,
-                a: 0
-            };
-            palette_size
-        ];
-        let mut rmse = Vec4f { f32: [0.0; 4] };
+    pub fn cancel_all(&mut self) {
+        self.cancel_qualetize();
+        self.cancel_tile_reduce();
+    }
+}
 
-        // Call qualetize
-        let result = unsafe {
-            Qualetize(
-                output_data.as_mut_ptr(),
-                output_palette.as_mut_ptr(),
-                bgra_data.as_ptr(),
-                std::ptr::null(),
-                width,
-                height,
-                plan.as_ptr(),
-                &mut rmse,
-            )
+fn run_qualetize(
+    bgra_data: &[BGRA8],
+    width: u32,
+    height: u32,
+    settings: &QualetizeSettings,
+) -> Result<QualetizeResult, String> {
+    let plan = QualetizePlanOwned::from(settings.clone());
+
+    let mut output_data: Vec<u8> = vec![0; (width * height) as usize];
+    // usize arithmetic: the u16 product would wrap for out-of-range settings
+    // and let the library write past the end of the buffer.
+    let palette_size = settings.n_palettes as usize * settings.n_colors as usize;
+    let mut output_palette: Vec<BGRA8> = vec![
+        BGRA8 {
+            b: 0,
+            g: 0,
+            r: 0,
+            a: 0
         };
+        palette_size
+    ];
+    let mut rmse = Vec4f { f32: [0.0; 4] };
 
-        if result == 0 {
-            return Err("Qualetize processing failed".to_string());
-        }
-
-        log::debug!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
-
-        Ok(QualetizeResult {
-            indexed_data: output_data,
-            palette_data: output_palette,
-            settings,
+    // SAFETY: every buffer is sized as the plan describes (width*height
+    // indices, n_palettes*n_colors palette entries), `plan` owns the custom
+    // level arrays it points to for the duration of the call, and the
+    // library does not retain any of the pointers.
+    let result = unsafe {
+        Qualetize(
+            output_data.as_mut_ptr(),
+            output_palette.as_mut_ptr(),
+            bgra_data.as_ptr(),
+            std::ptr::null(),
             width,
             height,
-            generation_id: 0, // Not needed for export
-        })
+            plan.as_ptr(),
+            &mut rmse,
+        )
+    };
+
+    if result == 0 {
+        return Err("Qualetize processing failed".to_string());
     }
 
-    pub fn reduce_tiles_indexed(
-        indexed: &mut [u8],
-        palette: &[BGRA8],
-        width: u32,
-        height: u32,
-        opts: &TileReduceOptions,
-        cancel_flag: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
-    ) -> usize {
-        // Quality/speed tuning
-        let medoid_recompute_interval = 8;
-        let max_members_tracked = 64;
+    log::debug!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
 
-        if opts.tile_width == 0
-            || opts.tile_height == 0
-            || !width.is_multiple_of(opts.tile_width as u32)
-            || !height.is_multiple_of(opts.tile_height as u32)
-        {
-            log::warn!("Tile reduce post-process skipped due to incompatible dimensions");
-            return 0;
-        }
+    Ok(QualetizeResult {
+        indexed_data: output_data,
+        palette_data: output_palette,
+        colors_per_palette: settings.n_colors as usize,
+        width,
+        height,
+    })
+}
 
-        let tiles_x = width / opts.tile_width as u32;
-        let tiles_y = height / opts.tile_height as u32;
-        let tile_w = opts.tile_width as usize;
-        let tile_h = opts.tile_height as usize;
-        let tile_area = tile_w * tile_h;
-        let stride = width as usize;
-        let orientation_maps =
-            Orientation::maps(tile_w, tile_h, opts.allow_flip_x, opts.allow_flip_y);
+/// One tile as the reducer sees it: its palette indices, and the blurred
+/// colors those indices resolve to, which is what tiles are compared on.
+#[derive(Clone)]
+struct Tile {
+    indices: Vec<u8>,
+    blurred_colors: Vec<[u8; 4]>,
+}
 
-        let mut tile_indices_buf = vec![0u8; tile_area];
-        let mut tile_colors_buf = vec![[0u8; 4]; tile_area];
-        let mut tile_blur_buf = vec![[0u8; 4]; tile_area];
+struct Cluster {
+    /// The tile written in place of every member.
+    rep: Tile,
+    /// Recent members, kept so the representative can be re-chosen as the
+    /// medoid of what actually joined the cluster.
+    members: Vec<Tile>,
+    insert_cursor: usize,
+}
 
-        let mut representatives: Vec<ClusterRep> = Vec::new();
-        let mut merged = 0usize;
-        let mut oriented_tiles: Vec<Vec<[u8; 4]>> = Vec::with_capacity(orientation_maps.len());
+/// Merge tiles whose blurred colors are within `opts.threshold` MSE of an
+/// earlier tile (in any allowed flip), rewriting `indexed` in place.
+///
+/// Returns the number of tiles replaced, or `None` when `cancel` was raised.
+pub fn reduce_tiles_indexed(
+    indexed: &mut [u8],
+    palette: &[BGRA8],
+    width: u32,
+    height: u32,
+    opts: &TileReduceOptions,
+    cancel: &AtomicBool,
+) -> Option<usize> {
+    // Quality/speed tuning
+    const MEDOID_RECOMPUTE_INTERVAL: usize = 8;
+    const MAX_MEMBERS_TRACKED: usize = 64;
 
-        let mut coords: Vec<(u32, u32, f32)> = Vec::with_capacity((tiles_x * tiles_y) as usize);
-        let center_x = tiles_x as f32 / 2.0;
-        let center_y = tiles_y as f32 / 2.0;
-        for ty in 0..tiles_y {
-            for tx in 0..tiles_x {
-                let cx = tx as f32 + 0.5;
-                let cy = ty as f32 + 0.5;
-                let dist2 = (cx - center_x).powi(2) + (cy - center_y).powi(2);
-                coords.push((tx, ty, dist2));
-            }
-        }
-        coords.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap_or(std::cmp::Ordering::Equal));
-
-        for (tx, ty, _) in coords {
-            if let Some(flag) = &cancel_flag
-                && flag.load(std::sync::atomic::Ordering::Relaxed)
-            {
-                return usize::MAX;
-            }
-            let tile_indices = &mut tile_indices_buf;
-            for y in 0..tile_h {
-                let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
-                tile_indices[y * tile_w..(y + 1) * tile_w]
-                    .copy_from_slice(&indexed[offset..offset + tile_w]);
-            }
-
-            Self::expand_indices_to_colors_into(tile_indices, palette, &mut tile_colors_buf);
-            if opts.use_blur {
-                Self::blur_tile_colors_into(&tile_colors_buf, &mut tile_blur_buf, tile_w, tile_h);
-            } else {
-                tile_blur_buf.copy_from_slice(&tile_colors_buf);
-            }
-
-            oriented_tiles.clear();
-            for map in &orientation_maps {
-                let oriented = Self::orient_tile_to_rep(&tile_blur_buf, &map.map);
-                oriented_tiles.push(oriented);
-            }
-
-            let mut matched: Option<(usize, Orientation)> = None;
-            for (idx, rep) in representatives.iter().enumerate() {
-                let (best_mse, best_orient) = Self::best_orientation_mse_preoriented(
-                    &rep.blurred_colors,
-                    &oriented_tiles,
-                    &orientation_maps,
-                );
-                if best_mse <= opts.threshold {
-                    matched = Some((idx, best_orient));
-                    break;
-                }
-            }
-
-            if let Some((rep_idx, orientation)) = matched {
-                let rep = &representatives[rep_idx];
-                let map = orientation_maps
-                    .iter()
-                    .find(|m| m.orientation == orientation)
-                    .map(|m| &m.map)
-                    .unwrap_or(&orientation_maps[0].map);
-                for y in 0..tile_h {
-                    let offset = ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
-                    Self::write_rep_with_orientation(
-                        &mut indexed[offset..offset + tile_w],
-                        &rep.indices,
-                        tile_w,
-                        tile_h,
-                        y,
-                        map,
-                    );
-                }
-                // add member and update representative by medoid
-                if let Some(rep) = representatives.get_mut(rep_idx) {
-                    let member = ClusterMember {
-                        indices: tile_indices.to_vec(),
-                        blurred_colors: tile_blur_buf.to_vec(),
-                    };
-                    if rep.members.len() < max_members_tracked {
-                        rep.members.push(member);
-                    } else {
-                        let pos = rep.insert_cursor % max_members_tracked;
-                        rep.members[pos] = member;
-                        rep.insert_cursor = rep.insert_cursor.wrapping_add(1);
-                    }
-
-                    if rep.members.len() % medoid_recompute_interval == 0 {
-                        Self::recompute_medoid(rep, &orientation_maps);
-                    }
-                }
-                merged += 1;
-            } else {
-                representatives.push(ClusterRep {
-                    indices: tile_indices.to_vec(),
-                    blurred_colors: tile_blur_buf.to_vec(),
-                    members: vec![ClusterMember {
-                        indices: tile_indices.to_vec(),
-                        blurred_colors: tile_blur_buf.to_vec(),
-                    }],
-                    insert_cursor: 1,
-                });
-            }
-        }
-
-        merged
+    if opts.tile_width == 0
+        || opts.tile_height == 0
+        || !width.is_multiple_of(opts.tile_width as u32)
+        || !height.is_multiple_of(opts.tile_height as u32)
+    {
+        log::warn!("Tile reduce post-process skipped due to incompatible dimensions");
+        return Some(0);
     }
 
-    fn expand_indices_to_colors_into(indices: &[u8], palette: &[BGRA8], out: &mut [[u8; 4]]) {
-        for (dst, &idx) in out.iter_mut().zip(indices.iter()) {
-            if let Some(color) = palette.get(idx as usize) {
-                *dst = [color.r, color.g, color.b, color.a];
-            } else {
-                *dst = [0, 0, 0, 0];
-            }
+    let tiles_x = width / opts.tile_width as u32;
+    let tiles_y = height / opts.tile_height as u32;
+    let tile_w = opts.tile_width as usize;
+    let tile_h = opts.tile_height as usize;
+    let tile_area = tile_w * tile_h;
+    let stride = width as usize;
+    let orientation_maps = Orientation::maps(tile_w, tile_h, opts.allow_flip_x, opts.allow_flip_y);
+
+    let mut tile_indices = vec![0u8; tile_area];
+    let mut tile_colors = vec![[0u8; 4]; tile_area];
+    let mut tile_blur = vec![[0u8; 4]; tile_area];
+
+    let mut clusters: Vec<Cluster> = Vec::new();
+    let mut merged = 0usize;
+    let mut oriented_tiles: Vec<Vec<[u8; 4]>> = Vec::with_capacity(orientation_maps.len());
+
+    // Visit tiles from the image center outwards so the representatives that
+    // win are the ones in the middle of the picture.
+    let mut coords: Vec<(u32, u32, f32)> = Vec::with_capacity((tiles_x * tiles_y) as usize);
+    let center_x = tiles_x as f32 / 2.0;
+    let center_y = tiles_y as f32 / 2.0;
+    for ty in 0..tiles_y {
+        for tx in 0..tiles_x {
+            let cx = tx as f32 + 0.5;
+            let cy = ty as f32 + 0.5;
+            let dist2 = (cx - center_x).powi(2) + (cy - center_y).powi(2);
+            coords.push((tx, ty, dist2));
         }
     }
+    coords.sort_by(|a, b| a.2.total_cmp(&b.2));
 
-    fn best_orientation_mse_maps(
-        rep_colors: &[[u8; 4]],
-        tile_colors: &[[u8; 4]],
-        maps: &[OrientationMap],
-    ) -> (f32, Orientation) {
-        let mut best = f32::MAX;
-        let mut best_orientation = Orientation::None;
-        for map in maps {
-            let mse = Self::tile_mse_rgba_with_map(rep_colors, tile_colors, &map.map);
-            if mse < best {
-                best = mse;
-                best_orientation = map.orientation;
-            }
+    for (tx, ty, _) in coords {
+        if cancel.load(Ordering::Relaxed) {
+            return None;
         }
-        (best, best_orientation)
-    }
-
-    fn tile_mse_rgba_with_map(
-        rep_colors: &[[u8; 4]],
-        tile_colors: &[[u8; 4]],
-        map: &[usize],
-    ) -> f32 {
-        if rep_colors.len() != tile_colors.len()
-            || rep_colors.is_empty()
-            || map.len() != rep_colors.len()
-        {
-            return f32::MAX;
-        }
-        let mut error = 0.0f64;
-        for (dst_idx, &src_idx) in map.iter().enumerate() {
-            let rep_px = &rep_colors[src_idx];
-            let tile_px = &tile_colors[dst_idx];
-            for c in 0..4 {
-                let diff = rep_px[c] as f64 - tile_px[c] as f64;
-                error += diff * diff;
-            }
-        }
-        (error / (rep_colors.len() as f64 * 4.0)) as f32
-    }
-
-    fn best_orientation_mse_preoriented(
-        rep_colors: &[[u8; 4]],
-        oriented_tiles: &[Vec<[u8; 4]>],
-        maps: &[OrientationMap],
-    ) -> (f32, Orientation) {
-        let mut best = f32::MAX;
-        let mut best_orientation = Orientation::None;
-        for (orient_buf, map) in oriented_tiles.iter().zip(maps.iter()) {
-            if orient_buf.len() != rep_colors.len() {
-                continue;
-            }
-            let mse = Self::tile_mse_rgba_fast(rep_colors, orient_buf, best);
-            if mse < best {
-                best = mse;
-                best_orientation = map.orientation;
-            }
-        }
-        (best, best_orientation)
-    }
-
-    fn tile_mse_rgba_fast(
-        rep_colors: &[[u8; 4]],
-        tile_colors: &[[u8; 4]],
-        stop_if_over: f32,
-    ) -> f32 {
-        if rep_colors.len() != tile_colors.len() || rep_colors.is_empty() {
-            return f32::MAX;
-        }
-        let mut error = 0.0f64;
-        let stop = (stop_if_over as f64) * (rep_colors.len() as f64 * 4.0);
-        for (rep_px, tile_px) in rep_colors.iter().zip(tile_colors.iter()) {
-            for c in 0..4 {
-                let diff = rep_px[c] as f64 - tile_px[c] as f64;
-                error += diff * diff;
-            }
-            if error > stop {
-                return f32::MAX;
-            }
-        }
-        (error / (rep_colors.len() as f64 * 4.0)) as f32
-    }
-
-    fn orient_tile_to_rep(tile: &[[u8; 4]], map: &[usize]) -> Vec<[u8; 4]> {
-        let mut oriented = vec![[0u8; 4]; tile.len()];
-        for (dst_idx, &rep_idx) in map.iter().enumerate() {
-            oriented[rep_idx] = tile[dst_idx];
-        }
-        oriented
-    }
-
-    fn blur_tile_colors_into(src: &[[u8; 4]], dst: &mut [[u8; 4]], tile_w: usize, tile_h: usize) {
-        let idx = |x: usize, y: usize| y * tile_w + x;
+        let row_offset = |y: usize| ((ty as usize * tile_h + y) * stride) + (tx as usize * tile_w);
         for y in 0..tile_h {
-            for x in 0..tile_w {
-                let mut acc = [0u32; 4];
-                let mut count = 0u32;
-                for dy in y.saturating_sub(1)..=(y + 1).min(tile_h - 1) {
-                    for dx in x.saturating_sub(1)..=(x + 1).min(tile_w - 1) {
-                        let px = &src[idx(dx, dy)];
-                        for c in 0..4 {
-                            acc[c] += px[c] as u32;
-                        }
-                        count += 1;
-                    }
-                }
-                let dst_px = &mut dst[idx(x, y)];
-                for c in 0..4 {
-                    dst_px[c] = (acc[c] / count) as u8;
-                }
-            }
+            let offset = row_offset(y);
+            tile_indices[y * tile_w..(y + 1) * tile_w]
+                .copy_from_slice(&indexed[offset..offset + tile_w]);
         }
+
+        expand_indices_to_colors_into(&tile_indices, palette, &mut tile_colors);
+        blur_tile_colors_into(&tile_colors, &mut tile_blur, tile_w, tile_h);
+
+        oriented_tiles.clear();
+        oriented_tiles.extend(
+            orientation_maps
+                .iter()
+                .map(|map| orient_tile_to_rep(&tile_blur, &map.map)),
+        );
+
+        let matched = clusters.iter().enumerate().find_map(|(idx, cluster)| {
+            let (best_mse, best_orient) = best_orientation_mse_preoriented(
+                &cluster.rep.blurred_colors,
+                &oriented_tiles,
+                &orientation_maps,
+            );
+            (best_mse <= opts.threshold).then_some((idx, best_orient))
+        });
+
+        let tile = Tile {
+            indices: tile_indices.clone(),
+            blurred_colors: tile_blur.clone(),
+        };
+
+        let Some((cluster_idx, orientation)) = matched else {
+            clusters.push(Cluster {
+                rep: tile.clone(),
+                members: vec![tile],
+                insert_cursor: 1,
+            });
+            continue;
+        };
+
+        let cluster = &mut clusters[cluster_idx];
+        let map = orientation_maps
+            .iter()
+            .find(|m| m.orientation == orientation)
+            .map_or(&orientation_maps[0].map, |m| &m.map);
+        for y in 0..tile_h {
+            let offset = row_offset(y);
+            write_rep_row(
+                &mut indexed[offset..offset + tile_w],
+                &cluster.rep.indices,
+                &map[y * tile_w..(y + 1) * tile_w],
+            );
+        }
+
+        if cluster.members.len() < MAX_MEMBERS_TRACKED {
+            cluster.members.push(tile);
+        } else {
+            let pos = cluster.insert_cursor % MAX_MEMBERS_TRACKED;
+            cluster.members[pos] = tile;
+            cluster.insert_cursor = cluster.insert_cursor.wrapping_add(1);
+        }
+        if cluster
+            .members
+            .len()
+            .is_multiple_of(MEDOID_RECOMPUTE_INTERVAL)
+        {
+            recompute_medoid(cluster, &orientation_maps);
+        }
+        merged += 1;
     }
 
-    fn recompute_medoid(rep: &mut ClusterRep, maps: &[OrientationMap]) {
-        if rep.members.len() <= 1 {
-            return;
-        }
-        let mut best_sum = f32::MAX;
-        let mut best_idx = 0usize;
+    Some(merged)
+}
 
-        for (i, a) in rep.members.iter().enumerate() {
-            let mut sum = 0.0f32;
-            for (j, b) in rep.members.iter().enumerate() {
-                if i == j {
-                    continue;
-                }
-                let (mse, _) =
-                    Self::best_orientation_mse_maps(&a.blurred_colors, &b.blurred_colors, maps);
-                sum += mse;
-            }
-            if sum < best_sum {
-                best_sum = sum;
-                best_idx = i;
-            }
-        }
+fn expand_indices_to_colors_into(indices: &[u8], palette: &[BGRA8], out: &mut [[u8; 4]]) {
+    for (dst, &idx) in out.iter_mut().zip(indices) {
+        *dst = palette
+            .get(idx as usize)
+            .map_or([0, 0, 0, 0], |c| [c.r, c.g, c.b, c.a]);
+    }
+}
 
-        if let Some(best) = rep.members.get(best_idx) {
-            rep.indices = best.indices.clone();
-            rep.blurred_colors = best.blurred_colors.clone();
+/// Mean squared error over all channels between `rep` and `tile` read
+/// through `map` (`tile[i]` is compared with `rep[map[i]]`).
+fn tile_mse_with_map(rep: &[[u8; 4]], tile: &[[u8; 4]], map: &[usize]) -> f32 {
+    if rep.len() != tile.len() || rep.is_empty() || map.len() != rep.len() {
+        return f32::MAX;
+    }
+    let error: u64 = map
+        .iter()
+        .zip(tile)
+        .map(|(&src_idx, tile_px)| squared_diff(&rep[src_idx], tile_px))
+        .sum();
+    error as f32 / (rep.len() * 4) as f32
+}
+
+/// Like [`tile_mse_with_map`] on already oriented tiles, giving up as soon as
+/// the error exceeds `stop_if_over` since the caller only wants the minimum.
+fn tile_mse_fast(rep: &[[u8; 4]], tile: &[[u8; 4]], stop_if_over: f32) -> f32 {
+    if rep.len() != tile.len() || rep.is_empty() {
+        return f32::MAX;
+    }
+    let samples = (rep.len() * 4) as f32;
+    let stop = (stop_if_over * samples) as u64;
+    let mut error = 0u64;
+    for (rep_px, tile_px) in rep.iter().zip(tile) {
+        error += squared_diff(rep_px, tile_px);
+        if error > stop {
+            return f32::MAX;
         }
     }
+    error as f32 / samples
+}
 
-    fn write_rep_with_orientation(
-        dest_row: &mut [u8],
-        rep_indices: &[u8],
-        tile_w: usize,
-        _tile_h: usize,
-        y: usize,
-        orientation_map: &[usize],
-    ) {
-        let row_offset = y * tile_w;
+fn squared_diff(a: &[u8; 4], b: &[u8; 4]) -> u64 {
+    a.iter()
+        .zip(b)
+        .map(|(&x, &y)| {
+            let d = x as i32 - y as i32;
+            (d * d) as u64
+        })
+        .sum()
+}
+
+fn best_orientation_mse_maps(
+    rep: &[[u8; 4]],
+    tile: &[[u8; 4]],
+    maps: &[OrientationMap],
+) -> (f32, Orientation) {
+    maps.iter()
+        .map(|map| (tile_mse_with_map(rep, tile, &map.map), map.orientation))
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .unwrap_or((f32::MAX, Orientation::None))
+}
+
+fn best_orientation_mse_preoriented(
+    rep: &[[u8; 4]],
+    oriented_tiles: &[Vec<[u8; 4]>],
+    maps: &[OrientationMap],
+) -> (f32, Orientation) {
+    let mut best = f32::MAX;
+    let mut best_orientation = Orientation::None;
+    for (oriented, map) in oriented_tiles.iter().zip(maps) {
+        let mse = tile_mse_fast(rep, oriented, best);
+        if mse < best {
+            best = mse;
+            best_orientation = map.orientation;
+        }
+    }
+    (best, best_orientation)
+}
+
+fn orient_tile_to_rep(tile: &[[u8; 4]], map: &[usize]) -> Vec<[u8; 4]> {
+    let mut oriented = vec![[0u8; 4]; tile.len()];
+    for (dst_idx, &rep_idx) in map.iter().enumerate() {
+        oriented[rep_idx] = tile[dst_idx];
+    }
+    oriented
+}
+
+/// 3x3 box blur, clamped at the tile edges.
+fn blur_tile_colors_into(src: &[[u8; 4]], dst: &mut [[u8; 4]], tile_w: usize, tile_h: usize) {
+    let idx = |x: usize, y: usize| y * tile_w + x;
+    for y in 0..tile_h {
         for x in 0..tile_w {
-            let src_idx = orientation_map[row_offset + x];
-            dest_row[x] = rep_indices[src_idx];
+            let mut acc = [0u32; 4];
+            let mut count = 0u32;
+            for dy in y.saturating_sub(1)..=(y + 1).min(tile_h - 1) {
+                for dx in x.saturating_sub(1)..=(x + 1).min(tile_w - 1) {
+                    let px = &src[idx(dx, dy)];
+                    for c in 0..4 {
+                        acc[c] += px[c] as u32;
+                    }
+                    count += 1;
+                }
+            }
+            let dst_px = &mut dst[idx(x, y)];
+            for c in 0..4 {
+                dst_px[c] = (acc[c] / count) as u8;
+            }
         }
+    }
+}
+
+/// Make the member closest to all the others the cluster's representative.
+fn recompute_medoid(cluster: &mut Cluster, maps: &[OrientationMap]) {
+    if cluster.members.len() <= 1 {
+        return;
+    }
+    let medoid = cluster
+        .members
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            let sum: f32 = cluster
+                .members
+                .iter()
+                .enumerate()
+                .filter(|&(j, _)| j != i)
+                .map(|(_, b)| {
+                    best_orientation_mse_maps(&a.blurred_colors, &b.blurred_colors, maps).0
+                })
+                .sum();
+            (sum, i)
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, i)| i);
+    if let Some(i) = medoid {
+        cluster.rep = cluster.members[i].clone();
+    }
+}
+
+/// Write one row of the representative into `dest_row`, `map_row[x]` naming
+/// the representative pixel that lands at column `x`.
+fn write_rep_row(dest_row: &mut [u8], rep_indices: &[u8], map_row: &[usize]) {
+    for (dst, &src_idx) in dest_row.iter_mut().zip(map_row) {
+        *dst = rep_indices[src_idx];
     }
 }
 
@@ -644,26 +539,27 @@ impl Orientation {
         v
     }
 
+    /// For every allowed orientation, the source pixel index for each
+    /// destination pixel of a `tile_w` x `tile_h` tile.
     fn maps(
         tile_w: usize,
         tile_h: usize,
         allow_flip_x: bool,
         allow_flip_y: bool,
     ) -> Vec<OrientationMap> {
-        let orientations = Orientation::available(allow_flip_x, allow_flip_y);
-        orientations
+        Orientation::available(allow_flip_x, allow_flip_y)
             .into_iter()
             .map(|orientation| {
                 let mut map = Vec::with_capacity(tile_w * tile_h);
                 for y in 0..tile_h {
                     for x in 0..tile_w {
-                        let idx = match orientation {
-                            Orientation::None => y * tile_w + x,
-                            Orientation::FlipX => y * tile_w + (tile_w - 1 - x),
-                            Orientation::FlipY => (tile_h - 1 - y) * tile_w + x,
-                            Orientation::FlipXY => (tile_h - 1 - y) * tile_w + (tile_w - 1 - x),
+                        let (sx, sy) = match orientation {
+                            Orientation::None => (x, y),
+                            Orientation::FlipX => (tile_w - 1 - x, y),
+                            Orientation::FlipY => (x, tile_h - 1 - y),
+                            Orientation::FlipXY => (tile_w - 1 - x, tile_h - 1 - y),
                         };
-                        map.push(idx);
+                        map.push(sy * tile_w + sx);
                     }
                 }
                 OrientationMap { orientation, map }
@@ -679,12 +575,140 @@ struct OrientationMap {
 
 /// Qualetize consumes BGRA, egui produces RGBA.
 fn to_bgra(rgba: &[u8]) -> Vec<BGRA8> {
-    rgba.chunks_exact(4)
-        .map(|px| BGRA8 {
-            b: px[2],
-            g: px[1],
-            r: px[0],
-            a: px[3],
-        })
+    rgba.as_chunks::<4>()
+        .0
+        .iter()
+        .map(|&[r, g, b, a]| BGRA8 { b, g, r, a })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Tiles are 4x1 so the 3x3 blur (which averages a whole 2x2 tile into
+    /// one color) still leaves a mirrored tile distinguishable from the original.
+    fn opts(threshold: f32, flip_x: bool, flip_y: bool) -> TileReduceOptions {
+        TileReduceOptions {
+            tile_width: 4,
+            tile_height: 1,
+            threshold,
+            allow_flip_x: flip_x,
+            allow_flip_y: flip_y,
+        }
+    }
+
+    fn gray_palette() -> Vec<BGRA8> {
+        (0..8u8)
+            .map(|i| BGRA8 {
+                b: i * 30,
+                g: i * 30,
+                r: i * 30,
+                a: 255,
+            })
+            .collect()
+    }
+
+    /// 8x1 image, 4x1 tiles: the right tile is the horizontal mirror of the left one.
+    #[rustfmt::skip]
+    fn mirrored_pair() -> Vec<u8> {
+        vec![0, 0, 7, 7,   7, 7, 0, 0]
+    }
+
+    fn reduce(pixels: &mut [u8], opts: &TileReduceOptions, cancelled: bool) -> Option<usize> {
+        reduce_tiles_indexed(
+            pixels,
+            &gray_palette(),
+            8,
+            1,
+            opts,
+            &AtomicBool::new(cancelled),
+        )
+    }
+
+    #[test]
+    fn identical_tiles_are_merged_with_a_zero_threshold() {
+        #[rustfmt::skip]
+        let mut pixels = vec![1, 2, 3, 4,   1, 2, 3, 4];
+        assert_eq!(
+            reduce(&mut pixels, &opts(0.0, false, false), false),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn a_mirrored_tile_is_only_merged_when_the_flip_is_allowed() {
+        let mut pixels = mirrored_pair();
+        assert_eq!(
+            reduce(&mut pixels, &opts(0.0, false, false), false),
+            Some(0)
+        );
+        assert_eq!(pixels, mirrored_pair(), "nothing rewritten");
+
+        let mut pixels = mirrored_pair();
+        assert_eq!(reduce(&mut pixels, &opts(0.0, true, false), false), Some(1));
+        // The merged tile is written as the flipped representative, so the
+        // image resolves to the same colors it had before.
+        assert_eq!(pixels, mirrored_pair());
+    }
+
+    #[test]
+    fn a_raised_cancel_flag_stops_the_reduction() {
+        let mut pixels = mirrored_pair();
+        assert_eq!(reduce(&mut pixels, &opts(0.0, true, true), true), None);
+    }
+
+    #[test]
+    fn indivisible_dimensions_are_skipped() {
+        let mut pixels = vec![0; 6];
+        let merged = reduce_tiles_indexed(
+            &mut pixels,
+            &gray_palette(),
+            6,
+            1,
+            &opts(0.0, false, false),
+            &AtomicBool::new(false),
+        );
+        assert_eq!(merged, Some(0));
+    }
+
+    #[test]
+    fn mse_helpers_agree_and_flipped_maps_line_up() {
+        let maps = Orientation::maps(2, 2, true, true);
+        let rep = vec![
+            [10, 0, 0, 255],
+            [20, 0, 0, 255],
+            [30, 0, 0, 255],
+            [40, 0, 0, 255],
+        ];
+        // rep flipped horizontally
+        let tile = vec![
+            [20, 0, 0, 255],
+            [10, 0, 0, 255],
+            [40, 0, 0, 255],
+            [30, 0, 0, 255],
+        ];
+
+        let (mse, orientation) = best_orientation_mse_maps(&rep, &tile, &maps);
+        assert_eq!(mse, 0.0);
+        assert!(orientation == Orientation::FlipX);
+
+        let oriented: Vec<_> = maps
+            .iter()
+            .map(|m| orient_tile_to_rep(&tile, &m.map))
+            .collect();
+        let (mse, orientation) = best_orientation_mse_preoriented(&rep, &oriented, &maps);
+        assert_eq!(mse, 0.0);
+        assert!(orientation == Orientation::FlipX);
+
+        // Identity orientation: every pixel differs by 10 in one channel.
+        assert_eq!(tile_mse_with_map(&rep, &tile, &maps[0].map), 100.0 / 4.0);
+        assert_eq!(tile_mse_fast(&rep, &tile, f32::MAX), 100.0 / 4.0);
+    }
+
+    #[test]
+    fn bgra_conversion_swaps_red_and_blue() {
+        let bgra = to_bgra(&[1, 2, 3, 4]);
+        assert_eq!((bgra[0].r, bgra[0].g, bgra[0].b, bgra[0].a), (1, 2, 3, 4));
+    }
 }

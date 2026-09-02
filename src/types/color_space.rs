@@ -80,3 +80,24 @@ impl ColorSpace {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins each variant's id to the `COLOURSPACE_*` constants in
+    /// `external/qualetize/include/Qualetize.h`.
+    #[test]
+    fn ids_match_the_header_constants() {
+        assert_eq!(ColorSpace::Srgb.to_id(), 0);
+        assert_eq!(ColorSpace::RgbLinear.to_id(), 1);
+        assert_eq!(ColorSpace::Ycbcr.to_id(), 2);
+        assert_eq!(ColorSpace::Ycocg.to_id(), 3);
+        assert_eq!(ColorSpace::Cielab.to_id(), 4);
+        assert_eq!(ColorSpace::Ictcp.to_id(), 5);
+        assert_eq!(ColorSpace::Oklab.to_id(), 6);
+        assert_eq!(ColorSpace::RgbPsy.to_id(), 7);
+        assert_eq!(ColorSpace::YcbcrPsy.to_id(), 8);
+        assert_eq!(ColorSpace::YcocgPsy.to_id(), 9);
+    }
+}

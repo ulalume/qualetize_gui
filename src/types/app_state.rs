@@ -39,10 +39,11 @@ impl Default for TileCountSettings {
     }
 }
 
+/// How unique tiles are counted, and whether the counts in `AppState` are
+/// stale. The counts themselves live next to the images they describe.
 #[derive(Debug, Clone, Default)]
 pub struct TileCountState {
     pub settings: TileCountSettings,
-    pub last_count: Option<usize>,
     pub dirty: bool,
 }
 
@@ -55,14 +56,8 @@ impl TileCountState {
         }
     }
 
-    /// Force a recount on the next draw, keeping the stale number visible until then.
+    /// Force a recount on the next frame, keeping the stale number visible until then.
     pub fn mark_dirty(&mut self) {
-        self.dirty = true;
-    }
-
-    /// Force a recount and clear the displayed number, for when the image itself is gone.
-    pub fn reset(&mut self) {
-        self.last_count = None;
         self.dirty = true;
     }
 }
@@ -129,10 +124,12 @@ pub struct AppState {
     pub base_output_image: Option<ImageData>,
     pub output_image: Option<ImageData>,
     pub output_palette_sorted_indexed_image: Option<ImageDataIndexed>,
+    /// Unique tiles in `base_output_image` and `output_image`, recounted
+    /// whenever `tile_count.dirty` is set.
     pub base_tile_count: Option<usize>,
     pub reduced_tile_count: Option<usize>,
+    /// Mirrored from the processor once per frame for the panel spinners.
     pub tile_reduce_processing: bool,
-    pub tile_reduce_generation_id: u64,
     pub tile_reduce_toast: Option<Toast>,
 
     /// Set only while the loaded image needs extending; the input image itself
@@ -216,7 +213,6 @@ impl Default for AppState {
             base_tile_count: None,
             reduced_tile_count: None,
             tile_reduce_processing: false,
-            tile_reduce_generation_id: 0,
             tile_reduce_toast: None,
             tile_fitted_input: None,
             tile_fit_toast: None,
@@ -327,7 +323,7 @@ impl AppState {
         if self.preferences != self.last_preferences {
             self.last_preferences = self.preferences.clone();
             if let Err(e) = self.preferences.save() {
-                eprintln!("Failed to save preferences: {e}");
+                log::error!("Failed to save preferences: {e}");
             }
         }
     }
@@ -347,6 +343,13 @@ impl AppState {
     pub fn clear_palette_sort_dirty(&mut self) {
         self.last_palette_sort_settings = self.palette_sort_settings;
         self.palette_sort_dirty = false;
+    }
+
+    /// Schedule a (debounced) re-quantization of the color corrected image.
+    pub fn request_qualetize(&mut self) {
+        self.request_update_qualetized_image = Some(QualetizeRequest {
+            time: Instant::now(),
+        });
     }
 
     /// Check if color correction settings have changed
@@ -372,7 +375,6 @@ impl AppState {
         self.reduced_tile_count = None;
         self.request_update_tile_reduce = false;
         self.invalidate_palette_sort();
-        self.tile_count.reset();
     }
 
     /// Whether `source` currently has something to export. The optional passes

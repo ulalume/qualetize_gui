@@ -1,11 +1,12 @@
 use super::styles::{UiMarginExt, error_color, warning_color};
+use super::widgets;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
 use crate::types::qualetize::validate_0_255_array;
 use crate::types::{
     AppState, ClearColor, ColorSpace, DitherMode,
-    color_correction::ColorCorrection,
+    color_correction::ColorCorrectionPreset,
     image::{SortMode, SortOrder},
 };
 use std::ops::RangeInclusive;
@@ -34,33 +35,40 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
 
     ui.separator();
 
-    // Advanced clustering settings (if enabled)
-    if state.preferences.show_advanced {
-        settings_changed |= draw_advanced_settings(ui, state);
-        ui.separator();
-    }
+    // Advanced settings, collapsed to their heading until shown
+    settings_changed |= draw_advanced_settings(ui, state);
+    ui.separator();
 
-    // Color correction settings
-    settings_changed |= draw_color_correction_settings(ui, state);
+    // Color correction settings. These edit `state.color_correction`, not
+    // `state.settings`, and app.rs already detects those changes itself, so
+    // this does not feed into `settings_changed`.
+    draw_color_correction_settings(ui, state);
     ui.separator();
 
     tile_reduce_changed |= draw_tile_reduce_settings(ui, state);
     ui.separator();
     draw_palette_sort_settings(ui, state);
 
-    if state.preferences.show_debug_info {
-        // Debug information display
-        ui.separator();
-        draw_status_section(ui, state);
-    }
     (settings_changed, tile_reduce_changed)
 }
 
 fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Qualetize Advanced");
-    ui.add_space(4.0);
+    // Subheading, not heading: this is a subsection of "Qualetize" above,
+    // same as the "Color Space" and "Dithering" sections beside it.
+    widgets::subsection_header(
+        ui,
+        "Advanced Settings",
+        &mut state.preferences.show_advanced,
+        "Show",
+        Some(
+            "Tile size, output bit depth, transparent color, clustering passes and alpha handling.",
+        ),
+    );
+    if !state.preferences.show_advanced {
+        return settings_changed;
+    }
 
     settings_changed |= draw_tile_settings(ui, state);
 
@@ -98,11 +106,8 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             }
             if ui.button("Use Top-Left Pixel Color").clicked()
                 && let Some(color_corrected_image) = &state.color_corrected_image
-                && let Some(color) = color_corrected_image.get_top_left_pixel_color()
             {
-                *r = color.r();
-                *g = color.g();
-                *b = color.b();
+                [*r, *g, *b, _] = color_corrected_image.top_left_pixel();
                 settings_changed = true;
             }
             ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
@@ -114,13 +119,14 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed |= draw_clustering_settings(ui, state);
 
     ui.separator();
-    if ui
-        .checkbox(&mut state.settings.premul_alpha, "Premultiplied Alpha")
-        .on_hover_text("Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.")
-        .changed()
-    {
-        settings_changed = true;
-    }
+    settings_changed |= widgets::checkbox(
+        ui,
+        &mut state.settings.premul_alpha,
+        "Premultiplied Alpha",
+        Some(
+            "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
+        ),
+    );
 
     settings_changed
 }
@@ -139,29 +145,27 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         // Limit max colors based on palette count
         let max_colors = 256 / state.settings.n_palettes.max(1);
 
-        if ui
-            .add(egui::DragValue::new(&mut state.settings.n_palettes).range(1..=max_palettes))
-            .on_hover_text("Number of palettes available")
-            .changed()
-        {
-            settings_changed = true;
-        }
+        settings_changed |= widgets::drag_u16(
+            ui,
+            &mut state.settings.n_palettes,
+            1..=max_palettes,
+            "Number of palettes available",
+        );
 
         ui.label("*");
 
         ui.label("Colors:")
             .on_hover_text("Set number of colors per palette\nNote that this value times the number of palettes must be less than or equal to 256.");
 
-        if ui
-            .add(egui::DragValue::new(&mut state.settings.n_colors).range(1..=max_colors))
-            .on_hover_text("Number of colors per palette")
-            .changed()
-        {
-            settings_changed = true;
-        }
+        settings_changed |= widgets::drag_u16(
+            ui,
+            &mut state.settings.n_colors,
+            1..=max_colors,
+            "Number of colors per palette",
+        );
 
         ui.label("=");
-        ui.label(egui::RichText::new(format!("{}", state.settings.n_colors * state.settings.n_palettes))
+        ui.label(egui::RichText::new(format!("{}", state.settings.n_colors as u32 * state.settings.n_palettes as u32))
           .strong()).on_hover_text("Palettes * Colors per palette must be <= 256");
         ui.label("(max: 256)");
     });
@@ -195,7 +199,9 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             response = response.on_hover_text(
                 "Comma-separated integers between 0 and 255 (e.g., 0,49,87,119,146,174,206,255)",
             );
-            settings_changed |= response.changed();
+            // Invalid text is still being edited, so it must not trigger a
+            // re-quantization: the C library would silently drop the channel.
+            settings_changed |= response.changed() && is_valid;
 
             if !is_valid {
                 ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
@@ -219,18 +225,12 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         egui::ComboBox::from_id_salt("quant_mode")
             .selected_text(if mode_is_custom { "Custom" } else { "Linear" })
             .show_ui(ui, |ui| {
-                if ui
+                settings_changed |= ui
                     .selectable_value(&mut mode_is_custom, false, "Linear")
-                    .clicked()
-                {
-                    settings_changed = true;
-                }
-                if ui
+                    .changed();
+                settings_changed |= ui
                     .selectable_value(&mut mode_is_custom, true, "Custom")
-                    .clicked()
-                {
-                    settings_changed = true;
-                }
+                    .changed();
             })
             .response
             .on_hover_text("Choose Linear (bit depth) or Custom per-channel levels");
@@ -263,9 +263,9 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             "RGBA bit depth (e.g., 8888, 5551, 3331)\nR: 1-8, G: 1-8, B: 1-8, A: 1-8",
         );
 
-        if response.changed() {
-            settings_changed = true;
-        }
+        // Invalid text is still being edited, so it must not trigger a
+        // re-quantization: the C library would silently drop a channel.
+        settings_changed |= response.changed() && error.is_none();
 
         if let Some(error) = error {
             ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
@@ -282,40 +282,30 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.horizontal(|ui| {
         ui.label("Tile Width:")
             .on_hover_text("Set tile width for processing");
-        if ui
-            .add(egui::DragValue::new(&mut state.settings.tile_width).range(1..=64))
-            .on_hover_text("Width of processing tiles")
-            .changed()
-        {
-            settings_changed = true;
-        }
+        settings_changed |= widgets::drag_u16(
+            ui,
+            &mut state.settings.tile_width,
+            1..=64,
+            "Width of processing tiles",
+        );
         ui.label("Height:")
             .on_hover_text("Set tile height for processing");
-        if ui
-            .add(egui::DragValue::new(&mut state.settings.tile_height).range(1..=64))
-            .on_hover_text("Height of processing tiles")
-            .changed()
-        {
-            settings_changed = true;
-        }
+        settings_changed |= widgets::drag_u16(
+            ui,
+            &mut state.settings.tile_height,
+            1..=64,
+            "Height of processing tiles",
+        );
     });
 
     ui.horizontal(|ui| {
         ui.label("Quick presets:");
-        if ui.small_button("8x8").clicked() {
-            state.settings.tile_width = 8;
-            state.settings.tile_height = 8;
-            settings_changed = true;
-        }
-        if ui.small_button("16x16").clicked() {
-            state.settings.tile_width = 16;
-            state.settings.tile_height = 16;
-            settings_changed = true;
-        }
-        if ui.small_button("32x32").clicked() {
-            state.settings.tile_width = 32;
-            state.settings.tile_height = 32;
-            settings_changed = true;
+        for n in [8u16, 16, 32] {
+            if ui.small_button(format!("{n}x{n}")).clicked() {
+                state.settings.tile_width = n;
+                state.settings.tile_height = n;
+                settings_changed = true;
+            }
         }
     });
 
@@ -323,61 +313,32 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let mut settings_changed = false;
-
     ui.subheading_with_margin("Color Space");
-    egui::ComboBox::from_id_salt("color_space")
-        .selected_text(state.settings.color_space.display_name())
-        .show_ui(ui, |ui| {
-            for color_space in ColorSpace::all() {
-                if ui
-                    .selectable_value(&mut state.settings.color_space, *color_space, color_space.display_name())
-                    .on_hover_text(color_space.description())
-                    .clicked()
-                {
-                    settings_changed = true;
-                }
-            }
-        })
-        .response
-        .on_hover_text("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.");
-
-    settings_changed
+    widgets::EnumCombo::new("color_space", ColorSpace::all(), ColorSpace::display_name)
+        .description(ColorSpace::description)
+        .hover("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.")
+        .show(ui, &mut state.settings.color_space)
 }
 
 fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     ui.subheading_with_margin("Dithering");
-    egui::ComboBox::from_id_salt("dithering_mode")
-        .selected_text(state.settings.dither_mode.display_name())
-        .show_ui(ui, |ui| {
-            for dither_mode in DitherMode::all() {
-                if ui
-                    .selectable_value(&mut state.settings.dither_mode, *dither_mode, dither_mode.display_name())
-                    .on_hover_text(dither_mode.description())
-                    .clicked()
-                {
-                    settings_changed = true;
-                }
-            }
-        })
-        .response
-        .on_hover_text("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".");
+    settings_changed |= widgets::EnumCombo::new("dithering_mode", DitherMode::all(), DitherMode::display_name)
+        .description(DitherMode::description)
+        .hover("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".")
+        .show(ui, &mut state.settings.dither_mode);
 
     ui.horizontal(|ui| {
         ui.label("Dither Level:")
             .on_hover_text("Dithering intensity level");
-        if ui
+        settings_changed |= ui
             .add(egui::Slider::new(
                 &mut state.settings.dither_level,
                 0.0..=2.0,
             ))
             .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
-            .changed()
-        {
-            settings_changed = true;
-        }
+            .changed();
     });
 
     settings_changed
@@ -385,17 +346,16 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
 fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-    ui.heading_with_margin("Tile Reduction");
 
-    if ui
-        .checkbox(&mut state.settings.tile_reduce_post_enabled, "Enable (heavy)")
-        .on_hover_text(
-            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis option increases processing time.",
-        )
-        .changed()
-    {
-        settings_changed = true;
-    }
+    settings_changed |= widgets::section_header(
+        ui,
+        "Tile Reduction",
+        &mut state.settings.tile_reduce_post_enabled,
+        "Enable",
+        Some(
+            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis pass is heavy and increases processing time.",
+        ),
+    );
 
     // The settings only exist once the pass is turned on.
     if !state.settings.tile_reduce_post_enabled {
@@ -403,24 +363,18 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     }
 
     ui.horizontal(|ui| {
-        if ui
-            .checkbox(
-                &mut state.settings.tile_reduce_allow_flip_x,
-                "Allowed X Flips",
-            )
-            .changed()
-        {
-            settings_changed = true;
-        }
-        if ui
-            .checkbox(
-                &mut state.settings.tile_reduce_allow_flip_y,
-                "Allowed Y Flips",
-            )
-            .changed()
-        {
-            settings_changed = true;
-        }
+        settings_changed |= widgets::checkbox(
+            ui,
+            &mut state.settings.tile_reduce_allow_flip_x,
+            "Allowed X Flips",
+            None,
+        );
+        settings_changed |= widgets::checkbox(
+            ui,
+            &mut state.settings.tile_reduce_allow_flip_y,
+            "Allowed Y Flips",
+            None,
+        );
     });
 
     ui.horizontal(|ui| {
@@ -430,20 +384,15 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         let slider = egui::Slider::new(&mut state.settings.tile_reduce_post_threshold, 1.0..=500.0)
             .logarithmic(false)
             .show_value(false);
-        if ui.add(slider).changed() {
-            settings_changed = true;
-        }
+        settings_changed |= ui.add(slider).changed();
 
-        if ui
+        settings_changed |= ui
             .add(
                 egui::DragValue::new(&mut state.settings.tile_reduce_post_threshold)
                     .range(1.0..=500.0)
                     .speed(5.0),
             )
-            .changed()
-        {
-            settings_changed = true;
-        }
+            .changed();
     });
 
     let reduced_text = match (state.base_tile_count, state.reduced_tile_count) {
@@ -466,16 +415,14 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let mut settings_changed = false;
-
-    if ui
-        .checkbox(&mut state.settings.col0_is_clear, "First Color is Transparent")
-        .on_hover_text("First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.")
-        .changed()
-    {
-        settings_changed = true;
-    }
-    settings_changed
+    widgets::checkbox(
+        ui,
+        &mut state.settings.col0_is_clear,
+        "First Color is Transparent",
+        Some(
+            "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.",
+        ),
+    )
 }
 
 fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -485,24 +432,18 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ui.horizontal(|ui| {
             ui.label("Tile Passes:")
                 .on_hover_text("Set tile cluster passes (0 = default)");
-            if ui
+            settings_changed |= ui
                 .add(egui::DragValue::new(&mut state.settings.tile_passes).range(0..=1000))
                 .on_hover_text("Number of tile clustering passes (0 to 1000)")
-                .changed()
-            {
-                settings_changed = true;
-            }
+                .changed();
         });
         ui.horizontal(|ui| {
             ui.label("Color Passes:")
                 .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
-            if ui
+            settings_changed |= ui
                 .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
                 .on_hover_text("Number of color passes (0 to 100)")
-                .changed()
-            {
-                settings_changed = true;
-            }
+                .changed();
         });
     });
 
@@ -520,6 +461,16 @@ const SHADOWS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
 const HIGHLIGHTS_RANGE: RangeInclusive<f32> = -1.0..=1.0;
 const GAMMA_RANGE: RangeInclusive<f32> = 0.1..=3.0;
 const GAMMA_DISPLAY_RANGE: RangeInclusive<f32> = -100.0..=100.0;
+/// Gamma is edited in hundredths, like the other decimal fields.
+const GAMMA_STEP: f32 = 0.01;
+
+/// Round `value` to the nearest multiple of `step`, so a slider drag lands on
+/// the same values the number field can show and type.
+fn snap(value: f32, step: f32) -> f32 {
+    // `+ 0.0` normalizes a negative zero, which would otherwise be saved to
+    // the session file and shown as "-0%".
+    (value / step).round() * step + 0.0
+}
 
 /// How the numeric field next to a color correction slider is shown and parsed.
 #[derive(Clone, Copy)]
@@ -533,7 +484,9 @@ enum ValueFormat {
 }
 
 impl ValueFormat {
-    fn drag_speed(self) -> f64 {
+    /// Granularity of the value: one percent, one hundredth, or one degree.
+    /// Both the slider and the number field move in these steps.
+    fn step(self) -> f32 {
         match self {
             ValueFormat::Percentage | ValueFormat::Decimal => 0.01,
             ValueFormat::Degrees => 1.0,
@@ -577,18 +530,22 @@ fn draw_slider_row(
 ) -> bool {
     draw_row_label(ui, label);
 
+    let step = format.step();
     let mut changed = ui
         .add_sized(
             [slider_width, ROW_HEIGHT],
-            egui::Slider::new(value, range.clone()).show_value(false),
+            egui::Slider::new(value, range.clone())
+                .step_by(step as f64)
+                .show_value(false),
         )
         .changed();
 
-    let drag = egui::DragValue::new(value)
-        .range(range)
-        .speed(format.drag_speed());
+    let drag = egui::DragValue::new(value).range(range).speed(step as f64);
     changed |= ui.add(format.apply(drag)).changed();
 
+    if changed {
+        *value = snap(*value, step);
+    }
     ui.end_row();
     changed
 }
@@ -615,34 +572,37 @@ fn draw_gamma_row(ui: &mut egui::Ui, gamma: &mut f32, slider_width: f32) -> bool
         .add(
             egui::DragValue::new(gamma)
                 .range(GAMMA_RANGE)
-                .speed(0.01)
+                .speed(GAMMA_STEP as f64)
                 .custom_formatter(|n, _| format_gamma(n as f32))
                 .custom_parser(|s| s.parse::<f64>().ok()),
         )
         .changed();
 
+    if changed {
+        *gamma = snap(*gamma, GAMMA_STEP).clamp(*GAMMA_RANGE.start(), *GAMMA_RANGE.end());
+    }
     ui.end_row();
     changed
 }
 
-fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let mut settings_changed = false;
-
-    ui.heading_with_margin("Color Correction");
-
-    if ui
-        .checkbox(&mut state.color_correction.enabled, "Enable")
-        .on_hover_text(
+/// Draws the color correction controls. These edit `state.color_correction`
+/// rather than `state.settings`, and app.rs detects that change on its own
+/// (comparing against the previous frame's value) to rebuild the corrected
+/// image, so none of this needs to report back a "settings changed" flag.
+fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
+    widgets::section_header(
+        ui,
+        "Color Correction",
+        &mut state.color_correction.enabled,
+        "Enable",
+        Some(
             "Adjust the image before quantization.\nWhen off the input image is passed through untouched.",
-        )
-        .changed()
-    {
-        settings_changed = true;
-    }
+        ),
+    );
 
     // The settings only exist once the pass is turned on.
     if !state.color_correction.enabled {
-        return settings_changed;
+        return;
     }
 
     egui::Grid::new("color_correction_grid")
@@ -657,44 +617,44 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
                 draw_slider_row(ui, label, value, range, format, slider_width)
             };
 
-            settings_changed |= row(
+            row(
                 "Brightness",
                 &mut correction.brightness,
                 BRIGHTNESS_RANGE,
                 ValueFormat::Percentage,
             );
-            settings_changed |= row(
+            row(
                 "Contrast",
                 &mut correction.contrast,
                 CONTRAST_RANGE,
                 ValueFormat::Decimal,
             );
-            settings_changed |= row(
+            row(
                 "Saturation",
                 &mut correction.saturation,
                 SATURATION_RANGE,
                 ValueFormat::Decimal,
             );
-            settings_changed |= row(
+            row(
                 "Hue Shift",
                 &mut correction.hue_shift,
                 HUE_SHIFT_RANGE,
                 ValueFormat::Degrees,
             );
-            settings_changed |= row(
+            row(
                 "Shadows",
                 &mut correction.shadows,
                 SHADOWS_RANGE,
                 ValueFormat::Percentage,
             );
-            settings_changed |= row(
+            row(
                 "Highlights",
                 &mut correction.highlights,
                 HIGHLIGHTS_RANGE,
                 ValueFormat::Percentage,
             );
 
-            settings_changed |= draw_gamma_row(ui, &mut correction.gamma, slider_width);
+            draw_gamma_row(ui, &mut correction.gamma, slider_width);
         });
 
     // Color correction presets
@@ -702,52 +662,23 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) -> bo
     ui.horizontal(|ui| {
         let button_width = (ui.available_width() - (4.0 * 8.0)) / 5.0;
 
-        let presets = [
-            ("🔄 Reset", ColorCorrection::default()),
-            ("Vibrant", ColorCorrection::preset_vibrant()),
-            ("Warm", ColorCorrection::preset_retro_warm()),
-            ("Cool", ColorCorrection::preset_retro_cool()),
-            ("Dark", ColorCorrection::preset_dark()),
-        ];
-
-        for (label, preset) in presets {
+        for preset in ColorCorrectionPreset::all() {
+            // The reset entry keeps its distinct icon label; the rest use the
+            // preset's own display name.
+            let label = match preset {
+                ColorCorrectionPreset::None => "🔄 Reset",
+                _ => preset.display_name(),
+            };
             if ui
                 .add_sized([button_width, ROW_HEIGHT], egui::Button::new(label))
                 .clicked()
             {
-                state.color_correction.apply_preset(preset);
-                settings_changed = true;
+                state
+                    .color_correction
+                    .apply_preset(preset.color_correction());
             }
         }
     });
-
-    settings_changed
-}
-
-fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
-    ui.heading_with_margin("Debug Info");
-    if let Some(request_qualetize) = &state.request_update_qualetized_image {
-        let elapsed = request_qualetize.time.elapsed();
-        if elapsed < state.debounce_delay {
-            let remaining = state.debounce_delay - elapsed;
-            ui.label(format!(
-                "⏱ Preview will update in {:.1}s...",
-                remaining.as_secs_f32()
-            ));
-        }
-    }
-    // Debug information
-    ui.label(format!("Input path: {:?}", state.input_path.is_some()));
-    ui.label(format!("Input Image: {:?}", state.input_image.is_some()));
-    ui.label(format!(
-        "Color Corrected Image: {:?}",
-        state.color_corrected_image.is_some()
-    ));
-    ui.label(format!("Output Image: {:?}", state.output_image.is_some()));
-    ui.label(format!(
-        "Settings changed: {:?}",
-        state.request_update_qualetized_image.is_some(),
-    ));
 }
 
 /// Exactly 4 digits, each from 1-8.
@@ -811,6 +742,16 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn snap_rounds_to_the_nearest_step() {
+        assert_eq!(snap(0.123, 0.01), 0.12);
+        assert_eq!(snap(0.126, 0.01), 0.13);
+        assert_eq!(snap(-0.007, 0.01), -0.01);
+        assert_eq!(snap(37.4, 1.0), 37.0);
+        assert_eq!(snap(1.0, 0.01), 1.0);
+        assert!(snap(-0.001, 0.01).is_sign_positive(), "no negative zero");
+    }
 
     #[test]
     fn valid_rgba_depths_report_no_error() {
