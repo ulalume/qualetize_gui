@@ -710,17 +710,57 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed
 }
 
+/// What Qualetize puts into index 0 of every palette, as the combo shows it.
+#[derive(Clone, Copy, PartialEq)]
+enum QualetizeFirstColor {
+    Unique,
+    Transparent,
+}
+
+impl QualetizeFirstColor {
+    fn from_flag(col0_is_clear: bool) -> Self {
+        if col0_is_clear {
+            Self::Transparent
+        } else {
+            Self::Unique
+        }
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            Self::Unique => "Unique",
+            Self::Transparent => "Transparent",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            Self::Unique => "Index 0 is a normal color, chosen per palette",
+            Self::Transparent => {
+                "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool."
+            }
+        }
+    }
+}
+
 fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.horizontal(|ui| {
         ui.label("First Color:");
-        widgets::checkbox(
-            ui,
-            &mut state.settings.col0_is_clear,
-            "is Transparent",
-            Some(
-                "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.",
-            ),
+        let mut first_color = QualetizeFirstColor::from_flag(state.settings.col0_is_clear);
+        let changed = widgets::EnumCombo::new(
+            "qualetize_first_color",
+            &[
+                QualetizeFirstColor::Unique,
+                QualetizeFirstColor::Transparent,
+            ],
+            QualetizeFirstColor::display_name,
         )
+        .description(QualetizeFirstColor::description)
+        .show(ui, &mut first_color);
+        if changed {
+            state.settings.col0_is_clear = first_color == QualetizeFirstColor::Transparent;
+        }
+        changed
     })
     .inner
 }
