@@ -69,6 +69,7 @@ qualetize_gui
 
 ## Features
 
+- Two quantization engines: Qualetize and a Rust port of tiledpalettequant (deterministic, shared/transparent color index 0, live convergence preview)
 - Instant preview updates when parameters are changed
 - Color adjustment tools
 - Display palettes (hover to see palette/index and RGBA/hex)
