@@ -143,6 +143,17 @@ impl QualetizePreset {
         ]
     }
 
+    /// The tilepalquant color index zero mode the preset implies, if any:
+    /// a single palette has nothing to share, so index 0 is an ordinary color.
+    pub fn tpq_color_zero(&self) -> Option<super::tilepalquant::ColorZero> {
+        match self {
+            QualetizePreset::Genesis | QualetizePreset::GbaNds => {
+                Some(super::tilepalquant::ColorZero::Unique)
+            }
+            QualetizePreset::GenesisFullPals | QualetizePreset::GbaNdsFullPals => None,
+        }
+    }
+
     pub fn qualetize_settings(&self) -> QualetizeSettings {
         match self {
             QualetizePreset::Genesis => QualetizeSettings::genesis(),

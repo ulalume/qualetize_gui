@@ -117,7 +117,7 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                     *b = color_array[2];
                     settings_changed = true;
                 }
-                if ui.button("Use Top-Left Pixel Color").clicked()
+                if ui.button("Use top-left color").clicked()
                     && let Some(color_corrected_image) = &state.color_corrected_image
                 {
                     [*r, *g, *b, _] = color_corrected_image.top_left_pixel();
@@ -463,7 +463,7 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
             settings_changed |= ui
                 .color_edit_button_srgb(&mut state.tpq_settings.shared_color)
                 .changed();
-            if ui.button("Use Top-Left Pixel Color").clicked()
+            if ui.button("Use top-left color").clicked()
                 && let Some(color_corrected_image) = &state.color_corrected_image
             {
                 let [r, g, b, _] = color_corrected_image.top_left_pixel();
@@ -474,15 +474,15 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
     });
 
     if kind == ColorZeroKind::Transparent {
+        settings_changed |= ui
+            .radio_value(
+                &mut state.tpq_settings.color_zero,
+                ColorZero::TransparentFromAlpha,
+                "from transparent pixels",
+            )
+            .on_hover_text(ColorZero::TransparentFromAlpha.description())
+            .changed();
         ui.horizontal(|ui| {
-            settings_changed |= ui
-                .radio_value(
-                    &mut state.tpq_settings.color_zero,
-                    ColorZero::TransparentFromAlpha,
-                    "from transparent pixels",
-                )
-                .on_hover_text(ColorZero::TransparentFromAlpha.description())
-                .changed();
             settings_changed |= ui
                 .radio_value(
                     &mut state.tpq_settings.color_zero,
@@ -496,7 +496,7 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
                 settings_changed |= ui
                     .color_edit_button_srgb(&mut state.tpq_settings.transparent_color)
                     .changed();
-                if ui.button("Use Top-Left Pixel Color").clicked()
+                if ui.button("Use top-left color").clicked()
                     && let Some(color_corrected_image) = &state.color_corrected_image
                 {
                     let [r, g, b, _] = color_corrected_image.top_left_pixel();

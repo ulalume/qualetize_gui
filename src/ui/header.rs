@@ -88,6 +88,9 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
                         state.settings.apply_preset(preset.qualetize_settings());
+                        if let Some(color_zero) = preset.tpq_color_zero() {
+                            state.tpq_settings.color_zero = color_zero;
+                        }
                         settings_changed = true;
                         ui.close();
                     }
