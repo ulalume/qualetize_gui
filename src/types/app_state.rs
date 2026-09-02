@@ -8,8 +8,10 @@ use super::{
     preferences::UserPreferences,
     qualetize::QualetizeSettings,
 };
+use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
 use crate::types::image::TileCountOptions;
+use crate::types::tilepalquant::TpqSettings;
 use std::time::Instant;
 
 #[derive(
@@ -143,8 +145,14 @@ pub struct AppState {
     pub preferences: UserPreferences,
     last_preferences: UserPreferences,
 
-    // Qualetize Settings
+    // Quantization settings. `settings` holds the target format shared by
+    // both engines plus the Qualetize specific values; `tpq_settings` the
+    // tilepalquant specific ones. Both are kept whichever engine is selected.
+    pub engine: QuantEngine,
     pub settings: QualetizeSettings,
+    pub tpq_settings: TpqSettings,
+    /// Percent reported by the running quantization, for the panel.
+    pub quantize_progress: Option<u8>,
     /// Snapshot of what is mirrored to the session file, so it is only rewritten
     /// when something actually changed.
     last_saved_session: SettingsBundle,
@@ -222,7 +230,10 @@ impl Default for AppState {
             preferences: preferences.clone(),
             last_preferences: preferences.clone(),
 
+            engine: session.engine,
             settings: session.qualetize_settings.clone(),
+            tpq_settings: session.tpq_settings.clone(),
+            quantize_progress: None,
             last_saved_session: session.clone(),
             session_save_deadline: None,
             request_update_qualetized_image: None,
@@ -273,11 +284,25 @@ impl AppState {
 
     /// Take the settings currently in use as a bundle, for saving.
     pub fn settings_bundle(&self) -> SettingsBundle {
-        SettingsBundle::new(
-            self.settings.clone(),
-            self.color_correction.clone(),
-            self.palette_sort_settings,
-        )
+        SettingsBundle {
+            engine: self.engine,
+            tpq_settings: self.tpq_settings.clone(),
+            ..SettingsBundle::new(
+                self.settings.clone(),
+                self.color_correction.clone(),
+                self.palette_sort_settings,
+            )
+        }
+    }
+
+    /// Whether index 0 of every palette is reserved and must not be moved
+    /// by the palette sort: Qualetize's transparent first color, or any
+    /// tilepalquant mode other than Unique.
+    pub fn first_color_pinned(&self) -> bool {
+        match self.engine {
+            QuantEngine::Qualetize => self.settings.col0_is_clear,
+            QuantEngine::TilePalQuant => self.tpq_settings.color_zero.pins_index_zero(),
+        }
     }
 
     /// Mirror the settings to the session file so they survive a restart.
@@ -408,7 +433,7 @@ impl AppState {
         let indexed = if sort.mode == SortMode::None {
             indexed.clone()
         } else {
-            indexed.sorted(sort.mode, sort.order, self.settings.col0_is_clear)
+            indexed.sorted(sort.mode, sort.order, self.first_color_pinned())
         };
 
         Some((indexed, image.width, image.height))

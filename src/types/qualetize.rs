@@ -143,6 +143,17 @@ impl QualetizePreset {
         ]
     }
 
+    /// The tilepalquant color index zero mode the preset implies, if any:
+    /// a single palette has nothing to share, so index 0 is an ordinary color.
+    pub fn tpq_color_zero(&self) -> Option<super::tilepalquant::ColorZero> {
+        match self {
+            QualetizePreset::Genesis | QualetizePreset::GbaNds => {
+                Some(super::tilepalquant::ColorZero::Unique)
+            }
+            QualetizePreset::GenesisFullPals | QualetizePreset::GbaNdsFullPals => None,
+        }
+    }
+
     pub fn qualetize_settings(&self) -> QualetizeSettings {
         match self {
             QualetizePreset::Genesis => QualetizeSettings::genesis(),
@@ -230,6 +241,22 @@ impl QualetizeSettings {
             col0_is_clear: true,
             ..Self::genesis()
         }
+    }
+
+    /// The allowed values of each channel (R, G, B, A): the custom level
+    /// lists when enabled, otherwise the uniform levels of `rgba_depth`.
+    /// A malformed custom list falls back to the depth for that channel.
+    pub fn channel_levels(&self) -> [Vec<u8>; 4] {
+        let from_depth = default_level_strings_from_depth(&self.rgba_depth);
+        std::array::from_fn(|i| {
+            let custom = self
+                .use_custom_levels
+                .then(|| parse_levels_u8(&self.custom_levels[i]))
+                .flatten();
+            custom.unwrap_or_else(|| {
+                parse_levels_u8(&from_depth[i]).expect("generated level strings are valid")
+            })
+        })
     }
 
     /// Clamp settings loaded from disk into the ranges the UI enforces (see the
@@ -371,17 +398,24 @@ pub(crate) fn validate_0_255_array(array_str: &str) -> bool {
     array_str.split(',').count() <= MAX_CUSTOM_LEVELS
 }
 
-fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {
+/// Sorted 0-255 levels from a comma separated list, or `None` when the
+/// list is malformed.
+pub(crate) fn parse_levels_u8(array_str: &str) -> Option<Vec<u8>> {
     if !validate_0_255_array(array_str) {
         return None;
     }
-    let mut values: Vec<f32> = array_str
+    let mut values: Vec<u8> = array_str
         .split(',')
-        .filter_map(|s| s.trim().parse::<u32>().ok())
-        .map(|v| (v as f32) / 255.0)
+        .filter_map(|s| s.parse::<u8>().ok())
         .collect();
-    values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    values.sort_unstable();
     Some(values)
+}
+
+/// The levels normalized to 0.0..=1.0, as the C plan takes them.
+fn parse_custom_levels(array_str: &str) -> Option<Vec<f32>> {
+    let levels = parse_levels_u8(array_str)?;
+    Some(levels.iter().map(|&v| v as f32 / 255.0).collect())
 }
 
 pub struct QualetizePlanOwned {
@@ -566,6 +600,26 @@ mod tests {
         assert!(levels[0] < levels[1] && levels[1] < levels[2]);
         assert_eq!(levels[0], 0.0);
         assert_eq!(levels[2], 1.0);
+    }
+
+    #[test]
+    fn channel_levels_follow_the_depth_unless_custom_levels_are_on() {
+        let mut settings = QualetizeSettings::gba_nds();
+        assert!(!settings.use_custom_levels);
+        let levels = settings.channel_levels();
+        assert_eq!(levels[0].len(), 32, "5 bits");
+        assert_eq!(levels[3], vec![0, 255], "1 bit alpha");
+
+        settings.use_custom_levels = true;
+        settings.custom_levels[0] = "0,128,255".to_string();
+        settings.custom_levels[1] = "not a list".to_string();
+        let levels = settings.channel_levels();
+        assert_eq!(levels[0], vec![0, 128, 255]);
+        assert_eq!(
+            levels[1].len(),
+            32,
+            "malformed list falls back to the depth"
+        );
     }
 
     #[test]

@@ -6,6 +6,7 @@ pub mod export;
 pub mod image;
 pub mod preferences;
 pub mod qualetize;
+pub mod tilepalquant;
 
 // Re-export all public types for convenience
 pub use app_state::AppState;

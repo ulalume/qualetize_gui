@@ -1,50 +1,52 @@
-use crate::types::qualetize::{Qualetize, QualetizePlanOwned, Vec4f};
+use crate::engine::{self, Progress, QuantEngine, QuantizeResult};
+use crate::types::tilepalquant::TpqSettings;
 use crate::types::{BGRA8, QualetizeSettings};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
 
-#[derive(Debug)]
-pub struct QualetizeResult {
-    pub indexed_data: Vec<u8>,
-    pub palette_data: Vec<BGRA8>,
-    pub colors_per_palette: usize,
-    pub width: u32,
-    pub height: u32,
-}
-
 /// One background computation whose result is polled from the UI thread.
 ///
-/// Starting a job replaces the receiver, so a result from an earlier thread
+/// Starting a job replaces the receivers, so a result from an earlier thread
 /// can never be observed: its send fails against the dropped receiver and the
 /// thread simply exits. No generation counter or join bookkeeping is needed.
-struct Job<T> {
+///
+/// `P` is what the worker reports while it runs; `()` for workers that
+/// report nothing.
+struct Job<T, P = ()> {
     receiver: Option<mpsc::Receiver<T>>,
+    progress: Option<mpsc::Receiver<P>>,
     cancel: Arc<AtomicBool>,
 }
 
-impl<T> Default for Job<T> {
+impl<T, P> Default for Job<T, P> {
     fn default() -> Self {
         Self {
             receiver: None,
+            progress: None,
             cancel: Arc::new(AtomicBool::new(false)),
         }
     }
 }
 
-impl<T: Send + 'static> Job<T> {
+impl<T: Send + 'static, P: Send + 'static> Job<T, P> {
     /// Cancel the running job, if any, and run `work` on a new thread.
     /// `work` returns `None` when it stopped early because of the cancel flag.
-    fn start(&mut self, work: impl FnOnce(&AtomicBool) -> Option<T> + Send + 'static) {
+    fn start(
+        &mut self,
+        work: impl FnOnce(&AtomicBool, &mpsc::Sender<P>) -> Option<T> + Send + 'static,
+    ) {
         self.cancel();
         let cancel = Arc::new(AtomicBool::new(false));
         let (sender, receiver) = mpsc::channel();
+        let (progress_sender, progress_receiver) = mpsc::channel();
         let flag = cancel.clone();
         std::thread::spawn(move || {
-            if let Some(result) = work(&flag) {
+            if let Some(result) = work(&flag, &progress_sender) {
                 let _ = sender.send(result);
             }
         });
         self.receiver = Some(receiver);
+        self.progress = Some(progress_receiver);
         self.cancel = cancel;
     }
 
@@ -52,6 +54,7 @@ impl<T: Send + 'static> Job<T> {
     fn cancel(&mut self) {
         self.cancel.store(true, Ordering::Relaxed);
         self.receiver = None;
+        self.progress = None;
     }
 
     fn is_running(&self) -> bool {
@@ -65,20 +68,33 @@ impl<T: Send + 'static> Job<T> {
         match receiver.try_recv() {
             Ok(result) => {
                 self.receiver = None;
+                self.progress = None;
                 Some(result)
             }
             Err(mpsc::TryRecvError::Disconnected) => {
                 self.receiver = None;
+                self.progress = None;
                 None
             }
             Err(mpsc::TryRecvError::Empty) => None,
         }
     }
+
+    /// The most recent progress report, dropping any older ones queued
+    /// behind it.
+    fn poll_progress(&mut self) -> Option<P> {
+        let receiver = self.progress.as_ref()?;
+        let mut latest = None;
+        while let Ok(report) = receiver.try_recv() {
+            latest = Some(report);
+        }
+        latest
+    }
 }
 
 #[derive(Default)]
 pub struct ImageProcessor {
-    qualetize: Job<Result<QualetizeResult, String>>,
+    quantize: Job<Result<QuantizeResult, String>, Progress>,
     tile_reduce: Job<TileReduceResult>,
 }
 
@@ -96,35 +112,39 @@ pub struct TileReduceResult {
 }
 
 impl ImageProcessor {
-    pub fn start_qualetize(
+    pub fn start_quantize(
         &mut self,
         rgba_data: &[u8],
         width: u32,
         height: u32,
+        engine: QuantEngine,
         settings: QualetizeSettings,
+        tpq: TpqSettings,
     ) {
-        // Convert up front so the worker thread starts on data it can use directly.
-        let bgra_data = to_bgra(rgba_data);
-        self.qualetize.start(move |cancel| {
-            // The C call cannot be interrupted, so this only saves work when the
-            // job was superseded before its thread got scheduled.
-            if cancel.load(Ordering::Relaxed) {
-                return None;
-            }
-            Some(run_qualetize(&bgra_data, width, height, &settings))
+        let rgba_data = rgba_data.to_vec();
+        self.quantize.start(move |cancel, progress| {
+            let ctx = engine::RunContext {
+                cancel,
+                progress: Some(progress),
+            };
+            engine::run(engine, &rgba_data, width, height, &settings, &tpq, &ctx)
         });
     }
 
-    pub fn poll_qualetize(&mut self) -> Option<Result<QualetizeResult, String>> {
-        self.qualetize.poll()
+    pub fn poll_quantize(&mut self) -> Option<Result<QuantizeResult, String>> {
+        self.quantize.poll()
     }
 
-    pub fn is_qualetizing(&self) -> bool {
-        self.qualetize.is_running()
+    pub fn poll_quantize_progress(&mut self) -> Option<Progress> {
+        self.quantize.poll_progress()
     }
 
-    pub fn cancel_qualetize(&mut self) {
-        self.qualetize.cancel();
+    pub fn is_quantizing(&self) -> bool {
+        self.quantize.is_running()
+    }
+
+    pub fn cancel_quantize(&mut self) {
+        self.quantize.cancel();
     }
 
     pub fn start_tile_reduce(
@@ -135,7 +155,7 @@ impl ImageProcessor {
         height: u32,
         opts: TileReduceOptions,
     ) {
-        self.tile_reduce.start(move |cancel| {
+        self.tile_reduce.start(move |cancel, _| {
             let mut indexed_pixels = indexed;
             let merged =
                 reduce_tiles_indexed(&mut indexed_pixels, &palettes, width, height, &opts, cancel)?;
@@ -159,64 +179,9 @@ impl ImageProcessor {
     }
 
     pub fn cancel_all(&mut self) {
-        self.cancel_qualetize();
+        self.cancel_quantize();
         self.cancel_tile_reduce();
     }
-}
-
-fn run_qualetize(
-    bgra_data: &[BGRA8],
-    width: u32,
-    height: u32,
-    settings: &QualetizeSettings,
-) -> Result<QualetizeResult, String> {
-    let plan = QualetizePlanOwned::from(settings.clone());
-
-    let mut output_data: Vec<u8> = vec![0; (width * height) as usize];
-    // usize arithmetic: the u16 product would wrap for out-of-range settings
-    // and let the library write past the end of the buffer.
-    let palette_size = settings.n_palettes as usize * settings.n_colors as usize;
-    let mut output_palette: Vec<BGRA8> = vec![
-        BGRA8 {
-            b: 0,
-            g: 0,
-            r: 0,
-            a: 0
-        };
-        palette_size
-    ];
-    let mut rmse = Vec4f { f32: [0.0; 4] };
-
-    // SAFETY: every buffer is sized as the plan describes (width*height
-    // indices, n_palettes*n_colors palette entries), `plan` owns the custom
-    // level arrays it points to for the duration of the call, and the
-    // library does not retain any of the pointers.
-    let result = unsafe {
-        Qualetize(
-            output_data.as_mut_ptr(),
-            output_palette.as_mut_ptr(),
-            bgra_data.as_ptr(),
-            std::ptr::null(),
-            width,
-            height,
-            plan.as_ptr(),
-            &mut rmse,
-        )
-    };
-
-    if result == 0 {
-        return Err("Qualetize processing failed".to_string());
-    }
-
-    log::debug!("Qualetize succeeded, RMSE: {:?}", rmse.f32);
-
-    Ok(QualetizeResult {
-        indexed_data: output_data,
-        palette_data: output_palette,
-        colors_per_palette: settings.n_colors as usize,
-        width,
-        height,
-    })
 }
 
 /// One tile as the reducer sees it: its palette indices, and the blurred
@@ -573,15 +538,6 @@ struct OrientationMap {
     map: Vec<usize>,
 }
 
-/// Qualetize consumes BGRA, egui produces RGBA.
-fn to_bgra(rgba: &[u8]) -> Vec<BGRA8> {
-    rgba.as_chunks::<4>()
-        .0
-        .iter()
-        .map(|&[r, g, b, a]| BGRA8 { b, g, r, a })
-        .collect()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -704,11 +660,5 @@ mod tests {
         // Identity orientation: every pixel differs by 10 in one channel.
         assert_eq!(tile_mse_with_map(&rep, &tile, &maps[0].map), 100.0 / 4.0);
         assert_eq!(tile_mse_fast(&rep, &tile, f32::MAX), 100.0 / 4.0);
-    }
-
-    #[test]
-    fn bgra_conversion_swaps_red_and_blue() {
-        let bgra = to_bgra(&[1, 2, 3, 4]);
-        assert_eq!((bgra[0].r, bgra[0].g, bgra[0].b, bgra[0].a), (1, 2, 3, 4));
     }
 }

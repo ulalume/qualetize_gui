@@ -1,6 +1,7 @@
 #![windows_subsystem = "windows"]
 mod app;
 mod color_processor;
+mod engine;
 mod exporter;
 mod image_processor;
 mod settings_manager;
@@ -23,9 +24,12 @@ fn main() -> Result<(), eframe::Error> {
         ..Default::default()
     };
 
+    // An image path on the command line is opened at startup.
+    let initial_image = std::env::args().nth(1);
+
     eframe::run_native(
         "Qualetize GUI - Image Quantization Tool",
         options,
-        Box::new(|cc| Ok(Box::new(QualetizeApp::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(QualetizeApp::new(cc, initial_image)))),
     )
 }

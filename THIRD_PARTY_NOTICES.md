@@ -19,6 +19,18 @@ This application uses the following third-party components:
 - **Purpose**: Tile-based Image Quantization Tool
 - **Source**: https://github.com/Aikku93/qualetize
 
+### tiledpalettequant
+- **License**: MIT
+- **Purpose**: Tile-based image quantizer (alternate engine)
+- **Author**: rilden
+- **Source**: https://github.com/rilden/tiledpalettequant
+
+### tilepalquant
+- **License**: MIT
+- **Purpose**: C++ port of tiledpalettequant, ported to Rust as this app's tilepalquant engine
+- **Author**: bbbbbr
+- **Source**: https://github.com/bbbbbr/tilepalquant
+
 ### egui
 - **License**: MIT OR Apache-2.0
 - **Purpose**: Immediate mode GUI framework

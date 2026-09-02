@@ -1,4 +1,5 @@
 use super::styles::UiMarginExt;
+use crate::engine::QuantEngine;
 use crate::types::{AppState, ImageData, app_state::Toast};
 use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
 
@@ -19,6 +20,9 @@ struct ViewParams {
 #[derive(Default)]
 struct PanelExtras<'a> {
     has_spinner: bool,
+    /// Percent shown next to the spinner. Only tilepalquant reports progress;
+    /// Qualetize has no equivalent, so this stays `None` for it.
+    progress_percent: Option<u8>,
     overlay_text: Option<&'a str>,
     /// Persistent warning drawn in the top left corner of the panel.
     notice: Option<&'a str>,
@@ -129,6 +133,12 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                     view: &view,
                     extras: PanelExtras {
                         has_spinner: qualetize_processing,
+                        // Qualetize does not report progress, so this only
+                        // ever shows a percent for tilepalquant.
+                        progress_percent: (qualetize_processing
+                            && state.engine == QuantEngine::TilePalQuant)
+                            .then_some(state.quantize_progress)
+                            .flatten(),
                         palettes,
                         ..Default::default()
                     },
@@ -331,6 +341,18 @@ fn draw_spinner(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context) {
     }
 }
 
+/// Percent chip drawn beside the spinner while tilepalquant reports progress.
+fn draw_progress_percent(
+    painter: &egui::Painter,
+    canvas: Rect,
+    ui_ctx: &egui::Context,
+    percent: u8,
+) {
+    let text_color = ui_ctx.global_style().visuals.text_color();
+    let pos = canvas.center() + Vec2::new(22.0, -7.0);
+    draw_label_chip(painter, ui_ctx, pos, &format!("{percent}%"), text_color);
+}
+
 fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Context, text: &str) {
     let style = ui_ctx.global_style();
     let visuals = &style.visuals;
@@ -376,6 +398,9 @@ fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, view_change: &mut View
             }
             if panel.extras.has_spinner {
                 draw_spinner(&painter, canvas, ui.ctx());
+                if let Some(percent) = panel.extras.progress_percent {
+                    draw_progress_percent(&painter, canvas, ui.ctx(), percent);
+                }
             }
             if let Some(text) = panel.extras.overlay_text {
                 draw_overlay_text(&painter, canvas, ui.ctx(), text);

@@ -25,9 +25,16 @@ pub struct QualetizeApp {
 }
 
 impl QualetizeApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, initial_image: Option<String>) -> Self {
         crate::ui::styles::init_styles(&cc.egui_ctx);
-        Self::default()
+        let app = Self::default();
+        if let Some(path) = initial_image {
+            _ = app
+                .state
+                .app_state_request_sender
+                .send(AppStateRequest::LoadImage { path });
+        }
+        app
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {
@@ -60,7 +67,7 @@ impl QualetizeApp {
 
     /// Start the pending quantization once the debounce delay has passed and
     /// the previous run is done. Tile reduction is requested again by
-    /// [`Self::check_qualetize_completion`] once the new base image exists.
+    /// [`Self::check_quantize_completion`] once the new base image exists.
     fn handle_settings_changes(&mut self) {
         let Some(color_corrected_image) = &self.state.color_corrected_image else {
             return;
@@ -69,19 +76,46 @@ impl QualetizeApp {
             return;
         };
         if request.time.elapsed() < self.state.debounce_delay
-            || self.image_processor.is_qualetizing()
+            || self.image_processor.is_quantizing()
         {
             return;
         }
 
         self.state.request_update_qualetized_image = None;
         self.image_processor.cancel_tile_reduce();
-        self.image_processor.start_qualetize(
+        if self.state.tpq_settings.randomize_seed {
+            self.state.tpq_settings.rand_seed = rand_seed_from_clock();
+        }
+        self.state.quantize_progress = Some(0);
+        self.image_processor.start_quantize(
             &color_corrected_image.rgba_data,
             color_corrected_image.width,
             color_corrected_image.height,
+            self.state.engine,
             self.state.settings.clone(),
+            self.state.tpq_settings.clone(),
         );
+    }
+
+    /// Show what the running quantization has reported since the last frame.
+    fn check_quantize_progress(&mut self, ctx: &egui::Context) {
+        let Some(progress) = self.image_processor.poll_quantize_progress() else {
+            return;
+        };
+        self.state.quantize_progress = Some(progress.percent);
+        if let Some(preview) = progress.preview {
+            let indexed = ImageDataIndexed::new(
+                preview.palette_data,
+                preview.colors_per_palette,
+                preview.indexed_data,
+            );
+            self.state.base_output_image = Some(ImageData::from_indexed(
+                indexed,
+                preview.width,
+                preview.height,
+                ctx,
+            ));
+        }
     }
 
     /// Extend the input image so both sides are a multiple of the tile size,
@@ -146,10 +180,11 @@ impl QualetizeApp {
         self.state.request_qualetize();
     }
 
-    fn check_qualetize_completion(&mut self, ctx: &egui::Context) {
-        let Some(result) = self.image_processor.poll_qualetize() else {
+    fn check_quantize_completion(&mut self, ctx: &egui::Context) {
+        let Some(result) = self.image_processor.poll_quantize() else {
             return;
         };
+        self.state.quantize_progress = None;
         match result {
             Ok(res) => {
                 let indexed = ImageDataIndexed::new(
@@ -372,7 +407,9 @@ impl QualetizeApp {
             AppStateRequest::LoadSettings { path } => match SettingsBundle::load_from_file(&path) {
                 Ok(bundle) => {
                     self.image_processor.cancel_all();
+                    self.state.engine = bundle.engine;
                     self.state.settings = bundle.qualetize_settings;
+                    self.state.tpq_settings = bundle.tpq_settings;
                     self.state.color_correction = bundle.color_correction;
                     self.state.palette_sort_settings = bundle.sort_settings;
                     self.update_tile_fit(ctx);
@@ -450,13 +487,13 @@ impl QualetizeApp {
             return;
         }
 
-        let col0_is_clear = self.state.settings.col0_is_clear;
+        let pin_first = self.state.first_color_pinned();
         self.state.output_palette_sorted_indexed_image = self
             .state
             .output_image
             .as_ref()
             .and_then(|image| image.indexed.as_ref())
-            .map(|indexed| indexed.sorted(settings.mode, settings.order, col0_is_clear));
+            .map(|indexed| indexed.sorted(settings.mode, settings.order, pin_first));
     }
 }
 
@@ -480,7 +517,8 @@ impl eframe::App for QualetizeApp {
             self.handle_dropped_files(ctx);
         }
 
-        self.check_qualetize_completion(ctx);
+        self.check_quantize_progress(ctx);
+        self.check_quantize_completion(ctx);
         self.check_tile_reduce_completion(ctx);
 
         // Re-extend if the tile size changed, then update the corrected image
@@ -504,7 +542,7 @@ impl eframe::App for QualetizeApp {
         self.state.check_and_save_session(ctx);
 
         // The Qualetized and Tile Reduced panels show their own spinners.
-        let qualetize_processing = self.image_processor.is_qualetizing();
+        let qualetize_processing = self.image_processor.is_quantizing();
         self.state.tile_reduce_processing = self.image_processor.is_tile_reducing();
 
         let mut settings_changed = false;
@@ -578,6 +616,16 @@ impl eframe::App for QualetizeApp {
             ctx.request_repaint();
         }
     }
+}
+
+/// A seed for a run that asked for a random one. Wall clock nanoseconds are
+/// plenty: the seed is recorded in the settings, so any value reproduces.
+fn rand_seed_from_clock() -> u32 {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() ^ (d.as_secs() as u32))
+        .unwrap_or(0);
+    nanos.max(1)
 }
 
 /// Smallest size at or above `size` whose sides are multiples of the tile size.

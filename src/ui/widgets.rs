@@ -134,16 +134,33 @@ pub fn subsection_header(
     })
 }
 
-/// Shared layout for [`section_header`] and [`subsection_header`]: draws
-/// `draw_title` on the left and a right-aligned toggle checkbox on the same
-/// row, inside the same Frame margin the two heading levels already use
-/// elsewhere. Returns whether the toggle changed.
-fn header_with_toggle(
+/// A heading with an [`EnumCombo`] right-aligned on the same row, e.g. the
+/// engine picker atop the settings panel. Same layout as [`section_header`],
+/// with the toggle checkbox replaced by a combo box. Returns whether the
+/// selection changed.
+pub fn heading_with_combo<T: Copy + PartialEq + 'static>(
     ui: &mut egui::Ui,
-    toggle: &mut bool,
-    toggle_label: &str,
-    hover: Option<&str>,
+    title: &str,
+    combo: EnumCombo<'_, T>,
+    value: &mut T,
+) -> bool {
+    header_row(
+        ui,
+        |ui| {
+            ui.heading(title);
+        },
+        |ui| combo.show(ui, value),
+    )
+}
+
+/// Shared layout for [`section_header`], [`subsection_header`] and
+/// [`heading_with_combo`]: draws `draw_title` on the left and a right-aligned
+/// control on the same row, inside the Frame margin the heading levels
+/// already use elsewhere. Returns whatever `draw_right` returns.
+fn header_row(
+    ui: &mut egui::Ui,
     draw_title: impl FnOnce(&mut egui::Ui),
+    draw_right: impl FnOnce(&mut egui::Ui) -> bool,
 ) -> bool {
     let mut changed = false;
     egui::Frame::NONE
@@ -157,9 +174,24 @@ fn header_with_toggle(
             ui.horizontal(|ui| {
                 draw_title(ui);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    changed = checkbox(ui, toggle, toggle_label, hover);
+                    changed = draw_right(ui);
                 });
             });
         });
     changed
+}
+
+/// [`header_row`] with a toggle checkbox as the right-aligned control, used
+/// by [`section_header`] and [`subsection_header`]. Returns whether the
+/// toggle changed.
+fn header_with_toggle(
+    ui: &mut egui::Ui,
+    toggle: &mut bool,
+    toggle_label: &str,
+    hover: Option<&str>,
+    draw_title: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    header_row(ui, draw_title, |ui| {
+        checkbox(ui, toggle, toggle_label, hover)
+    })
 }

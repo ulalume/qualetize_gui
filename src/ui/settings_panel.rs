@@ -3,7 +3,11 @@ use super::widgets;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
 };
+use crate::engine::QuantEngine;
 use crate::types::qualetize::validate_0_255_array;
+use crate::types::tilepalquant::{
+    ColorZero, DITHER_WEIGHT_RANGE, DitherPattern, FRACTION_OF_PIXELS_RANGE, TpqDitherMode,
+};
 use crate::types::{
     AppState, ClearColor, ColorSpace, DitherMode,
     color_correction::ColorCorrectionPreset,
@@ -18,22 +22,28 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
     let mut settings_changed = false;
     let mut tile_reduce_changed = false;
 
-    // Basic settings
+    // Basic settings: engine picker plus the Palettes/Colors shared by both engines.
     settings_changed |= draw_basic_settings(ui, state);
 
-    settings_changed |= draw_transparency_settings(ui, state);
-
-    ui.separator();
-
-    // Color space settings
-    settings_changed |= draw_color_space_settings(ui, state);
-
-    ui.separator();
-
-    // Dithering settings
-    settings_changed |= draw_dithering_settings(ui, state);
-
-    ui.separator();
+    // Engine-specific sections. Advanced Settings below stays shared: it holds
+    // the tile size and depth settings both engines read, plus the
+    // Qualetize-only ones nested inside it.
+    match state.engine {
+        QuantEngine::Qualetize => {
+            settings_changed |= draw_transparency_settings(ui, state);
+            ui.separator();
+            settings_changed |= draw_color_space_settings(ui, state);
+            ui.separator();
+            settings_changed |= draw_dithering_settings(ui, state);
+            ui.separator();
+        }
+        QuantEngine::TilePalQuant => {
+            settings_changed |= draw_tpq_color_zero_settings(ui, state);
+            ui.separator();
+            settings_changed |= draw_tpq_dithering_settings(ui, state);
+            ui.separator();
+        }
+    }
 
     // Advanced settings, collapsed to their heading until shown
     settings_changed |= draw_advanced_settings(ui, state);
@@ -55,15 +65,17 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
 fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    // Subheading, not heading: this is a subsection of "Qualetize" above,
-    // same as the "Color Space" and "Dithering" sections beside it.
+    // Subheading, not heading: this is a subsection of the engine-specific
+    // settings above, same as the "Color Space" and "Dithering" sections
+    // beside it. Tile size and depth are shared by both engines; the rest
+    // (transparent color, clustering, alpha handling) is Qualetize-only.
     widgets::subsection_header(
         ui,
         "Advanced Settings",
         &mut state.preferences.show_advanced,
         "Show",
         Some(
-            "Tile size, output bit depth, transparent color, clustering passes and alpha handling.",
+            "Tile size and output bit depth, plus (Qualetize only) transparent color, clustering passes and alpha handling.",
         ),
     );
     if !state.preferences.show_advanced {
@@ -75,58 +87,65 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     ui.separator();
     settings_changed |= draw_depth_settings(ui, state);
 
-    ui.separator();
+    if state.engine == QuantEngine::Qualetize {
+        ui.separator();
 
-    let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::Rgb(_, _, _));
-    if ui
-        .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
-        .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
-        .changed()
-    {
-        if has_clear_color {
-            state.settings.clear_color = ClearColor::Rgb(255, 0, 255); // Default magenta
-        } else {
-            state.settings.clear_color = ClearColor::None;
+        let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::Rgb(_, _, _));
+        if ui
+            .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
+            .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
+            .changed()
+        {
+            if has_clear_color {
+                state.settings.clear_color = ClearColor::Rgb(255, 0, 255); // Default magenta
+            } else {
+                state.settings.clear_color = ClearColor::None;
+            }
+            settings_changed = true;
         }
-        settings_changed = true;
+
+        if has_clear_color
+            && let ClearColor::Rgb(ref mut r, ref mut g, ref mut b) = state.settings.clear_color
+        {
+            ui.horizontal(|ui| {
+                ui.add_space(16.0); // Indent the color picker
+
+                let mut color_array = [*r, *g, *b];
+                if ui.color_edit_button_srgb(&mut color_array).changed() {
+                    *r = color_array[0];
+                    *g = color_array[1];
+                    *b = color_array[2];
+                    settings_changed = true;
+                }
+                if ui.button("Use top-left color").clicked()
+                    && let Some(color_corrected_image) = &state.color_corrected_image
+                {
+                    [*r, *g, *b, _] = color_corrected_image.top_left_pixel();
+                    settings_changed = true;
+                }
+                ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
+            });
+        }
+
+        ui.separator();
+
+        settings_changed |= draw_clustering_settings(ui, state);
+
+        ui.separator();
+        settings_changed |= widgets::checkbox(
+            ui,
+            &mut state.settings.premul_alpha,
+            "Premultiplied Alpha",
+            Some(
+                "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
+            ),
+        );
     }
 
-    if has_clear_color
-        && let ClearColor::Rgb(ref mut r, ref mut g, ref mut b) = state.settings.clear_color
-    {
-        ui.horizontal(|ui| {
-            ui.add_space(16.0); // Indent the color picker
-
-            let mut color_array = [*r, *g, *b];
-            if ui.color_edit_button_srgb(&mut color_array).changed() {
-                *r = color_array[0];
-                *g = color_array[1];
-                *b = color_array[2];
-                settings_changed = true;
-            }
-            if ui.button("Use Top-Left Pixel Color").clicked()
-                && let Some(color_corrected_image) = &state.color_corrected_image
-            {
-                [*r, *g, *b, _] = color_corrected_image.top_left_pixel();
-                settings_changed = true;
-            }
-            ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
-        });
+    if state.engine == QuantEngine::TilePalQuant {
+        ui.separator();
+        settings_changed |= draw_tpq_misc_settings(ui, state);
     }
-
-    ui.separator();
-
-    settings_changed |= draw_clustering_settings(ui, state);
-
-    ui.separator();
-    settings_changed |= widgets::checkbox(
-        ui,
-        &mut state.settings.premul_alpha,
-        "Premultiplied Alpha",
-        Some(
-            "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
-        ),
-    );
 
     settings_changed
 }
@@ -134,14 +153,29 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading_with_margin("Qualetize");
+    settings_changed |= widgets::heading_with_combo(
+        ui,
+        "Quantization",
+        widgets::EnumCombo::new(
+            "quant_engine",
+            QuantEngine::all(),
+            QuantEngine::display_name,
+        ),
+        &mut state.engine,
+    );
+
+    let is_tpq = state.engine == QuantEngine::TilePalQuant;
+    // tilepalquant requires at least 2 colors per palette (index 0 plus at
+    // least one more) and caps the palette count at 64.
+    let min_colors = if is_tpq { 2 } else { 1 };
+    let max_palette_count = if is_tpq { 64 } else { u16::MAX };
 
     ui.horizontal(|ui| {
         ui.label("Palettes:")
             .on_hover_text("Set number of palettes available");
 
         // Limit max palettes based on color count
-        let max_palettes = 256 / state.settings.n_colors.max(1);
+        let max_palettes = (256 / state.settings.n_colors.max(1)).min(max_palette_count);
         // Limit max colors based on palette count
         let max_colors = 256 / state.settings.n_palettes.max(1);
 
@@ -160,7 +194,7 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         settings_changed |= widgets::drag_u16(
             ui,
             &mut state.settings.n_colors,
-            1..=max_colors,
+            min_colors..=max_colors,
             "Number of colors per palette",
         );
 
@@ -329,17 +363,279 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         .hover("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".")
         .show(ui, &mut state.settings.dither_mode);
 
+    if state.settings.dither_mode != DitherMode::None {
+        ui.horizontal(|ui| {
+            ui.label("Dither Level:")
+                .on_hover_text("Dithering intensity level");
+            settings_changed |= ui
+                .add(egui::Slider::new(
+                    &mut state.settings.dither_level,
+                    0.0..=2.0,
+                ))
+                .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
+                .changed();
+        });
+    }
+
+    settings_changed
+}
+
+/// UI-only grouping over [`ColorZero`] for the combo box: the two transparent
+/// variants collapse into a single "Transparent" entry, since which one
+/// applies is picked by the radio buttons shown below the combo.
+#[derive(Clone, Copy, PartialEq)]
+enum ColorZeroKind {
+    Unique,
+    Shared,
+    Transparent,
+}
+
+impl ColorZeroKind {
+    fn from(color_zero: ColorZero) -> Self {
+        match color_zero {
+            ColorZero::Unique => ColorZeroKind::Unique,
+            ColorZero::Shared => ColorZeroKind::Shared,
+            ColorZero::TransparentFromAlpha | ColorZero::TransparentFromColor => {
+                ColorZeroKind::Transparent
+            }
+        }
+    }
+
+    /// Applies the picked kind to `color_zero`. Picking "Transparent" while
+    /// already on one of the two transparent variants preserves that
+    /// sub-choice instead of resetting it.
+    fn apply(self, color_zero: &mut ColorZero) {
+        *color_zero = match self {
+            ColorZeroKind::Unique => ColorZero::Unique,
+            ColorZeroKind::Shared => ColorZero::Shared,
+            ColorZeroKind::Transparent if color_zero.is_transparent() => *color_zero,
+            ColorZeroKind::Transparent => ColorZero::TransparentFromAlpha,
+        };
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            ColorZeroKind::Unique => "Unique",
+            ColorZeroKind::Shared => "Shared color",
+            ColorZeroKind::Transparent => "Transparent",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            ColorZeroKind::Unique => ColorZero::Unique.description(),
+            ColorZeroKind::Shared => ColorZero::Shared.description(),
+            ColorZeroKind::Transparent => "Index 0 is transparent; choose how below",
+        }
+    }
+
+    fn all() -> &'static [ColorZeroKind] {
+        &[
+            ColorZeroKind::Unique,
+            ColorZeroKind::Shared,
+            ColorZeroKind::Transparent,
+        ]
+    }
+}
+
+/// tilepalquant-only: what goes into index 0 of every palette, and the color
+/// that mode needs.
+fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+
+    let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
     ui.horizontal(|ui| {
-        ui.label("Dither Level:")
-            .on_hover_text("Dithering intensity level");
+        ui.label("First Color:");
+        if widgets::EnumCombo::new(
+            "tpq_color_zero",
+            ColorZeroKind::all(),
+            ColorZeroKind::display_name,
+        )
+        .description(ColorZeroKind::description)
+        .show(ui, &mut kind)
+        {
+            kind.apply(&mut state.tpq_settings.color_zero);
+            settings_changed = true;
+        }
+
+        if kind == ColorZeroKind::Shared {
+            settings_changed |= ui
+                .color_edit_button_srgb(&mut state.tpq_settings.shared_color)
+                .changed();
+            if ui.button("Use top-left color").clicked()
+                && let Some(color_corrected_image) = &state.color_corrected_image
+            {
+                let [r, g, b, _] = color_corrected_image.top_left_pixel();
+                state.tpq_settings.shared_color = [r, g, b];
+                settings_changed = true;
+            }
+        }
+    });
+
+    if kind == ColorZeroKind::Transparent {
         settings_changed |= ui
-            .add(egui::Slider::new(
-                &mut state.settings.dither_level,
-                0.0..=2.0,
-            ))
-            .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
+            .radio_value(
+                &mut state.tpq_settings.color_zero,
+                ColorZero::TransparentFromAlpha,
+                "from transparent pixels",
+            )
+            .on_hover_text(ColorZero::TransparentFromAlpha.description())
+            .changed();
+        ui.horizontal(|ui| {
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.color_zero,
+                    ColorZero::TransparentFromColor,
+                    "from color",
+                )
+                .on_hover_text(ColorZero::TransparentFromColor.description())
+                .changed();
+
+            if state.tpq_settings.color_zero == ColorZero::TransparentFromColor {
+                settings_changed |= ui
+                    .color_edit_button_srgb(&mut state.tpq_settings.transparent_color)
+                    .changed();
+                if ui.button("Use top-left color").clicked()
+                    && let Some(color_corrected_image) = &state.color_corrected_image
+                {
+                    let [r, g, b, _] = color_corrected_image.top_left_pixel();
+                    state.tpq_settings.transparent_color = [r, g, b];
+                    settings_changed = true;
+                }
+            }
+        });
+    }
+
+    settings_changed
+}
+
+/// Pattern combo entries for the tilepalquant Dithering section: `None`
+/// stands for `TpqDitherMode::Off`, in display order (which differs from
+/// [`DitherPattern::all`]'s declaration order).
+const TPQ_DITHER_PATTERN_OPTIONS: [Option<DitherPattern>; 7] = [
+    None,
+    Some(DitherPattern::Diagonal2),
+    Some(DitherPattern::Diagonal4),
+    Some(DitherPattern::Horizontal2),
+    Some(DitherPattern::Horizontal4),
+    Some(DitherPattern::Vertical2),
+    Some(DitherPattern::Vertical4),
+];
+
+fn tpq_dither_pattern_option_name(option: &Option<DitherPattern>) -> &'static str {
+    match option {
+        None => "None",
+        Some(pattern) => pattern.display_name(),
+    }
+}
+
+/// tilepalquant-only: dither pattern (or off), and (when enabled) the
+/// fast/slow mode and weight.
+fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+
+    ui.subheading_with_margin("Dithering");
+
+    let mut pattern_option = (state.tpq_settings.dither_mode != TpqDitherMode::Off)
+        .then_some(state.tpq_settings.dither_pattern);
+    ui.horizontal(|ui| {
+        ui.label("Pattern:");
+        if widgets::EnumCombo::new(
+            "tpq_dither_pattern",
+            &TPQ_DITHER_PATTERN_OPTIONS,
+            tpq_dither_pattern_option_name,
+        )
+        .show(ui, &mut pattern_option)
+        {
+            match pattern_option {
+                None => state.tpq_settings.dither_mode = TpqDitherMode::Off,
+                Some(pattern) => {
+                    state.tpq_settings.dither_pattern = pattern;
+                    if state.tpq_settings.dither_mode == TpqDitherMode::Off {
+                        state.tpq_settings.dither_mode = TpqDitherMode::Fast;
+                    }
+                }
+            }
+            settings_changed = true;
+        }
+    });
+
+    if state.tpq_settings.dither_mode != TpqDitherMode::Off {
+        ui.horizontal(|ui| {
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.dither_mode,
+                    TpqDitherMode::Fast,
+                    "fast",
+                )
+                .on_hover_text(TpqDitherMode::Fast.description())
+                .changed();
+            settings_changed |= ui
+                .radio_value(
+                    &mut state.tpq_settings.dither_mode,
+                    TpqDitherMode::Slow,
+                    "slow",
+                )
+                .on_hover_text(TpqDitherMode::Slow.description())
+                .changed();
+        });
+
+        ui.horizontal(|ui| {
+            ui.label("Weight:");
+            settings_changed |= ui
+                .add(
+                    egui::Slider::new(&mut state.tpq_settings.dither_weight, DITHER_WEIGHT_RANGE)
+                        .fixed_decimals(2),
+                )
+                .changed();
+        });
+    }
+
+    settings_changed
+}
+
+/// tilepalquant-only: the iteration budget, PRNG seed and progress preview.
+/// Drawn at the bottom of Advanced Settings, not in the engine-specific
+/// block above, since these are secondary/advanced controls.
+fn draw_tpq_misc_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+
+    ui.horizontal(|ui| {
+        ui.label("Fraction of pixels:");
+        settings_changed |= ui
+            .add(
+                egui::DragValue::new(&mut state.tpq_settings.fraction_of_pixels)
+                    .range(FRACTION_OF_PIXELS_RANGE)
+                    .speed(0.01)
+                    .fixed_decimals(2),
+            )
+            .on_hover_text(
+                "Iteration budget relative to the pixel count. Lower is faster; 0.05 is usually indistinguishable from 0.1.",
+            )
             .changed();
     });
+
+    ui.horizontal(|ui| {
+        ui.label("Random seed:");
+        settings_changed |= ui
+            .add(egui::DragValue::new(&mut state.tpq_settings.rand_seed))
+            .changed();
+        settings_changed |= widgets::checkbox(
+            ui,
+            &mut state.tpq_settings.randomize_seed,
+            "Randomize each run",
+            Some(
+                "Pick a new seed for every run and store it here so the result can be reproduced.",
+            ),
+        );
+    });
+
+    settings_changed |= widgets::checkbox(
+        ui,
+        &mut state.tpq_settings.show_progress,
+        "Show progress",
+        Some("Show the palettes converging while quantizing (slightly slower)."),
+    );
 
     settings_changed
 }
@@ -414,15 +710,59 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed
 }
 
+/// What Qualetize puts into index 0 of every palette, as the combo shows it.
+#[derive(Clone, Copy, PartialEq)]
+enum QualetizeFirstColor {
+    Unique,
+    Transparent,
+}
+
+impl QualetizeFirstColor {
+    fn from_flag(col0_is_clear: bool) -> Self {
+        if col0_is_clear {
+            Self::Transparent
+        } else {
+            Self::Unique
+        }
+    }
+
+    fn display_name(&self) -> &'static str {
+        match self {
+            Self::Unique => "Unique",
+            Self::Transparent => "Transparent",
+        }
+    }
+
+    fn description(&self) -> &'static str {
+        match self {
+            Self::Unique => "Index 0 is a normal color, chosen per palette",
+            Self::Transparent => {
+                "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool."
+            }
+        }
+    }
+}
+
 fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    widgets::checkbox(
-        ui,
-        &mut state.settings.col0_is_clear,
-        "First Color is Transparent",
-        Some(
-            "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.",
-        ),
-    )
+    ui.horizontal(|ui| {
+        ui.label("First Color:");
+        let mut first_color = QualetizeFirstColor::from_flag(state.settings.col0_is_clear);
+        let changed = widgets::EnumCombo::new(
+            "qualetize_first_color",
+            &[
+                QualetizeFirstColor::Unique,
+                QualetizeFirstColor::Transparent,
+            ],
+            QualetizeFirstColor::display_name,
+        )
+        .description(QualetizeFirstColor::description)
+        .show(ui, &mut first_color);
+        if changed {
+            state.settings.col0_is_clear = first_color == QualetizeFirstColor::Transparent;
+        }
+        changed
+    })
+    .inner
 }
 
 fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
