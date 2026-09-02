@@ -135,10 +135,6 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside),
             )
             .ui(ui, |ui| {
-                ui.label(egui::widget_text::RichText::new("Settings").small());
-                ui.checkbox(&mut state.preferences.show_advanced, "Advanced Settings");
-
-                ui.separator();
                 ui.label(egui::widget_text::RichText::new("Canvas").small());
                 ui.checkbox(&mut state.preferences.show_palettes, "Palettes");
 

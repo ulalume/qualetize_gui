@@ -3,6 +3,8 @@
 
 use std::ops::RangeInclusive;
 
+use super::styles::RichTextExt;
+
 /// A `DragValue` bound to `range`, with a hover tooltip on the control itself.
 /// Returns whether the drag changed the value.
 pub fn drag_u16(
@@ -98,4 +100,66 @@ impl<'a, T: Copy + PartialEq + 'static> EnumCombo<'a, T> {
 
         changed
     }
+}
+
+/// A section heading with a toggle (an "Enable" or "Show" checkbox) aligned
+/// to the right edge of the same row, so the switch that governs a section
+/// sits on its title instead of taking a row of its own below it.
+/// Returns whether the toggle changed.
+pub fn section_header(
+    ui: &mut egui::Ui,
+    title: &str,
+    toggle: &mut bool,
+    toggle_label: &str,
+    hover: Option<&str>,
+) -> bool {
+    header_with_toggle(ui, toggle, toggle_label, hover, |ui| {
+        ui.heading(title);
+    })
+}
+
+/// Same as [`section_header`], but at the subheading level used for a
+/// settings block that is itself a subsection of a larger one (e.g.
+/// "Advanced Settings" under "Qualetize"), matching sibling subsections
+/// drawn with [`crate::ui::styles::UiMarginExt::subheading_with_margin`].
+pub fn subsection_header(
+    ui: &mut egui::Ui,
+    title: &str,
+    toggle: &mut bool,
+    toggle_label: &str,
+    hover: Option<&str>,
+) -> bool {
+    header_with_toggle(ui, toggle, toggle_label, hover, |ui| {
+        ui.label(egui::RichText::new(title).subheading());
+    })
+}
+
+/// Shared layout for [`section_header`] and [`subsection_header`]: draws
+/// `draw_title` on the left and a right-aligned toggle checkbox on the same
+/// row, inside the same Frame margin the two heading levels already use
+/// elsewhere. Returns whether the toggle changed.
+fn header_with_toggle(
+    ui: &mut egui::Ui,
+    toggle: &mut bool,
+    toggle_label: &str,
+    hover: Option<&str>,
+    draw_title: impl FnOnce(&mut egui::Ui),
+) -> bool {
+    let mut changed = false;
+    egui::Frame::NONE
+        .inner_margin(egui::Margin {
+            left: 0,
+            right: 0,
+            top: 2,
+            bottom: 4,
+        })
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                draw_title(ui);
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    changed = checkbox(ui, toggle, toggle_label, hover);
+                });
+            });
+        });
+    changed
 }

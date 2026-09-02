@@ -35,11 +35,9 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
 
     ui.separator();
 
-    // Advanced clustering settings (if enabled)
-    if state.preferences.show_advanced {
-        settings_changed |= draw_advanced_settings(ui, state);
-        ui.separator();
-    }
+    // Advanced settings, collapsed to their heading until shown
+    settings_changed |= draw_advanced_settings(ui, state);
+    ui.separator();
 
     // Color correction settings. These edit `state.color_correction`, not
     // `state.settings`, and app.rs already detects those changes itself, so
@@ -57,8 +55,20 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
 fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.heading("Qualetize Advanced");
-    ui.add_space(4.0);
+    // Subheading, not heading: this is a subsection of "Qualetize" above,
+    // same as the "Color Space" and "Dithering" sections beside it.
+    widgets::subsection_header(
+        ui,
+        "Advanced Settings",
+        &mut state.preferences.show_advanced,
+        "Show",
+        Some(
+            "Tile size, output bit depth, transparent color, clustering passes and alpha handling.",
+        ),
+    );
+    if !state.preferences.show_advanced {
+        return settings_changed;
+    }
 
     settings_changed |= draw_tile_settings(ui, state);
 
@@ -336,14 +346,14 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
 fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-    ui.heading_with_margin("Tile Reduction");
 
-    settings_changed |= widgets::checkbox(
+    settings_changed |= widgets::section_header(
         ui,
+        "Tile Reduction",
         &mut state.settings.tile_reduce_post_enabled,
-        "Enable (heavy)",
+        "Enable",
         Some(
-            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis option increases processing time.",
+            "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis pass is heavy and increases processing time.",
         ),
     );
 
@@ -457,7 +467,9 @@ const GAMMA_STEP: f32 = 0.01;
 /// Round `value` to the nearest multiple of `step`, so a slider drag lands on
 /// the same values the number field can show and type.
 fn snap(value: f32, step: f32) -> f32 {
-    (value / step).round() * step
+    // `+ 0.0` normalizes a negative zero, which would otherwise be saved to
+    // the session file and shown as "-0%".
+    (value / step).round() * step + 0.0
 }
 
 /// How the numeric field next to a color correction slider is shown and parsed.
@@ -578,12 +590,15 @@ fn draw_gamma_row(ui: &mut egui::Ui, gamma: &mut f32, slider_width: f32) -> bool
 /// (comparing against the previous frame's value) to rebuild the corrected
 /// image, so none of this needs to report back a "settings changed" flag.
 fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.heading_with_margin("Color Correction");
-
-    ui.checkbox(&mut state.color_correction.enabled, "Enable")
-        .on_hover_text(
+    widgets::section_header(
+        ui,
+        "Color Correction",
+        &mut state.color_correction.enabled,
+        "Enable",
+        Some(
             "Adjust the image before quantization.\nWhen off the input image is passed through untouched.",
-        );
+        ),
+    );
 
     // The settings only exist once the pass is turned on.
     if !state.color_correction.enabled {
@@ -735,6 +750,7 @@ mod tests {
         assert_eq!(snap(-0.007, 0.01), -0.01);
         assert_eq!(snap(37.4, 1.0), 37.0);
         assert_eq!(snap(1.0, 0.01), 1.0);
+        assert!(snap(-0.001, 0.01).is_sign_positive(), "no negative zero");
     }
 
     #[test]

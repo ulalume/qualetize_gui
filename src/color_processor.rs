@@ -168,7 +168,9 @@ pub fn display_value_to_gamma(display: f32) -> f32 {
 }
 
 pub fn format_percentage(value: f32) -> String {
-    format!("{:+.0}%", value * 100.0)
+    // `+ 0.0` turns a negative zero into a positive one, so a slider dragged
+    // back to the middle reads "+0%" rather than "-0%".
+    format!("{:+.0}%", (value * 100.0).round() + 0.0)
 }
 
 pub fn format_gamma(gamma: f32) -> String {
@@ -254,6 +256,14 @@ mod tests {
             assert!((g - g2).abs() < 1e-5, "{g} vs {g2}");
             assert!((b - b2).abs() < 1e-5, "{b} vs {b2}");
         }
+    }
+
+    #[test]
+    fn percentages_never_show_a_negative_zero() {
+        assert_eq!(format_percentage(-0.0), "+0%");
+        assert_eq!(format_percentage(-0.004), "+0%");
+        assert_eq!(format_percentage(-0.43), "-43%");
+        assert_eq!(format_percentage(0.43), "+43%");
     }
 
     #[test]
