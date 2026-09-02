@@ -1,4 +1,4 @@
-use super::styles::{UiMarginExt, error_color, warning_color};
+use super::styles::{RichTextExt, UiMarginExt, error_color, warning_color};
 use super::widgets;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
@@ -443,10 +443,9 @@ impl ColorZeroKind {
 fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.subheading_with_margin("Color index zero");
-
     let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
     ui.horizontal(|ui| {
+        ui.label(egui::RichText::new("Color index zero:").subheading());
         if widgets::EnumCombo::new(
             "tpq_color_zero",
             ColorZeroKind::all(),
