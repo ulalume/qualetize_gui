@@ -51,11 +51,6 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
     ui.separator();
     draw_palette_sort_settings(ui, state);
 
-    if state.preferences.show_debug_info {
-        // Debug information display
-        ui.separator();
-        draw_status_section(ui, state);
-    }
     (settings_changed, tile_reduce_changed)
 }
 
@@ -669,32 +664,6 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
             }
         }
     });
-}
-
-fn draw_status_section(ui: &mut egui::Ui, state: &AppState) {
-    ui.heading_with_margin("Debug Info");
-    if let Some(request_qualetize) = &state.request_update_qualetized_image {
-        let elapsed = request_qualetize.time.elapsed();
-        if elapsed < state.debounce_delay {
-            let remaining = state.debounce_delay - elapsed;
-            ui.label(format!(
-                "⏱ Preview will update in {:.1}s...",
-                remaining.as_secs_f32()
-            ));
-        }
-    }
-    // Debug information
-    ui.label(format!("Input path: {:?}", state.input_path.is_some()));
-    ui.label(format!("Input Image: {:?}", state.input_image.is_some()));
-    ui.label(format!(
-        "Color Corrected Image: {:?}",
-        state.color_corrected_image.is_some()
-    ));
-    ui.label(format!("Output Image: {:?}", state.output_image.is_some()));
-    ui.label(format!(
-        "Settings changed: {:?}",
-        state.request_update_qualetized_image.is_some(),
-    ));
 }
 
 /// Exactly 4 digits, each from 1-8.

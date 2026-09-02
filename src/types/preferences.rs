@@ -38,8 +38,6 @@ pub struct UserPreferences {
     pub show_palettes: bool,
 
     #[serde(default)]
-    pub show_debug_info: bool,
-    #[serde(default)]
     pub show_appearance: bool,
     #[serde(default)]
     pub selected_export_format: ExportFormat,
@@ -56,7 +54,6 @@ impl Default for UserPreferences {
         Self {
             show_advanced: false,
             show_palettes: true,
-            show_debug_info: false,
             show_appearance: false,
             selected_export_format: ExportFormat::default(),
             appearance_mode: AppearanceMode::default(),
@@ -115,7 +112,6 @@ mod tests {
     fn a_preferences_object_missing_one_field_still_deserializes() {
         let json = r#"{
             "show_advanced": true,
-            "show_debug_info": true,
             "show_appearance": true,
             "selected_export_format": "Bmp",
             "appearance_mode": "Dark"
