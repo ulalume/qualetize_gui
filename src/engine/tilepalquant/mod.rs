@@ -232,6 +232,42 @@ fn validate(
     Ok(())
 }
 
+/// Sends progress to the host, with previews rate limited so they stay a
+/// small share of the run: a preview costs a full `quantize_tiles`, so one
+/// is only sent after at least [`PREVIEW_MIN_GAP`] and four times the cost
+/// of the previous preview have passed.
+struct Reporter<'a> {
+    ctx: &'a RunContext<'a>,
+    image: &'a SourceImage,
+    p: &'a Params,
+    use_dither: bool,
+    last_preview: Option<std::time::Instant>,
+    last_cost: std::time::Duration,
+}
+
+const PREVIEW_MIN_GAP: std::time::Duration = std::time::Duration::from_millis(100);
+
+impl Reporter<'_> {
+    fn report(&mut self, percent: i64, palettes: Option<&[Vec<Rgb>]>) {
+        let wants_preview = self.p.show_progress && self.ctx.progress.is_some();
+        let due = match self.last_preview {
+            None => true,
+            Some(at) => at.elapsed() >= PREVIEW_MIN_GAP.max(self.last_cost * 4),
+        };
+        let preview = palettes.filter(|_| wants_preview && due).map(|palettes| {
+            let started = std::time::Instant::now();
+            let preview = quantize_tiles(palettes, self.image, self.use_dither, self.p);
+            self.last_cost = started.elapsed();
+            self.last_preview = Some(std::time::Instant::now());
+            preview
+        });
+        self.ctx.report(Progress {
+            percent: percent.clamp(0, 100) as u8,
+            preview,
+        });
+    }
+}
+
 /// The optimization itself. Returns `None` when the run is cancelled.
 fn quantize(
     image: &SourceImage,
@@ -248,15 +284,16 @@ fn quantize(
     if use_dither {
         progress_stops[3] = 94;
     }
-    let report = |percent: i64, palettes: Option<&[Vec<Rgb>]>| {
-        let preview = palettes
-            .filter(|_| p.show_progress && ctx.progress.is_some())
-            .map(|palettes| quantize_tiles(palettes, image, use_dither, p));
-        ctx.report(Progress {
-            percent: percent.clamp(0, 100) as u8,
-            preview,
-        });
+    let mut reporter = Reporter {
+        ctx,
+        image,
+        p,
+        use_dither,
+        last_preview: None,
+        last_cost: std::time::Duration::ZERO,
     };
+    let mut report =
+        |percent: i64, palettes: Option<&[Vec<Rgb>]>| reporter.report(percent, palettes);
 
     report(0, None);
     let mut palettes = quantize_1_color(tiles, pixels, shuffle, p);
@@ -618,14 +655,22 @@ mod tests {
                 .all(|pair| pair[0].percent <= pair[1].percent),
             "percentages never go backwards"
         );
+        // Previews are rate limited, so a run this short sends few of them.
+        // Early previews show palettes that are still growing, so they can
+        // hold fewer colors than the final result, never more.
         let previews: Vec<&QuantizeResult> = reports
             .iter()
             .filter_map(|report| report.preview.as_ref())
             .collect();
-        assert!(previews.len() > 3);
-        let last = previews.last().expect("a preview");
-        assert_eq!(last.indexed_data, result.indexed_data);
-        assert_eq!(palette_bytes(last), palette_bytes(&result));
+        assert!(!previews.is_empty());
+        for preview in previews {
+            assert_eq!(preview.indexed_data.len(), result.indexed_data.len());
+            assert!(preview.colors_per_palette <= result.colors_per_palette);
+            assert_eq!(
+                preview.palette_data.len(),
+                preview.colors_per_palette * target().n_palettes as usize
+            );
+        }
     }
 
     #[test]
@@ -835,5 +880,73 @@ mod tests {
         .expect("not cancelled")
         .expect("succeeds");
         assert_eq!(result.indexed_data.len(), 16 * 8);
+    }
+}
+
+/// Timing of a large run with and without progress previews. Ignored by
+/// default; run with `cargo test --release -- --ignored preview_cost --nocapture`.
+#[cfg(test)]
+mod timing {
+    use super::*;
+    use crate::types::tilepalquant::TpqSettings;
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+
+    fn upscaled_fixture(factor: u32) -> (Vec<u8>, u32, u32) {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/tpq/photo_64x32.png"
+        );
+        let decoder =
+            png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path).unwrap()));
+        let mut reader = decoder.read_info().unwrap();
+        let mut buf = vec![0; reader.output_buffer_size().unwrap()];
+        let info = reader.next_frame(&mut buf).unwrap();
+        let (w, h) = (info.width, info.height);
+        let bpp = info.color_type.samples();
+        let (out_w, out_h) = (w * factor, h * factor);
+        let mut out = Vec::with_capacity((out_w * out_h * 4) as usize);
+        for y in 0..out_h {
+            for x in 0..out_w {
+                let i = (((y / factor) * w + x / factor) as usize) * bpp;
+                out.extend_from_slice(&[buf[i], buf[i + 1], buf[i + 2], 255]);
+            }
+        }
+        (out, out_w, out_h)
+    }
+
+    #[test]
+    #[ignore]
+    fn preview_cost() {
+        let (data, w, h) = upscaled_fixture(16);
+        let levels: Vec<u8> = (0..8).map(|i| (i * 255 / 7) as u8).collect();
+        let target = TargetFormat {
+            tile_width: 8,
+            tile_height: 8,
+            n_palettes: 4,
+            n_colors: 16,
+            levels: [levels.clone(), levels.clone(), levels, vec![0, 255]],
+        };
+        for show_progress in [false, true] {
+            let settings = TpqSettings {
+                show_progress,
+                ..TpqSettings::default()
+            };
+            let cancel = AtomicBool::new(false);
+            let (sender, receiver) = mpsc::channel();
+            let ctx = RunContext {
+                cancel: &cancel,
+                progress: Some(&sender),
+            };
+            let started = std::time::Instant::now();
+            let result = run(&data, w, h, &target, &settings, &ctx);
+            let elapsed = started.elapsed();
+            assert!(matches!(result, Some(Ok(_))));
+            let previews = receiver.try_iter().filter(|p| p.preview.is_some()).count();
+            println!(
+                "{w}x{h} show_progress={show_progress}: {:.0} ms, {previews} previews",
+                elapsed.as_secs_f64() * 1000.0
+            );
+        }
     }
 }
