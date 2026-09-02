@@ -1,0 +1,688 @@
+{
+  "generator": "tilepalquant tpq (perf-fixes branch, TPQ_FIXED_SHUFFLE=1)",
+  "notes": "All outputs are 8-bit palette PNGs (PLTE only). tpq never writes a tRNS chunk; for col_zero transp/transp_color modes, palette index 0 is simply set to an opaque RGB color (transp_col, default 255,0,255) with no PNG-level alpha/transparency encoded.",
+  "cases": [
+    {
+      "case": "unique_off_3bit",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__unique_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 390,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "shared_off_3bit",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__shared_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "shared",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 374,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "unique_fast_3bit",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__unique_fast_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "fast",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 459,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "unique_slow_3bit",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__unique_slow_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "slow",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 427,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "unique_off_5bit",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__unique_off_5bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 5,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 402,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "shared_fast_5bit_horiz2",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__shared_fast_5bit_horiz2.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 5,
+        "col_zero": "shared",
+        "shared_col": [
+          8,
+          16,
+          24
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "fast",
+        "dither_pat": "horiz2",
+        "dither_wt": 0.3,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 406,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "unique_off_2pal4col",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__unique_off_2pal4col.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 2,
+        "cols_per_pal": 4,
+        "bits_per_chan": 2,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 145,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "unique_off_frac05",
+      "input": "gradient_32x16.png",
+      "output": "gradient_32x16__unique_off_frac05.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.05,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 370,
+      "output_format": "P PNG, 32x16"
+    },
+    {
+      "case": "unique_off_3bit",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__unique_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1476,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "shared_off_3bit",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__shared_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "shared",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1386,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "unique_fast_3bit",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__unique_fast_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "fast",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1481,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "unique_slow_3bit",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__unique_slow_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "slow",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1365,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "unique_off_5bit",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__unique_off_5bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 5,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1549,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "shared_fast_5bit_horiz2",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__shared_fast_5bit_horiz2.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 5,
+        "col_zero": "shared",
+        "shared_col": [
+          8,
+          16,
+          24
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "fast",
+        "dither_pat": "horiz2",
+        "dither_wt": 0.3,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1500,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "unique_off_2pal4col",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__unique_off_2pal4col.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 2,
+        "cols_per_pal": 4,
+        "bits_per_chan": 2,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 606,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "unique_off_frac05",
+      "input": "photo_64x32.png",
+      "output": "photo_64x32__unique_off_frac05.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.05,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 1422,
+      "output_format": "P PNG, 64x32"
+    },
+    {
+      "case": "transp_off_3bit",
+      "input": "alpha_32x32.png",
+      "output": "alpha_32x32__transp_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "transp",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 621,
+      "output_format": "P PNG, 32x32"
+    },
+    {
+      "case": "unique_off_3bit",
+      "input": "alpha_32x32.png",
+      "output": "alpha_32x32__unique_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 412,
+      "output_format": "P PNG, 32x32"
+    },
+    {
+      "case": "transpcol_off_3bit",
+      "input": "key_32x32.png",
+      "output": "key_32x32__transpcol_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "transp_color",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 439,
+      "output_format": "P PNG, 32x32"
+    },
+    {
+      "case": "unique_off_3bit",
+      "input": "key_32x32.png",
+      "output": "key_32x32__unique_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 424,
+      "output_format": "P PNG, 32x32"
+    },
+    {
+      "case": "unique_off_3bit",
+      "input": "flat_16x8.png",
+      "output": "flat_16x8__unique_off_3bit.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 4,
+        "cols_per_pal": 16,
+        "bits_per_chan": 3,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 296,
+      "output_format": "P PNG, 16x8"
+    },
+    {
+      "case": "unique_off_2pal4col",
+      "input": "flat_16x8.png",
+      "output": "flat_16x8__unique_off_2pal4col.png",
+      "params": {
+        "tile_w": 8,
+        "tile_h": 8,
+        "num_pals": 2,
+        "cols_per_pal": 4,
+        "bits_per_chan": 2,
+        "col_zero": "unique",
+        "shared_col": [
+          0,
+          0,
+          0
+        ],
+        "transp_col": [
+          255,
+          0,
+          255
+        ],
+        "dither": "off",
+        "dither_pat": "diag4",
+        "dither_wt": 0.5,
+        "frac_of_px": 0.1,
+        "rand_seed": 0
+      },
+      "status": "ok",
+      "output_size_bytes": 127,
+      "output_format": "P PNG, 16x8"
+    }
+  ]
+}
