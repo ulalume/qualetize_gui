@@ -101,10 +101,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             ui.menu_button("Reset Color Correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
                     if ui.button(preset.display_name()).clicked() {
+                        // Edits `state.color_correction`, not `state.settings`;
+                        // app.rs detects that change itself, so this does not
+                        // need to request a re-quantization.
                         state
                             .color_correction
                             .apply_preset(preset.color_correction());
-                        settings_changed = true;
                         ui.close();
                     }
                 }
@@ -144,25 +146,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                 ui.separator();
 
                 ui.menu_button("Zoom", |ui| {
-                    if ui.button("Zoom 1x").clicked() {
-                        state.zoom = 1.0;
-                        state.pan_offset = egui::Vec2::ZERO;
-                        ui.close();
-                    }
-                    if ui.button("Zoom 2x").clicked() {
-                        state.zoom = 2.0;
-                        state.pan_offset = egui::Vec2::ZERO;
-                        ui.close();
-                    }
-                    if ui.button("Zoom 4x").clicked() {
-                        state.zoom = 4.0;
-                        state.pan_offset = egui::Vec2::ZERO;
-                        ui.close();
-                    }
-                    if ui.button("Zoom 8x").clicked() {
-                        state.zoom = 8.0;
-                        state.pan_offset = egui::Vec2::ZERO;
-                        ui.close();
+                    for z in [1.0, 2.0, 4.0, 8.0] {
+                        if ui.button(format!("Zoom {}x", z as i32)).clicked() {
+                            state.zoom = z;
+                            state.pan_offset = egui::Vec2::ZERO;
+                            ui.close();
+                        }
                     }
                 });
 
@@ -178,7 +167,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     });
 
     let mut show_dialog = state.preferences.show_appearance;
-    if egui::Window::new("Appearance")
+    egui::Window::new("Appearance")
         .open(&mut show_dialog)
         .resizable(false)
         .collapsible(false)
@@ -250,11 +239,8 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     state.reset_view_settings();
                 }
             });
-        })
-        .is_some()
-    {
-        state.preferences.show_appearance = show_dialog;
-    }
+        });
+    state.preferences.show_appearance = show_dialog;
 
     (settings_changed, tile_reduce_changed)
 }

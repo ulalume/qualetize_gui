@@ -5,19 +5,33 @@ use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
 /// Gap between the image panels.
 const PANEL_MARGIN: f32 = 4.0;
 
+/// Zoom, pan, and background shared by every panel drawn in a frame, so each
+/// [`ImagePanel`] literal only needs to name what actually differs between
+/// panels.
+struct ViewParams {
+    zoom: f32,
+    pan_offset: Vec2,
+    background: Color32,
+}
+
+/// Fields an [`ImagePanel`] usually leaves at their default: most panels have
+/// no spinner, overlay text, notice, or palette overlay.
+#[derive(Default)]
+struct PanelExtras<'a> {
+    has_spinner: bool,
+    overlay_text: Option<&'a str>,
+    /// Persistent warning drawn in the top left corner of the panel.
+    notice: Option<&'a str>,
+    palettes: Option<&'a [Vec<Color32>]>,
+}
+
 /// Everything one image panel needs to draw itself.
 struct ImagePanel<'a> {
     title: &'a str,
     image: Option<&'a ImageData>,
     size: Vec2,
-    zoom: f32,
-    pan_offset: Vec2,
-    background: Color32,
-    has_spinner: bool,
-    overlay_text: Option<&'a str>,
-    /// Persistent warning drawn in the top left corner of the panel.
-    notice: Option<&'a str>,
-    palettes: Option<&'a Vec<Vec<Color32>>>,
+    view: &'a ViewParams,
+    extras: PanelExtras<'a>,
 }
 
 pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_processing: bool) {
@@ -30,12 +44,14 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
     // panels share the same dimensions at a given zoom.
     let original_image = state.processing_input();
 
-    let zoom = state.zoom;
-    let pan_offset = state.pan_offset;
-    let background = state
-        .preferences
-        .background_color
-        .unwrap_or(Color32::from_gray(64));
+    let view = ViewParams {
+        zoom: state.zoom,
+        pan_offset: state.pan_offset,
+        background: state
+            .preferences
+            .background_color
+            .unwrap_or(Color32::from_gray(64)),
+    };
     let mut pan_changed = Vec2::ZERO;
 
     // Left column holds the inputs, right column the outputs. The optional
@@ -45,17 +61,15 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
 
     // The palette is identical for both output panels, so it is only drawn on
     // the Qualetized one to keep its position stable.
-    let palettes = state
-        .preferences
-        .show_palettes
-        .then(|| {
-            state
-                .output_palette_sorted_indexed_image
-                .as_ref()
-                .or_else(|| state.output_image.as_ref().and_then(|i| i.indexed.as_ref()))
-                .map(|indexed| &indexed.palettes_for_ui)
-        })
-        .flatten();
+    let palettes: Option<&[Vec<Color32>]> = if state.preferences.show_palettes {
+        state
+            .output_palette_sorted_indexed_image
+            .as_ref()
+            .or_else(|| state.output_image.as_ref().and_then(|i| i.indexed.as_ref()))
+            .map(|indexed| indexed.palettes_for_ui.as_slice())
+    } else {
+        None
+    };
 
     let column_width = (available_size.x - PANEL_MARGIN) / 2.0;
     let input_height = column_height(available_size.y, 1 + usize::from(show_color_corrected));
@@ -74,13 +88,12 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                     title: "Original",
                     image: original_image,
                     size: Vec2::new(column_width, input_height),
-                    zoom,
-                    pan_offset,
-                    background,
-                    has_spinner: false,
-                    overlay_text: fit_toast.as_deref(),
-                    notice: fit_notice.as_deref(),
-                    palettes: None,
+                    view: &view,
+                    extras: PanelExtras {
+                        overlay_text: fit_toast.as_deref(),
+                        notice: fit_notice.as_deref(),
+                        ..Default::default()
+                    },
                 },
                 &mut pan_changed,
             );
@@ -92,13 +105,11 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                         title: "Color Corrected",
                         image: state.color_corrected_image.as_ref(),
                         size: Vec2::new(column_width, input_height),
-                        zoom,
-                        pan_offset,
-                        background,
-                        has_spinner: state.color_corrected_image.is_none(),
-                        overlay_text: None,
-                        notice: None,
-                        palettes: None,
+                        view: &view,
+                        extras: PanelExtras {
+                            has_spinner: state.color_corrected_image.is_none(),
+                            ..Default::default()
+                        },
                     },
                     &mut pan_changed,
                 );
@@ -115,13 +126,12 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                     title: "Qualetized",
                     image: state.base_output_image.as_ref(),
                     size: Vec2::new(column_width, output_height),
-                    zoom,
-                    pan_offset,
-                    background,
-                    has_spinner: qualetize_processing,
-                    overlay_text: None,
-                    notice: None,
-                    palettes,
+                    view: &view,
+                    extras: PanelExtras {
+                        has_spinner: qualetize_processing,
+                        palettes,
+                        ..Default::default()
+                    },
                 },
                 &mut pan_changed,
             );
@@ -133,14 +143,13 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                         title: "Tile Reduced",
                         image: state.output_image.as_ref(),
                         size: Vec2::new(column_width, output_height),
-                        zoom,
-                        pan_offset,
-                        background,
-                        // A new quantization invalidates the reduced result too.
-                        has_spinner: qualetize_processing || state.tile_reduce_processing,
-                        overlay_text: toast.as_deref(),
-                        notice: None,
-                        palettes: None,
+                        view: &view,
+                        extras: PanelExtras {
+                            // A new quantization invalidates the reduced result too.
+                            has_spinner: qualetize_processing || state.tile_reduce_processing,
+                            overlay_text: toast.as_deref(),
+                            ..Default::default()
+                        },
                     },
                     &mut pan_changed,
                 );
@@ -202,21 +211,21 @@ fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color:
         base_color.a(),
     );
 
-    for yi in 0.. {
-        let y = (yi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
-        if y > canvas.height() + MAGNIFICATION_PIXEL_SIZE {
-            break;
-        }
-        for xi in 0.. {
-            let x = (xi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE;
-            if x > canvas.width() + MAGNIFICATION_PIXEL_SIZE {
-                break;
-            }
+    // `canvas.center() + vec2(-w/2, -h/2)` is just `canvas.min`; the dot grid
+    // is anchored there, offset back by the canvas's own phase within one dot
+    // cell so the grid appears to pan continuously under `canvas`.
+    let origin = canvas.min - egui::vec2(canvas_min_x, canvas_min_y);
+    let nx = (canvas.width() / MAGNIFICATION_PIXEL_SIZE).ceil() as i32 + 1;
+    let ny = (canvas.height() / MAGNIFICATION_PIXEL_SIZE).ceil() as i32 + 1;
+
+    for yi in 0..ny {
+        for xi in 0..nx {
             painter.circle_filled(
-                canvas.center()
-                    + egui::vec2(x, y)
-                    + egui::vec2(-canvas_min_x, -canvas_min_y)
-                    + egui::vec2(-canvas.width() / 2.0, -canvas.height() / 2.0),
+                origin
+                    + egui::vec2(
+                        (xi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE,
+                        (yi as f32 + 0.5) * MAGNIFICATION_PIXEL_SIZE,
+                    ),
                 pixel_radius,
                 pixel_color,
             );
@@ -272,8 +281,9 @@ fn draw_title(painter: &egui::Painter, canvas: Rect, title: &str, ui_ctx: &egui:
         return;
     }
 
-    let visuals = ui_ctx.global_style().visuals.clone();
-    let text_color = visuals.override_text_color.unwrap_or(visuals.text_color());
+    // `text_color()` already honors `override_text_color`, so there is no need
+    // to clone `Visuals` just to read it back off.
+    let text_color = ui_ctx.global_style().visuals.text_color();
     let pos = canvas.left_bottom() + Vec2::new(4.0, -20.0);
     draw_label_chip(painter, ui_ctx, pos, title, text_color);
 }
@@ -327,20 +337,26 @@ fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, pan_changed: &mut Vec2
                 ui.allocate_painter(panel.size, egui::Sense::click_and_drag());
             let canvas = response.rect;
 
-            draw_background_and_pixels(&painter, canvas, panel.background);
-            draw_main_image(&painter, canvas, panel.image, panel.zoom, panel.pan_offset);
+            draw_background_and_pixels(&painter, canvas, panel.view.background);
+            draw_main_image(
+                &painter,
+                canvas,
+                panel.image,
+                panel.view.zoom,
+                panel.view.pan_offset,
+            );
             draw_title(&painter, canvas, panel.title, ui.ctx());
-            if let Some(notice) = panel.notice {
+            if let Some(notice) = panel.extras.notice {
                 draw_notice(&painter, canvas, notice, ui.ctx());
             }
 
-            if let Some(palettes) = panel.palettes {
+            if let Some(palettes) = panel.extras.palettes {
                 draw_palettes_overlay(&painter, canvas, palettes);
             }
-            if panel.has_spinner {
+            if panel.extras.has_spinner {
                 draw_spinner(&painter, canvas, ui.ctx());
             }
-            if let Some(text) = panel.overlay_text {
+            if let Some(text) = panel.extras.overlay_text {
                 draw_overlay_text(&painter, canvas, ui.ctx(), text);
             }
 
@@ -363,6 +379,15 @@ fn calculate_image_rect(
     Rect::from_center_size(view_center, display_size)
 }
 
+/// Rect of one swatch in a palette row: `idx` within a palette of
+/// `palette_len` colors, growing leftwards from `origin` (the row's right
+/// edge, at its top).
+fn swatch_rect(origin: Pos2, palette_len: usize, idx: usize, size: f32, spacing: f32) -> Rect {
+    let width = (palette_len as f32) * (size + spacing) - spacing;
+    let x = origin.x - width + (idx as f32) * (size + spacing);
+    Rect::from_min_size(Pos2::new(x, origin.y), Vec2::new(size, size))
+}
+
 fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<egui::Color32>]) {
     if palettes.is_empty() {
         return;
@@ -371,7 +396,6 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
     let ctx = painter.ctx();
     let pointer_pos = ctx.pointer_hover_pos();
     let mut hovered: Option<(usize, usize)> = None;
-    let mut hovered_color: Option<egui::Color32> = None;
 
     let palette_margin = 8.0;
     let palette_spacing = 1.0;
@@ -383,18 +407,16 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
     if let Some(pos) = pointer_pos {
         let mut hover_y = current_y;
         'outer: for (palette_idx, palette) in palettes.iter().enumerate() {
-            let palette_width =
-                (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
-            for (color_idx, &color) in palette.iter().enumerate() {
-                let x =
-                    start_x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
-                let color_rect = Rect::from_min_size(
-                    Pos2::new(x, hover_y),
-                    Vec2::new(palette_size, palette_size),
+            for (color_idx, _) in palette.iter().enumerate() {
+                let color_rect = swatch_rect(
+                    Pos2::new(start_x, hover_y),
+                    palette.len(),
+                    color_idx,
+                    palette_size,
+                    palette_spacing,
                 );
                 if color_rect.contains(pos) {
                     hovered = Some((palette_idx, color_idx));
-                    hovered_color = Some(color);
                     break 'outer;
                 }
             }
@@ -417,9 +439,8 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
         current_y += palette_size + palette_spacing;
     }
 
-    if let Some((palette_idx, color_idx)) = hovered
-        && let Some(color) = hovered_color
-    {
+    if let Some((palette_idx, color_idx)) = hovered {
+        let color = palettes[palette_idx][color_idx];
         let hex = if color.a() == 255 {
             format!("#{:02X}{:02X}{:02X}", color.r(), color.g(), color.b())
         } else {
@@ -460,22 +481,28 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
     }
 }
 
+/// Size of one palette swatch: bounded so a full row fits the panel's width
+/// and, since palettes stack vertically, so all `palettes.len()` rows fit its
+/// height too.
 fn calculate_palette_size(
     rect: &Rect,
     palettes: &[Vec<egui::Color32>],
     palette_margin: f32,
     palette_spacing: f32,
 ) -> f32 {
-    if let Some(first_palette) = palettes.first() {
-        4.0_f32.max(16.0_f32.min(
-            (rect.width()
-                - palette_margin * 2.0
-                - ((first_palette.len() as f32) - 1.0) * palette_spacing)
-                / (first_palette.len() as f32),
-        ))
-    } else {
-        8.0
-    }
+    let Some(first_palette) = palettes.first() else {
+        return 8.0;
+    };
+
+    let by_width = (rect.width()
+        - palette_margin * 2.0
+        - ((first_palette.len() as f32) - 1.0) * palette_spacing)
+        / (first_palette.len() as f32);
+
+    let by_height =
+        (rect.height() - palette_margin * 2.0) / (palettes.len() as f32) - palette_spacing;
+
+    4.0_f32.max(16.0_f32.min(by_width.min(by_height)))
 }
 
 fn draw_single_palette(
@@ -487,14 +514,15 @@ fn draw_single_palette(
     palette_spacing: f32,
     hovered: Option<(usize, usize)>,
 ) {
-    let palette_width = (palette.len() as f32) * (palette_size + palette_spacing) - palette_spacing;
     let highlight_color = painter.ctx().global_style().visuals.selection.stroke.color;
 
     for (color_idx, &color) in palette.iter().enumerate() {
-        let x = origin.x - palette_width + (color_idx as f32) * (palette_size + palette_spacing);
-        let color_rect = Rect::from_min_size(
-            Pos2::new(x, origin.y),
-            Vec2::new(palette_size, palette_size),
+        let color_rect = swatch_rect(
+            origin,
+            palette.len(),
+            color_idx,
+            palette_size,
+            palette_spacing,
         );
 
         painter.rect_filled(color_rect, 0.0, color);
@@ -543,5 +571,18 @@ mod tests {
                 "{panel_count} panels: {used}"
             );
         }
+    }
+
+    #[test]
+    fn palette_size_shrinks_to_fit_many_rows_in_a_short_panel() {
+        let rect = Rect::from_min_size(Pos2::ZERO, Vec2::new(200.0, 60.0));
+        let palettes: Vec<Vec<Color32>> = (0..16).map(|_| vec![Color32::BLACK; 4]).collect();
+        let size = calculate_palette_size(&rect, &palettes, 8.0, 1.0);
+        // 16 rows in 60px tall (minus margins) leaves well under 16px per row.
+        assert!(size < 16.0, "expected a shrunk size, got {size}");
+        assert!(
+            size >= 4.0,
+            "size should not go below the minimum, got {size}"
+        );
     }
 }

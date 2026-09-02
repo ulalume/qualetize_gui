@@ -1,4 +1,5 @@
 use super::styles;
+use super::widgets;
 use crate::types::{
     AppState, ExportFormat,
     app_state::{AppStateRequest, ExportSource},
@@ -65,18 +66,13 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
         });
 
         // Format selection ComboBox
-        egui::ComboBox::from_id_salt("export_format_footer")
-            .selected_text(state.preferences.selected_export_format.display_name())
-            .width(64.0)
-            .show_ui(ui, |ui| {
-                for format in ExportFormat::indexed_list() {
-                    ui.selectable_value(
-                        &mut state.preferences.selected_export_format,
-                        *format,
-                        format.display_name(),
-                    );
-                }
-            });
+        widgets::EnumCombo::new(
+            "export_format_footer",
+            ExportFormat::indexed_list(),
+            ExportFormat::display_name,
+        )
+        .width(64.0)
+        .show(ui, &mut state.preferences.selected_export_format);
         let count_label = match state.reduced_tile_count {
             Some(count) => format!("Tiles: {count}"),
             None => "Tiles: --".to_string(),
@@ -84,36 +80,27 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
         ui.menu_button(egui::RichText::new(count_label).strong(), |ui| {
             let mut options_changed = false;
 
-            if ui
-                .checkbox(
+            for (value, label) in [
+                (
                     &mut state.tile_count.settings.allow_flip_x,
                     "Allowed X Flips",
-                )
-                .clicked()
-            {
-                options_changed = true;
-            }
-            if ui
-                .checkbox(
+                ),
+                (
                     &mut state.tile_count.settings.allow_flip_y,
                     "Allowed Y Flips",
-                )
-                .clicked()
-            {
-                options_changed = true;
+                ),
+            ] {
+                options_changed |= ui.checkbox(value, label).changed();
             }
 
             ui.separator();
 
-            if ui
+            options_changed |= ui
                 .checkbox(
                     &mut state.tile_count.settings.visible_only,
                     "Ignore fully transparent tiles",
                 )
-                .clicked()
-            {
-                options_changed = true;
-            }
+                .changed();
 
             if options_changed {
                 state.tile_count.mark_dirty();
@@ -123,8 +110,8 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
 }
 
 fn apply_export_button_style(ui: &mut egui::Ui) {
-    ui.style_mut().spacing.button_padding = egui::vec2(10.0, 4.0);
-    let style = &mut ui.style_mut();
+    let style = ui.style_mut();
+    style.spacing.button_padding = egui::vec2(10.0, 4.0);
 
     // Inactive state
     style.visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0_f32, Color32::WHITE);
