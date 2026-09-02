@@ -52,7 +52,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
             .background_color
             .unwrap_or(Color32::from_gray(64)),
     };
-    let mut pan_changed = Vec2::ZERO;
+    let mut view_change = ViewChange::default();
 
     // Left column holds the inputs, right column the outputs. The optional
     // panels appear exactly when their pass is enabled.
@@ -95,7 +95,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                         ..Default::default()
                     },
                 },
-                &mut pan_changed,
+                &mut view_change,
             );
 
             if show_color_corrected {
@@ -111,7 +111,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                             ..Default::default()
                         },
                     },
-                    &mut pan_changed,
+                    &mut view_change,
                 );
             }
         });
@@ -133,7 +133,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                         ..Default::default()
                     },
                 },
-                &mut pan_changed,
+                &mut view_change,
             );
 
             if show_tile_reduced {
@@ -151,23 +151,44 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                             ..Default::default()
                         },
                     },
-                    &mut pan_changed,
+                    &mut view_change,
                 );
             }
         });
     });
 
-    if pan_changed != Vec2::ZERO {
-        state.pan_offset += pan_changed;
+    state.pan_offset += view_change.pan;
+    if let Some(zoom) = view_change.zoom {
+        state.zoom = zoom;
     }
+}
 
-    if ui.ui_contains_pointer() {
-        let scroll_delta = ui.ctx().input(|i| i.smooth_scroll_delta.y);
-        if scroll_delta != 0.0 {
-            let zoom_factor = 1.0 + scroll_delta * 0.001;
-            state.zoom = (state.zoom * zoom_factor).clamp(0.1, 20.0);
-        }
-    }
+/// What the panels asked to change about the shared view this frame:
+/// drags accumulate into `pan`, a scroll over a panel sets `zoom` and adds
+/// the pan that keeps the pixel under the cursor in place.
+#[derive(Default)]
+struct ViewChange {
+    pan: Vec2,
+    zoom: Option<f32>,
+}
+
+const MIN_ZOOM: f32 = 0.1;
+const MAX_ZOOM: f32 = 20.0;
+
+/// Zoom in or out around `cursor`, which is given relative to the image's
+/// current center on screen. Returns the new zoom and the pan adjustment
+/// that keeps the image point under the cursor where it is.
+///
+/// The factor is exponential in the scroll distance so scrolling up and
+/// then down by the same amount lands back on the same zoom, and a large
+/// downward scroll can never flip the factor negative.
+fn zoom_about(zoom: f32, scroll_delta: f32, cursor: Vec2) -> (f32, Vec2) {
+    let new_zoom = (zoom * (scroll_delta * 0.001).exp()).clamp(MIN_ZOOM, MAX_ZOOM);
+    // The point under the cursor is `cursor / zoom` image pixels from the
+    // center; after zooming it would sit at `cursor * new_zoom / zoom`, so
+    // the center has to move by the difference.
+    let pan = cursor * (1.0 - new_zoom / zoom);
+    (new_zoom, pan)
 }
 
 /// Height of one panel in a column of `panel_count` stacked panels.
@@ -328,7 +349,7 @@ fn draw_overlay_text(painter: &egui::Painter, canvas: Rect, ui_ctx: &egui::Conte
     painter.galley(rect.center() - galley.size() * 0.5, galley, text_color);
 }
 
-fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, pan_changed: &mut Vec2) {
+fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, view_change: &mut ViewChange) {
     ui.allocate_ui_with_layout(
         panel.size,
         egui::Layout::top_down(egui::Align::Center),
@@ -362,7 +383,19 @@ fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, pan_changed: &mut Vec2
 
             // Panning
             if response.dragged() {
-                *pan_changed += response.drag_delta();
+                view_change.pan += response.drag_delta();
+            }
+
+            // Zooming, anchored on the pixel under the cursor
+            if let Some(cursor) = response.hover_pos() {
+                let scroll_delta = ui.ctx().input(|i| i.smooth_scroll_delta.y);
+                if scroll_delta != 0.0 {
+                    let image_center = canvas.center() + panel.view.pan_offset;
+                    let (zoom, pan) =
+                        zoom_about(panel.view.zoom, scroll_delta, cursor - image_center);
+                    view_change.zoom = Some(zoom);
+                    view_change.pan += pan;
+                }
             }
         },
     );
@@ -571,6 +604,35 @@ mod tests {
                 "{panel_count} panels: {used}"
             );
         }
+    }
+
+    /// The image point under the cursor must not move when zooming: its
+    /// screen offset from the image center scales with the zoom, and the pan
+    /// has to cancel that exactly.
+    #[test]
+    fn zooming_keeps_the_pixel_under_the_cursor_in_place() {
+        let cursor = Vec2::new(120.0, -40.0);
+        for (zoom, scroll) in [(1.0, 500.0), (4.0, -800.0), (0.5, 1000.0)] {
+            let (new_zoom, pan) = zoom_about(zoom, scroll, cursor);
+            let image_point = cursor / zoom;
+            let after = pan + image_point * new_zoom;
+            assert!(
+                (after - cursor).length() < 1e-3,
+                "zoom {zoom} scroll {scroll}"
+            );
+        }
+    }
+
+    #[test]
+    fn zoom_is_symmetric_and_clamped() {
+        let (up, _) = zoom_about(1.0, 700.0, Vec2::ZERO);
+        let (back, _) = zoom_about(up, -700.0, Vec2::ZERO);
+        assert!((back - 1.0).abs() < 1e-5);
+
+        let (floor, _) = zoom_about(0.2, -100_000.0, Vec2::ZERO);
+        assert_eq!(floor, MIN_ZOOM);
+        let (ceiling, _) = zoom_about(10.0, 100_000.0, Vec2::ZERO);
+        assert_eq!(ceiling, MAX_ZOOM);
     }
 
     #[test]
