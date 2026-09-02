@@ -196,7 +196,7 @@ mod tests {
 
         let bundle: SettingsBundle = serde_json::from_str(json).expect("loads");
         assert_eq!(bundle.qualetize_settings.tile_width, 8);
-        // Predates the flag, and back then correction was always applied.
+        // `enabled` is absent from this JSON, so it falls back to its serde default of `true`.
         assert!(bundle.color_correction.enabled);
         assert_eq!(bundle.sort_settings, PaletteSortSettings::default());
     }

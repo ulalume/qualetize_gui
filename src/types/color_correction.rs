@@ -5,9 +5,9 @@ pub struct ColorCorrection {
     /// When off the input image is passed through untouched, the settings are
     /// hidden and no "Color Corrected" view is shown.
     ///
-    /// Settings files written before this flag existed were saved when color
-    /// correction was unconditional, so they load as enabled. A fresh
-    /// [`ColorCorrection::default()`] on the other hand starts disabled.
+    /// A settings file missing this field carries no on/off intent, so it
+    /// loads as enabled. A fresh [`ColorCorrection::default()`] on the other
+    /// hand starts disabled.
     #[serde(default = "enabled_when_missing")]
     pub enabled: bool,
     pub brightness: f32, // -1.0 to 1.0

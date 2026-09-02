@@ -191,8 +191,8 @@ mod tests {
         ]
     }
 
-    /// The lookup table replaced three per-pixel operations; it has to produce
-    /// bit-identical results, not merely close ones.
+    /// The lookup table must produce results bit-identical to the per-pixel
+    /// gamma/brightness/contrast computation, not merely close ones.
     #[test]
     fn tone_curve_is_bit_exact_with_the_per_pixel_computation() {
         for corrections in presets() {
@@ -213,8 +213,8 @@ mod tests {
         }
     }
 
-    /// chunks_exact/pixels_mut must visit the buffers in the same order as the
-    /// coordinate arithmetic it replaced.
+    /// chunks_exact/pixels_mut must visit the buffers in the same row-major
+    /// order as the per-pixel coordinate arithmetic.
     #[test]
     fn corrected_pixels_land_at_the_right_coordinates() {
         let (width, height) = (3u32, 2u32);
