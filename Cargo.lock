@@ -3119,6 +3119,7 @@ dependencies = [
  "env_logger",
  "image",
  "log",
+ "moxcms",
  "png",
  "regex",
  "rfd",
