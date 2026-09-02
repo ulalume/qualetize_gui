@@ -98,16 +98,13 @@ pub enum AppStateRequest {
         name: String,
         bytes: Vec<u8>,
     },
-    ExportImage {
-        source: ExportSource,
-        format: ExportFormat,
-        output_path: String,
-    },
-    SaveSettings {
-        path: String,
-    },
     LoadSettings {
         path: String,
+    },
+    /// Settings that arrived as bytes, from a browser file dialog.
+    LoadSettingsBytes {
+        name: String,
+        bytes: Vec<u8>,
     },
 
     OpenImageDialog,

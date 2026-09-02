@@ -4,7 +4,14 @@
 //! `worker.js` initializes the module and forwards every message to
 //! [`worker_handle`]. Requests and replies travel as `postcard` bytes in a
 //! transferred `ArrayBuffer`.
+//!
+//! Files come in through `rfd`'s asynchronous dialog and go out as browser
+//! downloads; the settings that outlive a reload live in local storage.
 
+use super::{DialogContext, FileDialogGuard};
+use crate::settings_manager::SettingsBundle;
+use crate::types::ExportFormat;
+use crate::types::app_state::AppStateRequest;
 use crate::worker::{self, WorkerReply, WorkerRequest};
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -130,4 +137,131 @@ pub fn worker_handle(request: &[u8]) {
     let cancel = AtomicBool::new(false);
     let done = worker::execute(request, &cancel, &post);
     post(done);
+}
+
+/// Ask for an image file and load it from the bytes the browser hands back;
+/// a page has no paths to load it from.
+pub fn pick_image(ctx: DialogContext) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let _guard = FileDialogGuard::new(ctx.dialog_open.clone());
+        let dialog = rfd::AsyncFileDialog::new()
+            .add_filter("Image files", &["png", "jpg", "jpeg", "bmp", "tga", "tiff"]);
+        let Some(file) = dialog.pick_file().await else {
+            return;
+        };
+        let bytes = file.read().await;
+        ctx.send(AppStateRequest::LoadImageBytes {
+            name: file.file_name(),
+            bytes,
+        });
+    });
+}
+
+/// Hand `bytes` to the browser as a download named after `default_path`.
+pub fn export_image(
+    bytes: Vec<u8>,
+    default_path: String,
+    format: ExportFormat,
+    _ctx: DialogContext,
+) {
+    let name = file_name_of(&default_path);
+    match download(&bytes, &name, format.mime()) {
+        Ok(()) => log::info!("Export completed: {name}"),
+        Err(e) => log::error!("Export failed: {e:?}"),
+    }
+}
+
+/// Ask for a `.qset` file and load it from the bytes the browser hands back.
+pub fn pick_settings_file(ctx: DialogContext) {
+    wasm_bindgen_futures::spawn_local(async move {
+        let _guard = FileDialogGuard::new(ctx.dialog_open.clone());
+        let dialog = rfd::AsyncFileDialog::new().add_filter(
+            "QualetizeGUI Settings",
+            &[SettingsBundle::get_settings_file_extension()],
+        );
+        let Some(file) = dialog.pick_file().await else {
+            return;
+        };
+        let bytes = file.read().await;
+        ctx.send(AppStateRequest::LoadSettingsBytes {
+            name: file.file_name(),
+            bytes,
+        });
+    });
+}
+
+/// Hand the settings to the browser as a download; a page cannot choose
+/// where they land.
+pub fn save_settings(bundle_json: String, default_name: &str, _ctx: DialogContext) {
+    match download(bundle_json.as_bytes(), default_name, "application/json") {
+        Ok(()) => log::info!("Settings saved successfully to: {default_name}"),
+        Err(e) => log::error!("Failed to save settings: {e:?}"),
+    }
+}
+
+/// The part of `path` after the last separator, which is all a download name
+/// can carry.
+fn file_name_of(path: &str) -> String {
+    path.rsplit(['/', '\\'])
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("output")
+        .to_string()
+}
+
+/// Save `bytes` through the browser: a blob behind an object URL, clicked
+/// through a detached `<a download>`.
+fn download(bytes: &[u8], name: &str, mime: &str) -> Result<(), JsValue> {
+    let parts = js_sys::Array::of1(&js_sys::Uint8Array::from(bytes).into());
+    let options = web_sys::BlobPropertyBag::new();
+    options.set_type(mime);
+    let blob = web_sys::Blob::new_with_u8_array_sequence_and_options(&parts, &options)?;
+
+    let url = web_sys::Url::create_object_url_with_blob(&blob)?;
+    let result = click_download(&url, name);
+    // The blob stays alive until its URL is released, whether or not the
+    // click went through.
+    web_sys::Url::revoke_object_url(&url)?;
+    result
+}
+
+fn click_download(url: &str, name: &str) -> Result<(), JsValue> {
+    let document = web_sys::window()
+        .ok_or("no window")?
+        .document()
+        .ok_or("no document")?;
+    let anchor: web_sys::HtmlAnchorElement = document.create_element("a")?.dyn_into()?;
+    anchor.set_href(url);
+    anchor.set_download(name);
+
+    // Firefox only follows the click of an anchor that is in the document.
+    let body = document.body().ok_or("no body")?;
+    body.append_child(&anchor)?;
+    anchor.click();
+    body.remove_child(&anchor)?;
+    Ok(())
+}
+
+/// The settings that outlive a reload, kept in the origin's local storage.
+pub mod storage {
+    /// Local storage is shared by everything on the origin, so the keys carry
+    /// the application name.
+    fn storage_key(key: &str) -> String {
+        format!("qualetize_gui.{key}")
+    }
+
+    fn local_storage() -> Option<web_sys::Storage> {
+        web_sys::window()?.local_storage().ok()?
+    }
+
+    pub fn load(key: &str) -> Option<String> {
+        local_storage()?.get_item(&storage_key(key)).ok()?
+    }
+
+    pub fn save(key: &str, value: &str) -> Result<(), String> {
+        let storage = local_storage().ok_or("no local storage")?;
+        storage
+            .set_item(&storage_key(key), value)
+            .map_err(|e| format!("could not write {key} to local storage: {e:?}"))
+    }
 }
