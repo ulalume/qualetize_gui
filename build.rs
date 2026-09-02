@@ -3,6 +3,11 @@ use std::fs;
 use std::path::Path;
 
 fn main() {
+    // Declared unconditionally so `rustc`'s cfg checker (`-Zcheck-cfg`, on by
+    // default since Rust 1.80) doesn't warn about `qualetize_sse` on targets
+    // where it's never actually set below.
+    println!("cargo:rustc-check-cfg=cfg(qualetize_sse)");
+
     let host = env::var("HOST").unwrap();
     let target = env::var("TARGET").unwrap();
 
@@ -17,7 +22,6 @@ fn main() {
     build
         .files([
             "external/qualetize/source/Qualetize.c",
-            "external/qualetize/source/qualetize-cli.c",
             "external/qualetize/source/Bitmap.c",
             "external/qualetize/source/Cluster.c",
             "external/qualetize/source/Cluster_Vec4f.c",
@@ -36,6 +40,10 @@ fn main() {
     if target.contains("x86_64") {
         build.flag("-msse");
         build.flag("-msse2");
+        // Mirrors `-msse`/`-msse2` above so Rust's `Vec4f` alignment (which the C
+        // header ties to `__SSE__`) matches the C side of the ABI. See
+        // `src/types/qualetize.rs`.
+        println!("cargo:rustc-cfg=qualetize_sse");
     }
 
     if host != target {
