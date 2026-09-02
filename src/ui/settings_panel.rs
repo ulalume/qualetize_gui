@@ -1,4 +1,4 @@
-use super::styles::{RichTextExt, UiMarginExt, error_color, warning_color};
+use super::styles::{UiMarginExt, error_color, warning_color};
 use super::widgets;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
@@ -445,7 +445,7 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
 
     let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
     ui.horizontal(|ui| {
-        ui.label(egui::RichText::new("Color index zero:").subheading());
+        ui.label("First Color:");
         if widgets::EnumCombo::new(
             "tpq_color_zero",
             ColorZeroKind::all(),
@@ -711,14 +711,18 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    widgets::checkbox(
-        ui,
-        &mut state.settings.col0_is_clear,
-        "First Color is Transparent",
-        Some(
-            "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.",
-        ),
-    )
+    ui.horizontal(|ui| {
+        ui.label("First Color:");
+        widgets::checkbox(
+            ui,
+            &mut state.settings.col0_is_clear,
+            "is Transparent",
+            Some(
+                "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool.",
+            ),
+        )
+    })
+    .inner
 }
 
 fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
