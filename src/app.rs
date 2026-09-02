@@ -25,9 +25,16 @@ pub struct QualetizeApp {
 }
 
 impl QualetizeApp {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, initial_image: Option<String>) -> Self {
         crate::ui::styles::init_styles(&cc.egui_ctx);
-        Self::default()
+        let app = Self::default();
+        if let Some(path) = initial_image {
+            _ = app
+                .state
+                .app_state_request_sender
+                .send(AppStateRequest::LoadImage { path });
+        }
+        app
     }
 
     fn handle_dropped_files(&mut self, ctx: &egui::Context) {

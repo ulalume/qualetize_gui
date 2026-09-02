@@ -106,7 +106,8 @@ pub fn run(
     tpq: &TpqSettings,
     ctx: &RunContext,
 ) -> Option<Result<QuantizeResult, String>> {
-    match engine {
+    let started = std::time::Instant::now();
+    let result = match engine {
         QuantEngine::Qualetize => {
             // The C call cannot be interrupted, so this only saves work when
             // the job was superseded before its thread got scheduled.
@@ -119,7 +120,17 @@ pub fn run(
             let target = TargetFormat::from_settings(settings);
             tilepalquant::run(rgba_data, width, height, &target, tpq, ctx)
         }
+    };
+    match &result {
+        Some(Ok(_)) => log::info!(
+            "{} finished {width}x{height} in {:.0} ms",
+            engine.display_name(),
+            started.elapsed().as_secs_f64() * 1000.0
+        ),
+        Some(Err(e)) => log::warn!("{} failed: {e}", engine.display_name()),
+        None => log::debug!("{} cancelled", engine.display_name()),
     }
+    result
 }
 
 #[cfg(test)]
