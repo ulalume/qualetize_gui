@@ -26,7 +26,7 @@ fn draw_view_controls(ui: &mut egui::Ui, state: &mut AppState) {
     let width = ui.available_width();
     if ui
         .button(if width > 360.0 {
-            "🔄 Reset Zoom"
+            "🔄 Reset zoom"
         } else {
             "🔄"
         })
@@ -46,7 +46,7 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
             apply_export_button_style(ui);
             let response = ui.add_enabled(
                 state.output_image.is_some(),
-                egui::Button::new("💾 Export Image"),
+                egui::Button::new("💾 Export image"),
             );
             if response.clicked() {
                 // The button exports whatever the last enabled pass produced,
@@ -83,11 +83,11 @@ fn draw_export_controls(ui: &mut egui::Ui, state: &mut AppState) {
             for (value, label) in [
                 (
                     &mut state.tile_count.settings.allow_flip_x,
-                    "Allowed X Flips",
+                    "Allowed X flips",
                 ),
                 (
                     &mut state.tile_count.settings.allow_flip_y,
-                    "Allowed Y Flips",
+                    "Allowed Y flips",
                 ),
             ] {
                 options_changed |= ui.checkbox(value, label).changed();

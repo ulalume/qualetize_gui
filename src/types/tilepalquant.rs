@@ -22,12 +22,12 @@ impl ColorZero {
     pub fn description(&self) -> &'static str {
         match self {
             ColorZero::Unique => "Index 0 is a normal color, chosen per palette",
-            ColorZero::Shared => "Index 0 of every palette is the same color, set below",
+            ColorZero::Shared => "Index 0 of every palette is the same color, set beside it",
             ColorZero::TransparentFromAlpha => {
                 "Index 0 is transparent; pixels with alpha below 255 map to it"
             }
             ColorZero::TransparentFromColor => {
-                "Index 0 is transparent; pixels matching the color below map to it"
+                "Index 0 is transparent; pixels matching the color beside it map to it"
             }
         }
     }

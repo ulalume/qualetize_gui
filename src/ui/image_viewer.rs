@@ -106,7 +106,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                 draw_image_panel(
                     ui,
                     ImagePanel {
-                        title: "Color Corrected",
+                        title: "Color corrected",
                         image: state.color_corrected_image.as_ref(),
                         size: Vec2::new(column_width, input_height),
                         view: &view,
@@ -150,7 +150,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
                 draw_image_panel(
                     ui,
                     ImagePanel {
-                        title: "Tile Reduced",
+                        title: "Tile reduced",
                         image: state.output_image.as_ref(),
                         size: Vec2::new(column_width, output_height),
                         view: &view,
@@ -225,7 +225,7 @@ fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
 
 pub fn draw_main_content(ui: &mut egui::Ui) {
     ui.centered_and_justified(|ui| {
-        ui.heading_with_margin("📁 Drop an image file here or use 'File > Open Image...'");
+        ui.heading_with_margin("📁 Drop an image file here or use 'File > Open image...'");
     });
 }
 fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color: Color32) {
@@ -531,7 +531,7 @@ fn draw_palettes_overlay(painter: &egui::Painter, rect: Rect, palettes: &[Vec<eg
             )
             .show(|ui| {
                 ui.set_width(160.0);
-                ui.label(format!("Palette {} / Index {}", palette_idx, color_idx));
+                ui.label(format!("Palette {} / index {}", palette_idx, color_idx));
                 ui.label(hex);
                 ui.label(rgba);
             });

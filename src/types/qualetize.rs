@@ -128,9 +128,9 @@ impl QualetizePreset {
     pub fn display_name(&self) -> &'static str {
         match self {
             QualetizePreset::Genesis => "Genesis",
-            QualetizePreset::GenesisFullPals => "Genesis (Full Palettes)",
-            QualetizePreset::GbaNds => "GBA/ NDS",
-            QualetizePreset::GbaNdsFullPals => "GBA/ NDS (Full palettes)",
+            QualetizePreset::GenesisFullPals => "Genesis (full palettes)",
+            QualetizePreset::GbaNds => "GBA/NDS",
+            QualetizePreset::GbaNdsFullPals => "GBA/NDS (full palettes)",
         }
     }
 

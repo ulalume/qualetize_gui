@@ -14,7 +14,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     egui::MenuBar::new().ui(ui, |ui| {
         // --- File menu ---
         ui.menu_button("File", |ui| {
-            if ui.button("Open Image...").clicked() {
+            if ui.button("Open image...").clicked() {
                 _ = state
                     .app_state_request_sender
                     .send(AppStateRequest::OpenImageDialog);
@@ -22,14 +22,14 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             }
             ui.separator();
 
-            ui.menu_button("Export Image", |ui| {
+            ui.menu_button("Export image", |ui| {
                 // Passes that are switched off have nothing to export, so their
                 // entries stay visible but disabled.
                 const ENTRIES: [(ExportSource, ExportFormat, &str); 5] = [
                     (
                         ExportSource::ColorCorrected,
                         ExportFormat::Png,
-                        "Color Corrected PNG",
+                        "Color corrected PNG",
                     ),
                     (
                         ExportSource::Qualetized,
@@ -44,12 +44,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     (
                         ExportSource::TileReduced,
                         ExportFormat::PngIndexed,
-                        "Tile Reduced PNG",
+                        "Tile reduced PNG",
                     ),
                     (
                         ExportSource::TileReduced,
                         ExportFormat::Bmp,
-                        "Tile Reduced BMP",
+                        "Tile reduced BMP",
                     ),
                 ];
 
@@ -67,13 +67,13 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             ui.separator();
 
             ui.menu_button("Settings", |ui| {
-                if ui.button("Load Settings...").clicked() {
+                if ui.button("Load settings...").clicked() {
                     ui.close();
                     _ = state
                         .app_state_request_sender
                         .send(AppStateRequest::LoadSettingsDialog);
                 }
-                if ui.button("Save Settings...").clicked() {
+                if ui.button("Save settings...").clicked() {
                     ui.close();
                     _ = state
                         .app_state_request_sender
@@ -96,12 +96,12 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     }
                 }
             });
-            if ui.button("Reset Tile Reduction").clicked() {
+            if ui.button("Reset tile reduction").clicked() {
                 state.settings.reset_tile_reduce();
                 tile_reduce_changed = true;
                 ui.close();
             }
-            ui.menu_button("Reset Color Correction", |ui| {
+            ui.menu_button("Reset color correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
                     if ui.button(preset.display_name()).clicked() {
                         // Edits `state.color_correction`, not `state.settings`;
@@ -115,7 +115,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                 }
             });
             ui.separator();
-            ui.menu_button("Export Format", |ui| {
+            ui.menu_button("Export format", |ui| {
                 for format in ExportFormat::indexed_list() {
                     if ui
                         .selectable_value(
@@ -175,7 +175,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                 ui.selectable_value(
                     &mut state.preferences.appearance_mode,
                     AppearanceMode::System,
-                    "System Default",
+                    "System default",
                 );
                 ui.selectable_value(
                     &mut state.preferences.appearance_mode,
@@ -190,7 +190,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             });
             ui.separator();
 
-            ui.subheading_with_margin("Canvas Background Color");
+            ui.subheading_with_margin("Canvas background color");
             ui.horizontal(|ui| {
                 // Use selectable_value for Default/Custom selection
                 let mut use_default = state.preferences.background_color.is_none();
@@ -233,7 +233,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             ui.separator();
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Min), |ui| {
-                if ui.button("Reset View Settings").clicked() {
+                if ui.button("Reset view settings").clicked() {
                     state.reset_view_settings();
                 }
             });

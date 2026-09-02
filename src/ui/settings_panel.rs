@@ -19,138 +19,33 @@ use std::ops::RangeInclusive;
 const RGBA_CHANNELS: [&str; 4] = ["R", "G", "B", "A"];
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
-    let mut settings_changed = false;
-    let mut tile_reduce_changed = false;
-
-    // Basic settings: engine picker plus the Palettes/Colors shared by both engines.
-    settings_changed |= draw_basic_settings(ui, state);
-
-    // Engine-specific sections. Advanced Settings below stays shared: it holds
-    // the tile size and depth settings both engines read, plus the
-    // Qualetize-only ones nested inside it.
-    match state.engine {
-        QuantEngine::Qualetize => {
-            settings_changed |= draw_transparency_settings(ui, state);
-            ui.separator();
-            settings_changed |= draw_color_space_settings(ui, state);
-            ui.separator();
-            settings_changed |= draw_dithering_settings(ui, state);
-            ui.separator();
-        }
-        QuantEngine::TilePalQuant => {
-            settings_changed |= draw_tpq_color_zero_settings(ui, state);
-            ui.separator();
-            settings_changed |= draw_tpq_dithering_settings(ui, state);
-            ui.separator();
-        }
-    }
-
-    // Advanced settings, collapsed to their heading until shown
-    settings_changed |= draw_advanced_settings(ui, state);
-    ui.separator();
-
-    // Color correction settings. These edit `state.color_correction`, not
+    // Color correction settings edit `state.color_correction`, not
     // `state.settings`, and app.rs already detects those changes itself, so
     // this does not feed into `settings_changed`.
     draw_color_correction_settings(ui, state);
     ui.separator();
 
-    tile_reduce_changed |= draw_tile_reduce_settings(ui, state);
+    let settings_changed = draw_quantization_settings(ui, state);
     ui.separator();
+
+    let tile_reduce_changed = draw_tile_reduce_settings(ui, state);
+    ui.separator();
+
     draw_palette_sort_settings(ui, state);
 
     (settings_changed, tile_reduce_changed)
 }
 
-fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let mut settings_changed = false;
-
-    // Subheading, not heading: this is a subsection of the engine-specific
-    // settings above, same as the "Color Space" and "Dithering" sections
-    // beside it. Tile size and depth are shared by both engines; the rest
-    // (transparent color, clustering, alpha handling) is Qualetize-only.
-    widgets::subsection_header(
-        ui,
-        "Advanced Settings",
-        &mut state.preferences.show_advanced,
-        "Show",
-        Some(
-            "Tile size and output bit depth, plus (Qualetize only) transparent color, clustering passes and alpha handling.",
-        ),
-    );
-    if !state.preferences.show_advanced {
-        return settings_changed;
-    }
-
-    settings_changed |= draw_tile_settings(ui, state);
-
-    ui.separator();
-    settings_changed |= draw_depth_settings(ui, state);
-
-    if state.engine == QuantEngine::Qualetize {
-        ui.separator();
-
-        let mut has_clear_color = matches!(state.settings.clear_color, ClearColor::Rgb(_, _, _));
-        if ui
-            .checkbox(&mut has_clear_color, "Set Color of Transparent Pixels")
-            .on_hover_text("Note that as long as the RGB values match the clear color,\nthen the pixel will be made fully transparent, regardless of any alpha information.")
-            .changed()
-        {
-            if has_clear_color {
-                state.settings.clear_color = ClearColor::Rgb(255, 0, 255); // Default magenta
-            } else {
-                state.settings.clear_color = ClearColor::None;
-            }
-            settings_changed = true;
-        }
-
-        if has_clear_color
-            && let ClearColor::Rgb(ref mut r, ref mut g, ref mut b) = state.settings.clear_color
-        {
-            ui.horizontal(|ui| {
-                ui.add_space(16.0); // Indent the color picker
-
-                let mut color_array = [*r, *g, *b];
-                if ui.color_edit_button_srgb(&mut color_array).changed() {
-                    *r = color_array[0];
-                    *g = color_array[1];
-                    *b = color_array[2];
-                    settings_changed = true;
-                }
-                if ui.button("Use top-left color").clicked()
-                    && let Some(color_corrected_image) = &state.color_corrected_image
-                {
-                    [*r, *g, *b, _] = color_corrected_image.top_left_pixel();
-                    settings_changed = true;
-                }
-                ui.label(format!("#{:02X}{:02X}{:02X}", *r, *g, *b));
-            });
-        }
-
-        ui.separator();
-
-        settings_changed |= draw_clustering_settings(ui, state);
-
-        ui.separator();
-        settings_changed |= widgets::checkbox(
-            ui,
-            &mut state.settings.premul_alpha,
-            "Premultiplied Alpha",
-            Some(
-                "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
-            ),
-        );
-    }
-
-    if state.engine == QuantEngine::TilePalQuant {
-        ui.separator();
-        settings_changed |= draw_tpq_misc_settings(ui, state);
-    }
-
-    settings_changed
+/// Height of one control row, used as the gap between two groups of rows
+/// inside a section.
+fn group_space(ui: &mut egui::Ui) {
+    ui.add_space(ui.spacing().interact_size.y);
 }
 
-fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+/// The quantization section: the engine picker on its heading, the palette
+/// size shared by both engines, the engine-specific controls, and the
+/// advanced settings behind their checkbox.
+fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     settings_changed |= widgets::heading_with_combo(
@@ -163,6 +58,82 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ),
         &mut state.engine,
     );
+
+    settings_changed |= draw_palette_size_settings(ui, state);
+
+    group_space(ui);
+
+    match state.engine {
+        QuantEngine::Qualetize => {
+            settings_changed |= draw_qualetize_first_color_settings(ui, state);
+            settings_changed |= draw_color_space_settings(ui, state);
+            settings_changed |= draw_dithering_settings(ui, state);
+        }
+        QuantEngine::TilePalQuant => {
+            settings_changed |= draw_tpq_color_zero_settings(ui, state);
+            settings_changed |= draw_tpq_dithering_settings(ui, state);
+        }
+    }
+
+    group_space(ui);
+
+    settings_changed |= draw_advanced_settings(ui, state);
+
+    settings_changed
+}
+
+/// Tile size and output bit depth, shared by both engines, plus the
+/// engine-specific advanced controls. Hidden behind its own checkbox.
+fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+
+    // A preference, not a setting: toggling it changes nothing about the
+    // output, so it does not report back a change.
+    _ = widgets::checkbox(
+        ui,
+        &mut state.preferences.show_advanced,
+        "Show advanced settings",
+        Some(
+            "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tilepalquant).",
+        ),
+    );
+    if !state.preferences.show_advanced {
+        return settings_changed;
+    }
+
+    settings_changed |= draw_tile_settings(ui, state);
+
+    group_space(ui);
+    settings_changed |= draw_depth_settings(ui, state);
+
+    match state.engine {
+        QuantEngine::Qualetize => {
+            group_space(ui);
+            settings_changed |= draw_clustering_settings(ui, state);
+
+            group_space(ui);
+            settings_changed |= widgets::checkbox(
+                ui,
+                &mut state.settings.premul_alpha,
+                "Premultiplied alpha",
+                Some(
+                    "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
+                ),
+            );
+        }
+        QuantEngine::TilePalQuant => {
+            group_space(ui);
+            settings_changed |= draw_tpq_misc_settings(ui, state);
+        }
+    }
+
+    settings_changed
+}
+
+/// Palettes times colors per palette, the one target-format setting both
+/// engines show outside the advanced settings.
+fn draw_palette_size_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
 
     let is_tpq = state.engine == QuantEngine::TilePalQuant;
     // tilepalquant requires at least 2 colors per palette (index 0 plus at
@@ -200,7 +171,7 @@ fn draw_basic_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
         ui.label("=");
         ui.label(egui::RichText::new(format!("{}", state.settings.n_colors as u32 * state.settings.n_palettes as u32))
-          .strong()).on_hover_text("Palettes * Colors per palette must be <= 256");
+          .strong()).on_hover_text("Palettes * colors per palette must be <= 256");
         ui.label("(max: 256)");
     });
 
@@ -252,7 +223,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
     ui.horizontal(|ui| {
-        ui.label("RGBA Depth:")
+        ui.label("RGBA depth:")
             .on_hover_text("Set RGBA bit depth\nRGBA = 8888 is standard for BMP (24-bit color + 8-bit alpha)\nFor retro targets, RGBA = 5551 is common");
 
         let mut mode_is_custom = state.settings.use_custom_levels;
@@ -314,7 +285,7 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     ui.horizontal(|ui| {
-        ui.label("Tile Width:")
+        ui.label("Tile width:")
             .on_hover_text("Set tile width for processing");
         settings_changed |= widgets::drag_u16(
             ui,
@@ -347,25 +318,30 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    ui.subheading_with_margin("Color Space");
-    widgets::EnumCombo::new("color_space", ColorSpace::all(), ColorSpace::display_name)
-        .description(ColorSpace::description)
-        .hover("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.")
-        .show(ui, &mut state.settings.color_space)
+    ui.horizontal(|ui| {
+        ui.label("Color space:");
+        widgets::EnumCombo::new("color_space", ColorSpace::all(), ColorSpace::display_name)
+            .description(ColorSpace::description)
+            .hover("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.")
+            .show(ui, &mut state.settings.color_space)
+    })
+    .inner
 }
 
 fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.subheading_with_margin("Dithering");
-    settings_changed |= widgets::EnumCombo::new("dithering_mode", DitherMode::all(), DitherMode::display_name)
-        .description(DitherMode::description)
-        .hover("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".")
-        .show(ui, &mut state.settings.dither_mode);
+    ui.horizontal(|ui| {
+        ui.label("Dithering:");
+        settings_changed |= widgets::EnumCombo::new("dithering_mode", DitherMode::all(), DitherMode::display_name)
+            .description(DitherMode::description)
+            .hover("Set dither mode and level for output\nThis can reduce some of the banding artifacts caused when the colors per palette is very small,\nat the expense of added \"noise\".")
+            .show(ui, &mut state.settings.dither_mode);
+    });
 
     if state.settings.dither_mode != DitherMode::None {
         ui.horizontal(|ui| {
-            ui.label("Dither Level:")
+            ui.label("Dither level:")
                 .on_hover_text("Dithering intensity level");
             settings_changed |= ui
                 .add(egui::Slider::new(
@@ -378,6 +354,104 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     }
 
     settings_changed
+}
+
+/// Hover text on both engines' "Use top-left color" buttons.
+const TOP_LEFT_HOVER: &str = "Use the top-left pixel as the key color; a transparent top-left pixel selects transparency from pixels instead";
+
+/// The color the "from color" choice starts on.
+const DEFAULT_KEY_COLOR: [u8; 3] = [255, 0, 255];
+
+/// What the top-left pixel of the color corrected image offers as a key color.
+#[derive(Clone, Copy)]
+enum TopLeftPixel {
+    /// Fully opaque, so its RGB is usable as the key color.
+    Color([u8; 3]),
+    /// Not fully opaque: the image marks transparency with alpha, not a color.
+    Transparent,
+}
+
+fn top_left_pixel(state: &AppState) -> Option<TopLeftPixel> {
+    let [r, g, b, a] = state.color_corrected_image.as_ref()?.top_left_pixel();
+    Some(if a == 255 {
+        TopLeftPixel::Color([r, g, b])
+    } else {
+        TopLeftPixel::Transparent
+    })
+}
+
+/// What the transparency radios asked for this frame.
+#[derive(Default)]
+struct TransparencyEdit {
+    /// "from transparent pixels" was picked, either on its radio or by the
+    /// top-left button landing on a transparent pixel.
+    from_pixels: bool,
+    /// "from color" was picked.
+    from_color: bool,
+    /// The key color itself was edited.
+    color_changed: bool,
+}
+
+/// The two radios that pick where transparency comes from, shared by both
+/// engines: "from transparent pixels" on its own row, then "from color" with
+/// the color picker and the "Use top-left color" button beside it.
+///
+/// `from_color` is which radio is selected; `color` is the key color, written
+/// in place by the picker and by the button. `hovers` holds the tooltip for
+/// each radio, which the two engines word differently.
+fn draw_transparency_radios(
+    ui: &mut egui::Ui,
+    from_color: bool,
+    color: &mut [u8; 3],
+    hovers: (&str, &str),
+    top_left: Option<TopLeftPixel>,
+) -> TransparencyEdit {
+    // `clicked()` on a radio fires for the entry already selected too, so
+    // each arm also checks that the selection actually moves.
+    let mut from_pixels = ui
+        .radio(!from_color, "from transparent pixels")
+        .on_hover_text(hovers.0)
+        .clicked()
+        && from_color;
+
+    let mut picked_from_color = false;
+    let mut color_changed = false;
+
+    ui.horizontal(|ui| {
+        picked_from_color = ui
+            .radio(from_color, "from color")
+            .on_hover_text(hovers.1)
+            .clicked()
+            && !from_color;
+
+        if !from_color {
+            return;
+        }
+
+        color_changed |= ui.color_edit_button_srgb(color).changed();
+        if ui
+            .button("Use top-left color")
+            .on_hover_text(TOP_LEFT_HOVER)
+            .clicked()
+        {
+            match top_left {
+                Some(TopLeftPixel::Color(rgb)) => {
+                    *color = rgb;
+                    color_changed = true;
+                }
+                // An image that marks transparency with alpha has no key
+                // color to read, so the button switches to reading the alpha.
+                Some(TopLeftPixel::Transparent) => from_pixels = true,
+                None => {}
+            }
+        }
+    });
+
+    TransparencyEdit {
+        from_pixels,
+        from_color: picked_from_color,
+        color_changed,
+    }
 }
 
 /// UI-only grouping over [`ColorZero`] for the combo box: the two transparent
@@ -443,9 +517,10 @@ impl ColorZeroKind {
 fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
+    let top_left = top_left_pixel(state);
     let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
     ui.horizontal(|ui| {
-        ui.label("First Color:");
+        ui.label("First color:");
         if widgets::EnumCombo::new(
             "tpq_color_zero",
             ColorZeroKind::all(),
@@ -462,55 +537,57 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
             settings_changed |= ui
                 .color_edit_button_srgb(&mut state.tpq_settings.shared_color)
                 .changed();
-            if ui.button("Use top-left color").clicked()
-                && let Some(color_corrected_image) = &state.color_corrected_image
+            if ui
+                .button("Use top-left color")
+                .on_hover_text(TOP_LEFT_HOVER)
+                .clicked()
             {
-                let [r, g, b, _] = color_corrected_image.top_left_pixel();
-                state.tpq_settings.shared_color = [r, g, b];
-                settings_changed = true;
+                match top_left {
+                    Some(TopLeftPixel::Color(rgb)) => {
+                        state.tpq_settings.shared_color = rgb;
+                        settings_changed = true;
+                    }
+                    // A shared color is opaque, so there is nothing for a
+                    // transparent top-left pixel to select here.
+                    Some(TopLeftPixel::Transparent) => {
+                        log::info!("top-left pixel is transparent; shared color left unchanged");
+                    }
+                    None => {}
+                }
             }
         }
     });
 
-    if kind == ColorZeroKind::Transparent {
-        settings_changed |= ui
-            .radio_value(
-                &mut state.tpq_settings.color_zero,
-                ColorZero::TransparentFromAlpha,
-                "from transparent pixels",
-            )
-            .on_hover_text(ColorZero::TransparentFromAlpha.description())
-            .changed();
-        ui.horizontal(|ui| {
-            settings_changed |= ui
-                .radio_value(
-                    &mut state.tpq_settings.color_zero,
-                    ColorZero::TransparentFromColor,
-                    "from color",
-                )
-                .on_hover_text(ColorZero::TransparentFromColor.description())
-                .changed();
-
-            if state.tpq_settings.color_zero == ColorZero::TransparentFromColor {
-                settings_changed |= ui
-                    .color_edit_button_srgb(&mut state.tpq_settings.transparent_color)
-                    .changed();
-                if ui.button("Use top-left color").clicked()
-                    && let Some(color_corrected_image) = &state.color_corrected_image
-                {
-                    let [r, g, b, _] = color_corrected_image.top_left_pixel();
-                    state.tpq_settings.transparent_color = [r, g, b];
-                    settings_changed = true;
-                }
-            }
-        });
+    if kind != ColorZeroKind::Transparent {
+        return settings_changed;
     }
+
+    let from_color = state.tpq_settings.color_zero == ColorZero::TransparentFromColor;
+    let edit = draw_transparency_radios(
+        ui,
+        from_color,
+        &mut state.tpq_settings.transparent_color,
+        (
+            ColorZero::TransparentFromAlpha.description(),
+            ColorZero::TransparentFromColor.description(),
+        ),
+        top_left,
+    );
+
+    if edit.from_pixels {
+        state.tpq_settings.color_zero = ColorZero::TransparentFromAlpha;
+        settings_changed = true;
+    } else if edit.from_color {
+        state.tpq_settings.color_zero = ColorZero::TransparentFromColor;
+        settings_changed = true;
+    }
+    settings_changed |= edit.color_changed;
 
     settings_changed
 }
 
-/// Pattern combo entries for the tilepalquant Dithering section: `None`
-/// stands for `TpqDitherMode::Off`, in display order (which differs from
+/// Pattern combo entries for the tilepalquant Dithering row: `None` stands
+/// for `TpqDitherMode::Off`, in display order (which differs from
 /// [`DitherPattern::all`]'s declaration order).
 const TPQ_DITHER_PATTERN_OPTIONS: [Option<DitherPattern>; 7] = [
     None,
@@ -534,12 +611,10 @@ fn tpq_dither_pattern_option_name(option: &Option<DitherPattern>) -> &'static st
 fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    ui.subheading_with_margin("Dithering");
-
     let mut pattern_option = (state.tpq_settings.dither_mode != TpqDitherMode::Off)
         .then_some(state.tpq_settings.dither_pattern);
     ui.horizontal(|ui| {
-        ui.label("Pattern:");
+        ui.label("Dithering:");
         if widgets::EnumCombo::new(
             "tpq_dither_pattern",
             &TPQ_DITHER_PATTERN_OPTIONS,
@@ -595,8 +670,8 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
 }
 
 /// tilepalquant-only: the iteration budget, PRNG seed and progress preview.
-/// Drawn at the bottom of Advanced Settings, not in the engine-specific
-/// block above, since these are secondary/advanced controls.
+/// Drawn inside the advanced settings, not in the engine-specific block
+/// above, since these are secondary controls.
 fn draw_tpq_misc_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
@@ -645,7 +720,7 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     settings_changed |= widgets::section_header(
         ui,
-        "Tile Reduction",
+        "Tile reduction",
         &mut state.settings.tile_reduce_post_enabled,
         "Enable",
         Some(
@@ -662,13 +737,13 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         settings_changed |= widgets::checkbox(
             ui,
             &mut state.settings.tile_reduce_allow_flip_x,
-            "Allowed X Flips",
+            "Allowed X flips",
             None,
         );
         settings_changed |= widgets::checkbox(
             ui,
             &mut state.settings.tile_reduce_allow_flip_y,
-            "Allowed Y Flips",
+            "Allowed Y flips",
             None,
         );
     });
@@ -726,6 +801,10 @@ impl QualetizeFirstColor {
         }
     }
 
+    fn all() -> &'static [QualetizeFirstColor] {
+        &[Self::Unique, Self::Transparent]
+    }
+
     fn display_name(&self) -> &'static str {
         match self {
             Self::Unique => "Unique",
@@ -743,34 +822,76 @@ impl QualetizeFirstColor {
     }
 }
 
-fn draw_transparency_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+/// Tooltip on Qualetize's "from transparent pixels" radio.
+const QUALETIZE_FROM_PIXELS_HOVER: &str =
+    "Index 0 is transparent; pixels with an alpha of 0 map to it";
+/// Tooltip on Qualetize's "from color" radio.
+const QUALETIZE_FROM_COLOR_HOVER: &str =
+    "Index 0 is transparent; pixels matching the color beside it map to it, whatever their alpha";
+
+/// Qualetize-only: what goes into index 0 of every palette, and where
+/// transparency comes from when index 0 is transparent.
+fn draw_qualetize_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+    let mut settings_changed = false;
+
+    let mut first_color = QualetizeFirstColor::from_flag(state.settings.col0_is_clear);
     ui.horizontal(|ui| {
-        ui.label("First Color:");
-        let mut first_color = QualetizeFirstColor::from_flag(state.settings.col0_is_clear);
-        let changed = widgets::EnumCombo::new(
+        ui.label("First color:");
+        if widgets::EnumCombo::new(
             "qualetize_first_color",
-            &[
-                QualetizeFirstColor::Unique,
-                QualetizeFirstColor::Transparent,
-            ],
+            QualetizeFirstColor::all(),
             QualetizeFirstColor::display_name,
         )
         .description(QualetizeFirstColor::description)
-        .show(ui, &mut first_color);
-        if changed {
+        .show(ui, &mut first_color)
+        {
             state.settings.col0_is_clear = first_color == QualetizeFirstColor::Transparent;
+            // The clear color only applies while index 0 is transparent;
+            // clearing it keeps a hidden setting from acting on the next
+            // switch back to Transparent.
+            if !state.settings.col0_is_clear {
+                state.settings.clear_color = ClearColor::None;
+            }
+            settings_changed = true;
         }
-        changed
-    })
-    .inner
+    });
+
+    if first_color != QualetizeFirstColor::Transparent {
+        return settings_changed;
+    }
+
+    let top_left = top_left_pixel(state);
+    let from_color = matches!(state.settings.clear_color, ClearColor::Rgb(_, _, _));
+    let mut color = match state.settings.clear_color {
+        ClearColor::Rgb(r, g, b) => [r, g, b],
+        ClearColor::None => DEFAULT_KEY_COLOR,
+    };
+
+    let edit = draw_transparency_radios(
+        ui,
+        from_color,
+        &mut color,
+        (QUALETIZE_FROM_PIXELS_HOVER, QUALETIZE_FROM_COLOR_HOVER),
+        top_left,
+    );
+
+    if edit.from_pixels {
+        state.settings.clear_color = ClearColor::None;
+        state.settings.col0_is_clear = true;
+        settings_changed = true;
+    } else if edit.from_color || edit.color_changed {
+        state.settings.clear_color = ClearColor::Rgb(color[0], color[1], color[2]);
+        settings_changed = true;
+    }
+
+    settings_changed
 }
 
 fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-    ui.subheading_with_margin("Clustering");
     ui.horizontal(|ui| {
         ui.horizontal(|ui| {
-            ui.label("Tile Passes:")
+            ui.label("Tile passes:")
                 .on_hover_text("Set tile cluster passes (0 = default)");
             settings_changed |= ui
                 .add(egui::DragValue::new(&mut state.settings.tile_passes).range(0..=1000))
@@ -778,7 +899,7 @@ fn draw_clustering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 .changed();
         });
         ui.horizontal(|ui| {
-            ui.label("Color Passes:")
+            ui.label("Color passes:")
                 .on_hover_text("Set color cluster passes (0 = default)\nMost of the processing time will be spent in the loop that clusters the colors together.\nIf processing is taking excessive amounts of time, this option may be adjusted\n(e.g., for 256-color palettes, set to ~4; for 16-color palettes, set to 32-64)");
             settings_changed |= ui
                 .add(egui::DragValue::new(&mut state.settings.color_passes).range(0..=100))
@@ -932,7 +1053,7 @@ fn draw_gamma_row(ui: &mut egui::Ui, gamma: &mut f32, slider_width: f32) -> bool
 fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
     widgets::section_header(
         ui,
-        "Color Correction",
+        "Color correction",
         &mut state.color_correction.enabled,
         "Enable",
         Some(
@@ -976,7 +1097,7 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 ValueFormat::Decimal,
             );
             row(
-                "Hue Shift",
+                "Hue shift",
                 &mut correction.hue_shift,
                 HUE_SHIFT_RANGE,
                 ValueFormat::Degrees,
@@ -1049,7 +1170,7 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
 }
 
 fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.heading_with_margin("Reorder Palette Colors");
+    ui.heading_with_margin("Reorder palette colors");
 
     ui.horizontal(|ui| {
         egui::ComboBox::from_id_salt("sort_mode")

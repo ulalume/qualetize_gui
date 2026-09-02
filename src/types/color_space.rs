@@ -17,15 +17,15 @@ impl ColorSpace {
     pub fn display_name(&self) -> &'static str {
         match self {
             ColorSpace::Srgb => "sRGB",
-            ColorSpace::RgbLinear => "RGB Linear",
+            ColorSpace::RgbLinear => "RGB linear",
             ColorSpace::Ycbcr => "YCbCr",
             ColorSpace::Ycocg => "YCoCg",
             ColorSpace::Cielab => "CIELAB",
             ColorSpace::Ictcp => "ICtCp",
             ColorSpace::Oklab => "OkLab",
-            ColorSpace::RgbPsy => "RGB + Psyopt",
-            ColorSpace::YcbcrPsy => "YCbCr + Psyopt",
-            ColorSpace::YcocgPsy => "YCoCg + Psyopt",
+            ColorSpace::RgbPsy => "RGB + psyopt",
+            ColorSpace::YcbcrPsy => "YCbCr + psyopt",
+            ColorSpace::YcocgPsy => "YCoCg + psyopt",
         }
     }
 
@@ -33,7 +33,7 @@ impl ColorSpace {
         match self {
             ColorSpace::Srgb => "Standard RGB color space",
             ColorSpace::RgbLinear => "Linear RGB color space",
-            ColorSpace::Ycbcr => "Luma + Chroma color space",
+            ColorSpace::Ycbcr => "Luma + chroma color space",
             ColorSpace::Ycocg => "Luma + Co/Cg color space",
             ColorSpace::Cielab => {
                 "CIE L*a*b* color space\nNOTE: CIELAB has poor performance in most cases"
