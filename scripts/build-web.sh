@@ -42,4 +42,5 @@ if command -v wasm-opt >/dev/null; then
 fi
 
 cp web/index.html web/worker.js "$DIST/"
+touch "$DIST/.nojekyll"
 ls -l "$DIST" | awk 'NR>1 {print $5, $NF}'
