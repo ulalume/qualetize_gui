@@ -701,7 +701,7 @@ mod tests {
         );
     }
 
-    /// Regression: `with_extension` used to reduce `hero.idle.png` to `hero.png`,
+    /// `with_extension` would truncate `hero.idle.png` to `hero.png`,
     /// dropping both the suffix and part of the original file name.
     #[test]
     fn export_path_preserves_dots_in_file_name() {

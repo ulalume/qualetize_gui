@@ -1,5 +1,5 @@
-//! Small helpers that collapse the settings panel's repeated
-//! `if ui.add(..).changed() { flag = true; }` blocks into one-liners.
+//! Widget helpers for the settings panel: each wraps an `egui` control and
+//! returns whether its value changed.
 
 use std::ops::RangeInclusive;
 

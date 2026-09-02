@@ -296,8 +296,8 @@ fn default_tile_reduce_allow_flip() -> bool {
 /// Parses a 4-character RGBA depth string into per-channel level counts.
 ///
 /// Counts *characters*, not bytes: a non-ASCII string can have `len() == 4` in bytes
-/// while holding fewer than 4 `char`s (or vice versa), and indexing a byte-based
-/// `Vec<char>` built from the wrong count used to panic.
+/// while holding fewer than 4 `char`s (or vice versa), and indexing a `Vec<char>`
+/// built from the wrong count would panic.
 fn parse_rgba_depth(rgba_depth: &str) -> [f32; 4] {
     let chars: Vec<char> = rgba_depth.chars().collect();
     if let [a, b, c, d] = chars[..] {
@@ -453,9 +453,9 @@ impl From<QualetizeSettings> for QualetizePlanOwned {
 mod tests {
     use super::*;
 
-    /// `rgba_depth.len() == 4` used to check bytes, not characters, so a 4-byte
-    /// string that isn't 4 characters (e.g. containing multi-byte UTF-8) would pass
-    /// the length check and then panic indexing a shorter `Vec<char>`.
+    /// Checking `rgba_depth.len() == 4` would check bytes, not characters, so a
+    /// 4-byte string that isn't 4 characters (e.g. containing multi-byte UTF-8)
+    /// would pass that check and then panic indexing a shorter `Vec<char>`.
     #[test]
     fn parse_rgba_depth_does_not_panic_on_non_ascii_input() {
         // "é" is 2 bytes but 1 char: "é331" is 5 bytes / 4 chars, "éé31" is 6 bytes
@@ -471,10 +471,10 @@ mod tests {
     }
 
     /// `char_to_depth`'s formula (`2^d - 1` for a digit `d` in `1..=8`) must agree
-    /// with the explicit table it replaced.
+    /// with the explicit per-digit values below.
     #[test]
-    fn char_to_depth_formula_matches_the_old_table() {
-        let old_table = [
+    fn char_to_depth_formula_matches_the_digit_table() {
+        let table = [
             ('1', 1.0),
             ('2', 3.0),
             ('3', 7.0),
@@ -484,7 +484,7 @@ mod tests {
             ('7', 127.0),
             ('8', 255.0),
         ];
-        for (c, expected) in old_table {
+        for (c, expected) in table {
             assert_eq!(char_to_depth(c), expected, "digit {c}");
         }
         // Out of range or non-digit characters still fall back to 8-bit.
@@ -594,8 +594,8 @@ mod tests {
         }
     }
 
-    /// The regression this pair of helpers exists for: switching quantization
-    /// preset used to silently reset the tile reduction post-pass with it.
+    /// Applying a quantization preset would otherwise silently reset the tile
+    /// reduction post-pass along with it.
     #[test]
     fn applying_a_preset_leaves_tile_reduction_alone() {
         let mut settings = QualetizeSettings::genesis();
