@@ -50,7 +50,7 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     settings_changed |= widgets::heading_with_combo(
         ui,
-        "Quantization",
+        "Qualetize",
         "Engine:",
         widgets::EnumCombo::new(
             "quant_engine",
@@ -556,7 +556,7 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
     let top_left = top_left_pixel(state);
     let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
     ui.horizontal(|ui| {
-        ui.label("First color:");
+        ui.label("Palette index 0:");
         if widgets::EnumCombo::new(
             "tpq_color_zero",
             ColorZeroKind::all(),
@@ -890,7 +890,7 @@ fn draw_qualetize_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) 
 
     let mut first_color = QualetizeFirstColor::from_flag(state.settings.col0_is_clear);
     ui.horizontal(|ui| {
-        ui.label("First color:");
+        ui.label("Palette index 0:");
         if widgets::EnumCombo::new(
             "qualetize_first_color",
             QualetizeFirstColor::all(),

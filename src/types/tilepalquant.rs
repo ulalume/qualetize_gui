@@ -196,6 +196,17 @@ pub const FRACTION_OF_PIXELS_RANGE: std::ops::RangeInclusive<f32> = 0.01..=10.0;
 pub const DITHER_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 0.01..=1.0;
 
 impl TpqSettings {
+    /// Line the engine-specific values up with a Qualetize preset: no
+    /// dithering, and index 0 transparent exactly when the preset reserves it.
+    pub fn follow_preset(&mut self, preset: &crate::types::QualetizeSettings) {
+        self.dither_mode = TpqDitherMode::Off;
+        self.color_zero = if preset.col0_is_clear {
+            ColorZero::TransparentFromAlpha
+        } else {
+            ColorZero::Unique
+        };
+    }
+
     /// Clamp values loaded from disk into the ranges the UI enforces.
     pub fn sanitize(&mut self) {
         if !self.fraction_of_pixels.is_finite() {
@@ -222,6 +233,21 @@ mod tests {
     fn an_empty_object_deserializes_to_the_defaults() {
         let settings: TpqSettings = serde_json::from_str("{}").expect("loads");
         assert_eq!(settings, TpqSettings::default());
+    }
+
+    #[test]
+    fn following_a_preset_clears_dithering_and_mirrors_its_transparency() {
+        let mut settings = TpqSettings {
+            dither_mode: TpqDitherMode::Slow,
+            color_zero: ColorZero::Shared,
+            ..TpqSettings::default()
+        };
+        settings.follow_preset(&crate::types::QualetizeSettings::genesis_full_palettes());
+        assert_eq!(settings.dither_mode, TpqDitherMode::Off);
+        assert_eq!(settings.color_zero, ColorZero::TransparentFromAlpha);
+
+        settings.follow_preset(&crate::types::QualetizeSettings::genesis());
+        assert_eq!(settings.color_zero, ColorZero::Unique);
     }
 
     #[test]
