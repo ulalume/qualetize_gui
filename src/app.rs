@@ -638,6 +638,7 @@ impl eframe::App for QualetizeApp {
         self.draw_large_image_prompt(ctx);
         self.draw_remove_image_prompt(ctx);
         self.draw_about(ctx);
+        pointing_hand_over_clickables(ctx);
 
         // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
@@ -733,6 +734,25 @@ fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
     }
     .ok()?;
     (u64::from(width) * u64::from(height) >= LARGE_IMAGE_PIXELS).then_some((width, height))
+}
+
+/// Show a pointing hand while the pointer is over a widget that only
+/// responds to clicks (buttons, checkboxes, radios, menus, combos). Widgets
+/// that also drag, such as sliders and drag values, keep the cursor egui
+/// gives them.
+fn pointing_hand_over_clickables(ctx: &egui::Context) {
+    let over_clickable = ctx.viewport(|viewport| {
+        viewport.interact_widgets.hovered.iter().any(|id| {
+            viewport
+                .prev_pass
+                .widgets
+                .get(*id)
+                .is_some_and(|w| w.enabled && w.sense.senses_click() && !w.sense.senses_drag())
+        })
+    });
+    if over_clickable {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
 }
 
 /// Smallest size at or above `size` whose sides are multiples of the tile size.
