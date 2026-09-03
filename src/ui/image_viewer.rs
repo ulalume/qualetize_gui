@@ -223,42 +223,46 @@ fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
     Some(message)
 }
 
-/// The sample image offered on the welcome screen.
-const SAMPLE_IMAGE: &[u8] = include_bytes!("../../assets/sample/cat.png");
-const SAMPLE_IMAGE_NAME: &str = "cat.png";
-/// Longest side of the sample thumbnail, in points.
-const SAMPLE_THUMBNAIL_SIZE: f32 = 256.0;
+/// The sample images offered on the welcome screen, with their file names.
+const SAMPLES: [(&str, &[u8]); 2] = [
+    ("cat.png", include_bytes!("../../assets/sample/cat.png")),
+    ("lenna.png", include_bytes!("../../assets/sample/lenna.png")),
+];
+/// Longest side of a sample thumbnail, in points.
+const SAMPLE_THUMBNAIL_SIZE: f32 = 128.0;
 
 /// The welcome screen shown while no image is loaded: how to open one, and
-/// a sample to try.
+/// samples to try.
 pub fn draw_main_content(ui: &mut egui::Ui, state: &mut AppState) {
-    let thumbnail = state
-        .sample_thumbnail
-        .get_or_insert_with(|| {
-            let image = image::load_from_memory(SAMPLE_IMAGE)
-                .expect("the bundled sample image decodes")
-                .to_rgba8();
-            let size = [image.width() as usize, image.height() as usize];
-            let color_image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
-            ui.ctx()
-                .load_texture("sample", color_image, egui::TextureOptions::NEAREST)
-        })
-        .clone();
+    if state.sample_thumbnails.is_empty() {
+        state.sample_thumbnails = SAMPLES
+            .iter()
+            .map(|(name, bytes)| {
+                let image = image::load_from_memory(bytes)
+                    .expect("the bundled sample images decode")
+                    .to_rgba8();
+                let size = [image.width() as usize, image.height() as usize];
+                let color_image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+                ui.ctx()
+                    .load_texture(*name, color_image, egui::TextureOptions::NEAREST)
+            })
+            .collect();
+    }
+    let thumbnails = state.sample_thumbnails.clone();
 
-    let thumbnail_size = {
-        let [w, h] = thumbnail.size();
+    let thumbnail_size = |texture: &egui::TextureHandle| {
+        let [w, h] = texture.size();
         let scale = SAMPLE_THUMBNAIL_SIZE / w.max(h) as f32;
         Vec2::new(w as f32 * scale, h as f32 * scale)
     };
 
-    // Everything is stacked and centered; the block is placed at a third of
-    // the height rather than the middle so it reads as a welcome, not a dialog.
-    let block_height = 40.0 + thumbnail_size.y + 60.0;
-    ui.add_space(((ui.available_height() - block_height) / 3.0).max(0.0));
+    // The whole block is centered in the view.
+    let block_height = 24.0 + 24.0 + 20.0 + 8.0 + SAMPLE_THUMBNAIL_SIZE;
+    ui.add_space(((ui.available_height() - block_height) / 2.0).max(0.0));
     ui.vertical_centered(|ui| {
         ui.horizontal(|ui| {
-            let text_width = 260.0 + 110.0;
-            ui.add_space(((ui.available_width() - text_width) / 2.0).max(0.0));
+            let row_width = 250.0 + 100.0;
+            ui.add_space(((ui.available_width() - row_width) / 2.0).max(0.0));
             ui.heading("📁 Drop an image file here or");
             if ui.button("Open image...").clicked() {
                 _ = state
@@ -267,18 +271,28 @@ pub fn draw_main_content(ui: &mut egui::Ui, state: &mut AppState) {
             }
         });
         ui.add_space(24.0);
-        ui.add(egui::Image::new(&thumbnail).fit_to_exact_size(thumbnail_size));
+        ui.label("or try a sample image");
         ui.add_space(8.0);
-        if ui.button("Try sample image").clicked() {
-            _ = state
-                .app_state_request_sender
-                .send(AppStateRequest::LoadImageBytes {
-                    name: SAMPLE_IMAGE_NAME.to_string(),
-                    bytes: SAMPLE_IMAGE.to_vec(),
-                });
-        }
+        ui.horizontal(|ui| {
+            let row_width: f32 = thumbnails.iter().map(|t| thumbnail_size(t).x + 8.0).sum();
+            ui.add_space(((ui.available_width() - row_width) / 2.0).max(0.0));
+            for ((name, bytes), texture) in SAMPLES.iter().zip(&thumbnails) {
+                let button = egui::Button::image(
+                    egui::Image::new(texture).fit_to_exact_size(thumbnail_size(texture)),
+                );
+                if ui.add(button).on_hover_text(*name).clicked() {
+                    _ = state
+                        .app_state_request_sender
+                        .send(AppStateRequest::LoadImageBytes {
+                            name: (*name).to_string(),
+                            bytes: bytes.to_vec(),
+                        });
+                }
+            }
+        });
     });
 }
+
 fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color: Color32) {
     painter.rect_filled(canvas, 0.0, base_color);
 

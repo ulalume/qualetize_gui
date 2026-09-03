@@ -116,6 +116,39 @@ impl QualetizeApp {
         }
     }
 
+    /// Ask whether the loaded image should be dropped, and drop it on yes.
+    fn draw_remove_image_prompt(&mut self, ctx: &egui::Context) {
+        if !self.state.confirm_remove_image {
+            return;
+        }
+        let mut decision = None;
+        egui::Modal::new(egui::Id::new("remove_image_prompt")).show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.heading("Remove image");
+            ui.label("Remove the loaded image? Results that are not exported are lost.");
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Remove").clicked() {
+                        decision = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        decision = Some(false);
+                    }
+                });
+            });
+        });
+        match decision {
+            Some(true) => {
+                self.state.confirm_remove_image = false;
+                self.image_processor.cancel_all();
+                self.state.reset_all_images();
+            }
+            Some(false) => self.state.confirm_remove_image = false,
+            None => {}
+        }
+    }
+
     /// Replace the input image (and everything derived from it) with `loaded`.
     fn install_input_image(&mut self, name: String, loaded: Result<ImageData, String>) {
         self.image_processor.cancel_all();
@@ -462,6 +495,7 @@ impl QualetizeApp {
                 }
             }
             AppStateRequest::OpenImageDialog => platform::pick_image(self.dialog_context(ctx)),
+            AppStateRequest::RemoveImage => self.state.confirm_remove_image = true,
             AppStateRequest::ExportImageDialog { source, format } => {
                 let Some(input_path) = self.state.input_path.clone() else {
                     return;
@@ -558,6 +592,7 @@ impl eframe::App for QualetizeApp {
 
         self.handle_requests(ctx);
         self.draw_large_image_prompt(ctx);
+        self.draw_remove_image_prompt(ctx);
 
         // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
