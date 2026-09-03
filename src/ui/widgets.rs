@@ -116,35 +116,11 @@ pub fn section_header(
     })
 }
 
-/// A heading with a label and an [`EnumCombo`] right-aligned on the same row
-/// as a pair, e.g. "Engine: [combo]" atop the settings panel. Same layout as
-/// [`section_header`], with the toggle checkbox replaced by the label and
-/// combo box. Returns whether the selection changed.
-pub fn heading_with_combo<T: Copy + PartialEq + 'static>(
-    ui: &mut egui::Ui,
-    title: &str,
-    combo_label: &str,
-    combo: EnumCombo<'_, T>,
-    value: &mut T,
-) -> bool {
-    header_row(
-        ui,
-        |ui| {
-            ui.heading(title);
-        },
-        |ui| {
-            let changed = combo.show(ui, value);
-            ui.label(combo_label);
-            changed
-        },
-    )
-}
-
-/// Shared layout for [`section_header`] and [`heading_with_combo`]: draws
+/// Shared layout for [`section_header`] and the Qualetization heading: draws
 /// `draw_title` on the left and a right-aligned control on the same row,
 /// inside the Frame margin the heading level already uses elsewhere.
 /// Returns whatever `draw_right` returns.
-fn header_row(
+pub fn header_row(
     ui: &mut egui::Ui,
     draw_title: impl FnOnce(&mut egui::Ui),
     draw_right: impl FnOnce(&mut egui::Ui) -> bool,

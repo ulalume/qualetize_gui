@@ -9,7 +9,7 @@ use crate::types::tilepalquant::{
     DITHER_WEIGHT_RANGE, DitherPattern, FRACTION_OF_PIXELS_RANGE, TpqDitherMode,
 };
 use crate::types::{
-    AppState, ColorSpace, DitherMode, FirstColor,
+    AppState, ColorSpace, DitherMode, FirstColor, QualetizePreset,
     app_state::TopLeftPixel,
     color_correction::ColorCorrectionPreset,
     image::{SortMode, SortOrder},
@@ -49,17 +49,35 @@ fn group_space(ui: &mut egui::Ui) {
 fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    settings_changed |= widgets::heading_with_combo(
+    settings_changed |= widgets::header_row(
         ui,
-        "Qualetization",
-        "Engine:",
-        widgets::EnumCombo::new(
-            "quant_engine",
-            QuantEngine::all(),
-            QuantEngine::display_name,
-        ),
-        &mut state.engine,
+        |ui| {
+            ui.heading("Qualetization");
+        },
+        |ui| {
+            let mut applied = false;
+            ui.menu_button("Preset…", |ui| {
+                for preset in QualetizePreset::all() {
+                    if ui.button(preset.display_name()).clicked() {
+                        state.apply_qualetize_preset(preset.qualetize_settings());
+                        applied = true;
+                        ui.close();
+                    }
+                }
+            });
+            applied
+        },
     );
+
+    ui.horizontal(|ui| {
+        ui.label("Qualetization engine:");
+        for engine in QuantEngine::all() {
+            settings_changed |= ui
+                .radio_value(&mut state.engine, *engine, engine.display_name())
+                .changed();
+        }
+    });
+    group_space(ui);
 
     settings_changed |= draw_palette_size_settings(ui, state);
 
