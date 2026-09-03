@@ -15,7 +15,7 @@ use crate::time::Instant;
 use crate::types::FirstColor;
 use crate::types::history::SettingsHistory;
 use crate::types::image::TileCountOptions;
-use crate::types::results::Results;
+use crate::types::results::{Results, ResultsView};
 use crate::types::tilepalquant::TpqSettings;
 
 #[derive(
@@ -247,6 +247,9 @@ pub struct AppState {
     ///
     /// [`StoredResult::hash`]: crate::types::results::StoredResult::hash
     pub results_textures: HashMap<u64, ResultTextures>,
+    /// The order the list was drawn in and the animation a change to it
+    /// started.
+    pub results_view: ResultsView,
     /// A step was committed to the history and the result it belongs to is
     /// still being produced; the next idle frame records it.
     pub record_result_when_idle: bool,
@@ -349,6 +352,7 @@ impl Default for AppState {
 
             results: Results::default(),
             results_textures: HashMap::new(),
+            results_view: ResultsView::default(),
             record_result_when_idle: false,
 
             app_state_request_receiver: receiver,

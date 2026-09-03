@@ -2,18 +2,25 @@
 //! shows its image and the palettes it uses, with the full settings in a
 //! hover tooltip. Clicking the image puts those settings back in use;
 //! the overlay in its top-right corner removes the entry.
+//!
+//! A result reaching the top of the list is animated: the space for it opens
+//! up first, then it fades in.
 
 use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
+use crate::time::Instant;
 use crate::types::app_state::{AppStateRequest, ResultTextures};
 use crate::types::image::SortMode;
-use crate::types::results::{StoredResult, THUMBNAIL_SIZE};
+use crate::types::results::{
+    ChangeKind, ResultsAnimation, StoredResult, THUMBNAIL_SIZE, detect_change,
+};
 use crate::types::tilepalquant::TpqDitherMode;
 use crate::types::{AppState, FirstColor};
 use crate::ui::styles::UiMarginExt;
-use egui::{Color32, Rect, Sense, TextureOptions, Vec2};
+use egui::{Align, Color32, Layout, Rect, Sense, TextureOptions, UiBuilder, Vec2};
 use std::collections::HashMap;
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 /// Largest palette swatch, matching the palette overlay of the main view.
 const SWATCH_MAX: f32 = 16.0;
@@ -26,8 +33,14 @@ const MAX_FULL_TEXTURES: usize = 8;
 const REMOVE_OVERLAY_SIZE: f32 = 18.0;
 /// Gap between the "remove" overlay and the image's top and right edges.
 const REMOVE_OVERLAY_INSET: f32 = 2.0;
-/// Vertical gap after an entry.
-const ENTRY_SPACING: f32 = 6.0;
+/// Gap between an image and its palette strip.
+const IMAGE_STRIP_GAP: f32 = 1.0;
+/// Vertical gap after an entry. The list drops the item spacing between its
+/// entries, so this is the whole gap.
+const ENTRY_SPACING: f32 = 9.0;
+/// Length of each of the two phases of an order change: the slots resize,
+/// then the entry that reached the top fades in.
+const ANIM_PHASE: Duration = Duration::from_millis(300);
 
 /// What the entries being drawn share: the texture cache, which rows turned
 /// out to be visible, how many full resolution textures are in use, and
@@ -39,24 +52,57 @@ struct Panel<'a> {
     sender: &'a Sender<AppStateRequest>,
 }
 
+/// What an entry reacts to.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Interaction {
+    /// Clicking the image applies the entry's settings, the overlay removes it.
+    Apply,
+    /// The entry's settings are the ones in use, so only the overlay reacts.
+    RemoveOnly,
+    /// Nothing reacts.
+    Inert,
+}
+
 pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     ui.heading_with_margin("Results");
 
+    let in_use = state.settings_bundle();
     let AppState {
         results,
         results_textures,
+        results_view,
         app_state_request_sender,
         ..
     } = state;
 
     if results.is_empty() {
         results_textures.clear();
+        results_view.last_order.clear();
+        results_view.animation = None;
         ui.vertical_centered(|ui| {
             ui.add_space(8.0);
             ui.label(egui::RichText::new("No results yet").small().weak());
         });
         return;
     }
+
+    let order: Vec<u64> = results.entries().iter().map(|entry| entry.hash).collect();
+    if order != results_view.last_order {
+        results_view.animation =
+            detect_change(&results_view.last_order, &order).map(|kind| ResultsAnimation {
+                kind,
+                started: Instant::now(),
+            });
+        results_view.last_order = order;
+    }
+    // An animation describes the current list only while the entry it moves
+    // is at the top of it.
+    let animation = results_view.animation.as_ref().and_then(|animation| {
+        let elapsed = animation.started.elapsed().as_secs_f32();
+        let at_top =
+            results.entries().first().map(|entry| entry.hash) == Some(animation.kind.hash());
+        (at_top && elapsed < 2.0 * ANIM_PHASE.as_secs_f32()).then_some((animation, elapsed))
+    });
 
     let mut panel = Panel {
         textures: results_textures,
@@ -66,10 +112,32 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     };
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for entry in results.entries() {
-            draw_entry(ui, entry, &mut panel);
+        // Every entry takes exactly its `entry_height`, so an animated slot
+        // and the entry it stands for occupy the same space.
+        ui.spacing_mut().item_spacing.y = 0.0;
+        match animation {
+            Some((animation, elapsed)) => {
+                let width = ui.available_width();
+                draw_animated(ui, results.entries(), &mut panel, animation, elapsed, width);
+            }
+            None => {
+                for entry in results.entries() {
+                    let interaction = if entry.settings.matches(&in_use) {
+                        Interaction::RemoveOnly
+                    } else {
+                        Interaction::Apply
+                    };
+                    draw_entry(ui, entry, &mut panel, 1.0, interaction);
+                }
+            }
         }
     });
+
+    if animation.is_some() {
+        ui.ctx().request_repaint();
+    } else {
+        results_view.animation = None;
+    }
 
     let visible = panel.visible;
     let live: std::collections::HashSet<u64> =
@@ -85,16 +153,123 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     });
 }
 
+/// The list while its order animates. The entry that reached the top gets a
+/// slot of its own there; the others are drawn in the order they had before,
+/// and no entry reacts to the pointer.
+///
+/// In the first phase the top slot grows from nothing, which pushes the
+/// entries below it down; the entry that moved shrinks away at the place it
+/// held, so the entries under that place stay where they are. In the second
+/// phase the entry fades in inside the top slot.
+fn draw_animated(
+    ui: &mut egui::Ui,
+    entries: &[StoredResult],
+    panel: &mut Panel,
+    animation: &ResultsAnimation,
+    elapsed: f32,
+    width: f32,
+) {
+    let Some((moved, rest)) = entries.split_first() else {
+        return;
+    };
+    let phase = ANIM_PHASE.as_secs_f32();
+    let height = entry_height(moved, width);
+
+    if elapsed >= phase {
+        let alpha = (elapsed - phase) / phase;
+        slot(ui, width, height, |ui| {
+            draw_entry(ui, moved, panel, alpha, Interaction::Inert);
+        });
+        for entry in rest {
+            draw_entry(ui, entry, panel, 1.0, Interaction::Inert);
+        }
+        return;
+    }
+
+    let progress = elapsed / phase;
+    let opened = ease_out(progress);
+    slot(ui, width, height * opened, |_| {});
+    let old_index = match animation.kind {
+        ChangeKind::Added { hash: _ } => None,
+        ChangeKind::Moved { hash: _, old_index } => Some(old_index.min(rest.len())),
+    };
+    for index in 0..=rest.len() {
+        if old_index == Some(index) {
+            slot(ui, width, height * (1.0 - opened), |ui| {
+                draw_entry(ui, moved, panel, 1.0 - progress, Interaction::Inert);
+            });
+        }
+        if let Some(entry) = rest.get(index) {
+            draw_entry(ui, entry, panel, 1.0, Interaction::Inert);
+        }
+    }
+}
+
+/// Draw `add` in a slot of exactly `height`, clipped to it, so an entry taller
+/// than its slot is cut off instead of pushing the next one down.
+fn slot(ui: &mut egui::Ui, width: f32, height: f32, add: impl FnOnce(&mut egui::Ui)) {
+    if height <= 0.0 {
+        return;
+    }
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    let clip = rect.intersect(ui.clip_rect());
+    let mut inner = ui.new_child(
+        UiBuilder::new()
+            .max_rect(rect)
+            .layout(Layout::top_down(Align::Min)),
+    );
+    inner.set_clip_rect(clip);
+    add(&mut inner);
+}
+
+/// Ease-out cubic.
+fn ease_out(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    1.0 - (1.0 - t).powi(3)
+}
+
 /// One entry: image (with its palette strip below) and the remove overlay.
-fn draw_entry(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) {
+fn draw_entry(
+    ui: &mut egui::Ui,
+    entry: &StoredResult,
+    panel: &mut Panel,
+    alpha: f32,
+    interaction: Interaction,
+) {
     ui.scope(|ui| {
         // Exactly one point between the image and its palette strip.
         ui.spacing_mut().item_spacing.y = 0.0;
-        draw_entry_image(ui, entry, panel);
-        ui.add_space(1.0);
-        draw_palette_strip(ui, entry);
+        draw_entry_image(ui, entry, panel, alpha, interaction);
+        ui.add_space(IMAGE_STRIP_GAP);
+        draw_palette_strip(ui, entry, alpha);
     });
     ui.add_space(ENTRY_SPACING);
+}
+
+/// The size the image of `entry` is drawn at in a panel `width` wide: the full
+/// width, never past 1:1.
+fn image_size(entry: &StoredResult, width: f32) -> Vec2 {
+    if entry.width == 0 || entry.height == 0 {
+        return Vec2::ZERO;
+    }
+    let width = width.min(entry.width as f32).max(1.0);
+    Vec2::new(width, width * entry.height as f32 / entry.width as f32)
+}
+
+/// The height of the palette strip of `entry` in a panel `width` wide, the
+/// gaps between its rows included.
+fn strip_height(entry: &StoredResult, width: f32) -> f32 {
+    let per_palette = entry.colors_per_palette;
+    if per_palette == 0 || entry.palettes.is_empty() {
+        return 0.0;
+    }
+    let rows = entry.palettes.len().div_ceil(per_palette) as f32;
+    rows * (swatch_size(width, per_palette) + SWATCH_SPACING) - SWATCH_SPACING
+}
+
+/// The vertical space [`draw_entry`] takes in a panel `width` wide.
+fn entry_height(entry: &StoredResult, width: f32) -> f32 {
+    image_size(entry, width).y + IMAGE_STRIP_GAP + strip_height(entry, width) + ENTRY_SPACING
 }
 
 /// The image at the panel's width, never past 1:1, with a small "remove"
@@ -102,20 +277,30 @@ fn draw_entry(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) {
 /// settings; clicking the overlay removes it instead. The texture is only
 /// uploaded once the row has scrolled into view, and the full resolution one
 /// only while the display size is past the thumbnail's.
-fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) {
-    if entry.width == 0 || entry.height == 0 {
+fn draw_entry_image(
+    ui: &mut egui::Ui,
+    entry: &StoredResult,
+    panel: &mut Panel,
+    alpha: f32,
+    interaction: Interaction,
+) {
+    let size = image_size(entry, ui.available_width());
+    if size == Vec2::ZERO {
         return;
     }
 
-    let width = ui.available_width().min(entry.width as f32).max(1.0);
-    let height = width * entry.height as f32 / entry.width as f32;
-    let (rect, image_response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::click());
+    let sense = if interaction == Interaction::Apply {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, image_response) = ui.allocate_exact_size(size, sense);
     if !ui.is_rect_visible(rect) {
         return;
     }
     panel.visible.push(entry.hash);
 
-    let wants_full = width > THUMBNAIL_SIZE as f32 && panel.full_textures < MAX_FULL_TEXTURES;
+    let wants_full = size.x > THUMBNAIL_SIZE as f32 && panel.full_textures < MAX_FULL_TEXTURES;
     let ctx = ui.ctx().clone();
     let textures = panel.textures.entry(entry.hash).or_default();
 
@@ -140,13 +325,30 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
         handle.id(),
         rect,
         Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
-        Color32::WHITE,
+        Color32::WHITE.gamma_multiply(alpha),
     );
 
+    let removed = interaction != Interaction::Inert && draw_remove_overlay(ui, entry, rect);
+    if removed {
+        _ = panel
+            .sender
+            .send(AppStateRequest::RemoveResult { hash: entry.hash });
+    } else if image_response.clicked() {
+        _ = panel
+            .sender
+            .send(AppStateRequest::ApplyResult { hash: entry.hash });
+    }
+
+    image_response.on_hover_text(describe(&entry.settings));
+}
+
+/// The "remove" overlay over the top-right corner of `image`, `true` when it
+/// was clicked.
+fn draw_remove_overlay(ui: &mut egui::Ui, entry: &StoredResult, image: Rect) -> bool {
     let overlay_rect = Rect::from_min_size(
         egui::pos2(
-            rect.right() - REMOVE_OVERLAY_SIZE - REMOVE_OVERLAY_INSET,
-            rect.top() + REMOVE_OVERLAY_INSET,
+            image.right() - REMOVE_OVERLAY_SIZE - REMOVE_OVERLAY_INSET,
+            image.top() + REMOVE_OVERLAY_INSET,
         ),
         Vec2::splat(REMOVE_OVERLAY_SIZE),
     );
@@ -175,35 +377,21 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
         egui::FontId::proportional(14.0),
         text_color,
     );
-
-    if remove.clicked() {
-        _ = panel
-            .sender
-            .send(AppStateRequest::RemoveResult { hash: entry.hash });
-    } else if image_response.clicked() {
-        _ = panel
-            .sender
-            .send(AppStateRequest::ApplyResult { hash: entry.hash });
-    }
-
-    image_response.on_hover_text(describe(&entry.settings));
+    remove.clicked()
 }
 
 /// One row per palette, shrunk so a whole palette fits the panel width.
-fn draw_palette_strip(ui: &mut egui::Ui, entry: &StoredResult) {
-    let per_palette = entry.colors_per_palette;
-    if per_palette == 0 || entry.palettes.is_empty() {
+fn draw_palette_strip(ui: &mut egui::Ui, entry: &StoredResult, alpha: f32) {
+    let width = ui.available_width();
+    let height = strip_height(entry, width);
+    if height <= 0.0 {
         return;
     }
 
-    let width = ui.available_width();
+    let per_palette = entry.colors_per_palette;
     let size = swatch_size(width, per_palette);
-    let rows = entry.palettes.len().div_ceil(per_palette);
     let step = size + SWATCH_SPACING;
-    let (rect, _) = ui.allocate_exact_size(
-        Vec2::new(width, rows as f32 * step - SWATCH_SPACING),
-        Sense::hover(),
-    );
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
     if !ui.is_rect_visible(rect) {
         return;
     }
@@ -218,7 +406,8 @@ fn draw_palette_strip(ui: &mut egui::Ui, entry: &StoredResult) {
         painter.rect_filled(
             Rect::from_min_size(min, Vec2::splat(size)),
             0.0,
-            Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a),
+            Color32::from_rgba_unmultiplied(color.r, color.g, color.b, color.a)
+                .gamma_multiply(alpha),
         );
     }
 }
@@ -334,9 +523,11 @@ fn on_off(enabled: bool) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::BGRA8;
     use crate::types::color_correction::ColorCorrection;
-    use crate::types::image::PaletteSortSettings;
+    use crate::types::image::{ImageDataIndexed, PaletteSortSettings};
     use crate::types::qualetize::QualetizeSettings;
+    use crate::types::results::Results;
     use crate::types::tilepalquant::DitherPattern;
 
     fn bundle() -> SettingsBundle {
@@ -388,6 +579,59 @@ mod tests {
                 .lines()
                 .any(|l| l == "Palette order: off")
         );
+    }
+
+    /// One recorded result of `width`x`height` over a palette of `colors`
+    /// colors laid out `per_palette` to a row.
+    fn recorded(width: u32, height: u32, colors: usize, per_palette: usize) -> Results {
+        let pixels = width as usize * height as usize;
+        let indexed = ImageDataIndexed::new(
+            vec![
+                BGRA8 {
+                    b: 0,
+                    g: 0,
+                    r: 0,
+                    a: 255,
+                };
+                colors
+            ],
+            per_palette,
+            vec![0; pixels],
+        );
+        let mut results = Results::default();
+        results.record(
+            &indexed,
+            &vec![0; pixels * 4],
+            width,
+            height,
+            bundle(),
+            Instant::now(),
+        );
+        results
+    }
+
+    /// The height an entry is given is the height it takes: its image, the
+    /// gap, its palette strip and the spacing after it.
+    #[test]
+    fn an_entry_is_as_tall_as_the_parts_it_is_drawn_from() {
+        let results = recorded(64, 32, 16, 8);
+        let entry = &results.entries()[0];
+
+        for width in [200.0, 40.0] {
+            let parts = image_size(entry, width).y
+                + IMAGE_STRIP_GAP
+                + strip_height(entry, width)
+                + ENTRY_SPACING;
+            assert!((entry_height(entry, width) - parts).abs() < 1e-4, "{width}");
+        }
+
+        // 64 points wide in a 200 point panel: 1:1, so 32 points tall. Two
+        // rows of 8 swatches at the largest size: 2 * (16 + 1) - 1 = 33.
+        assert!((entry_height(entry, 200.0) - (32.0 + 1.0 + 33.0 + ENTRY_SPACING)).abs() < 1e-4);
+        // Narrower than the image: half the size, with swatches shrunk to fit.
+        let swatch = (40.0 - 7.0 * SWATCH_SPACING) / 8.0;
+        let strip = 2.0 * (swatch + SWATCH_SPACING) - SWATCH_SPACING;
+        assert!((entry_height(entry, 40.0) - (20.0 + 1.0 + strip + ENTRY_SPACING)).abs() < 1e-4);
     }
 
     /// Swatches shrink to fit a narrow panel and never grow past the size the

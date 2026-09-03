@@ -67,6 +67,62 @@ impl StoredResult {
     }
 }
 
+/// The list as it was drawn last frame, and the animation the current order
+/// started.
+#[derive(Default)]
+pub struct ResultsView {
+    /// Hashes in the order the entries were drawn in.
+    pub last_order: Vec<u64>,
+    pub animation: Option<ResultsAnimation>,
+}
+
+/// The order change being animated, and when it started.
+pub struct ResultsAnimation {
+    pub kind: ChangeKind,
+    pub started: Instant,
+}
+
+/// A change of the list order that the panel animates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    /// A result that was not in the list is now at its top.
+    Added { hash: u64 },
+    /// The result drawn at `old_index` is now at the top.
+    Moved { hash: u64, old_index: usize },
+}
+
+impl ChangeKind {
+    /// The result that reached the top.
+    pub fn hash(self) -> u64 {
+        match self {
+            Self::Added { hash } | Self::Moved { hash, old_index: _ } => hash,
+        }
+    }
+}
+
+/// How the order `now` differs from the order `last`, for the two changes the
+/// panel animates. Anything else -- a removal, an emptied list, several
+/// changes at once -- is [`None`].
+pub fn detect_change(last: &[u64], now: &[u64]) -> Option<ChangeKind> {
+    let (&hash, rest) = now.split_first()?;
+    match last.iter().position(|&other| other == hash) {
+        None if rest == last => Some(ChangeKind::Added { hash }),
+        Some(old_index) if old_index > 0 && skipping(last, old_index).eq(rest.iter()) => {
+            Some(ChangeKind::Moved { hash, old_index })
+        }
+        _ => None,
+    }
+}
+
+/// `order` without the hash at `index`.
+fn skipping(order: &[u64], index: usize) -> impl Iterator<Item = &u64> {
+    order
+        .iter()
+        .enumerate()
+        .filter(move |(at, _)| *at != index)
+        .map(|(_, hash)| hash)
+}
+
 /// The recorded results, newest first.
 pub struct Results {
     entries: Vec<StoredResult>,
@@ -376,6 +432,59 @@ mod tests {
                 .iter()
                 .all(|c| *c == pixel)
         );
+    }
+
+    #[test]
+    fn an_unchanged_order_is_no_change() {
+        assert_eq!(detect_change(&[1, 2, 3], &[1, 2, 3]), None);
+        assert_eq!(detect_change(&[], &[]), None);
+    }
+
+    #[test]
+    fn a_hash_that_is_new_at_the_top_is_an_addition() {
+        assert_eq!(
+            detect_change(&[1, 2], &[9, 1, 2]),
+            Some(ChangeKind::Added { hash: 9 })
+        );
+        assert_eq!(
+            detect_change(&[], &[9]),
+            Some(ChangeKind::Added { hash: 9 })
+        );
+    }
+
+    #[test]
+    fn a_hash_taken_from_further_down_is_a_move() {
+        assert_eq!(
+            detect_change(&[1, 2, 3, 4], &[3, 1, 2, 4]),
+            Some(ChangeKind::Moved {
+                hash: 3,
+                old_index: 2,
+            })
+        );
+        assert_eq!(
+            detect_change(&[1, 2], &[2, 1]),
+            Some(ChangeKind::Moved {
+                hash: 2,
+                old_index: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn a_removal_or_an_emptied_list_is_no_change() {
+        assert_eq!(detect_change(&[1, 2, 3], &[1, 3]), None);
+        assert_eq!(detect_change(&[1, 2, 3], &[2, 3]), None);
+        assert_eq!(detect_change(&[1, 2, 3], &[]), None);
+    }
+
+    #[test]
+    fn several_changes_at_once_are_no_change() {
+        // A new entry at the top and the oldest one dropped by the cap.
+        assert_eq!(detect_change(&[1, 2, 3], &[9, 1, 2]), None);
+        // An entry moved to the top and another one gone.
+        assert_eq!(detect_change(&[1, 2, 3], &[3, 1]), None);
+        // A reorder that is not a move to the top.
+        assert_eq!(detect_change(&[1, 2, 3], &[1, 3, 2]), None);
     }
 
     #[test]
