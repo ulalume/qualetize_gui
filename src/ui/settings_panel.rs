@@ -83,6 +83,7 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed |= draw_palette_size_settings(ui, state);
 
     group_space(ui);
+    group_space(ui);
 
     match state.engine {
         QuantEngine::Qualetize => {

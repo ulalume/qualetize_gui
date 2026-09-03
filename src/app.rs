@@ -159,13 +159,17 @@ impl QualetizeApp {
         let response = egui::Modal::new(egui::Id::new("about_modal")).show(ctx, |ui| {
             ui.set_width(320.0);
             ui.vertical_centered(|ui| {
-                ui.add(egui::Image::new(&large_icon).fit_to_exact_size(egui::vec2(200.0, 200.0)));
-                ui.heading("QualetizeGUI");
+                ui.add_space(10.0);
+                ui.add(egui::Image::new(&large_icon).fit_to_exact_size(egui::vec2(160.0, 160.0)));
+                ui.add_space(10.0);
+                ui.hyperlink_to(
+                    egui::RichText::new("QualetizeGUI").heading(),
+                    "https://github.com/ulalume/qualetize_gui",
+                );
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                 ui.label("MIT license");
 
                 ui.separator();
-                ui.label(egui::widget_text::RichText::new("Third-party").small());
 
                 ui.hyperlink_to("Aikku93/qualetize", "https://github.com/Aikku93/qualetize");
                 ui.label(egui::RichText::new("Unlicense license").small());
