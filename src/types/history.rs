@@ -12,7 +12,7 @@ pub const CAP: usize = 100;
 /// How long a change has to sit unchanged before it is committed as its own
 /// undo step. This coalesces a slider drag (many changes in quick
 /// succession) into a single step instead of one per frame.
-pub const SETTLE: Duration = Duration::from_millis(300);
+pub const SETTLE: Duration = Duration::from_millis(600);
 
 /// Undo / redo history over the app's settings.
 ///
