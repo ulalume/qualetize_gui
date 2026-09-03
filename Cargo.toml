@@ -23,6 +23,7 @@ egui = "0.35"
 image = "0.25"
 moxcms = "0.8"
 log = "0.4"
+miniz_oxide = "0.8.9"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 png = "0.18"

@@ -14,6 +14,7 @@ use crate::time::Instant;
 use crate::types::FirstColor;
 use crate::types::history::SettingsHistory;
 use crate::types::image::TileCountOptions;
+use crate::types::results::Results;
 use crate::types::tilepalquant::TpqSettings;
 
 #[derive(
@@ -221,6 +222,12 @@ pub struct AppState {
     /// tilepalquant settings, color correction, palette sort).
     pub history: SettingsHistory,
 
+    /// Completed outputs with the settings that produced them, newest first.
+    pub results: Results,
+    /// A step was committed to the history and the result it belongs to is
+    /// still being produced; the next idle frame records it.
+    pub record_result_when_idle: bool,
+
     // Export requests
     pub app_state_request_receiver: mpsc::Receiver<AppStateRequest>,
     pub app_state_request_sender: mpsc::Sender<AppStateRequest>,
@@ -316,6 +323,9 @@ impl Default for AppState {
                     session.sort_settings,
                 )
             }),
+
+            results: Results::default(),
+            record_result_when_idle: false,
 
             app_state_request_receiver: receiver,
             app_state_request_sender: sender,
@@ -563,6 +573,7 @@ impl AppState {
         self.tile_fitted_input = None;
         self.tile_fit_toast = None;
         self.color_corrected_image = None;
+        self.results.clear();
         self.reset_qualetize_outputs();
     }
 }

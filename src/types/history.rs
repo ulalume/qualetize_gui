@@ -144,6 +144,12 @@ impl SettingsHistory {
         Some(next)
     }
 
+    /// The bundle the last committed step left in place: what an uncommitted
+    /// change is compared against.
+    pub fn committed(&self) -> &SettingsBundle {
+        &self.committed
+    }
+
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }

@@ -3221,6 +3221,7 @@ dependencies = [
  "image",
  "js-sys",
  "log",
+ "miniz_oxide",
  "moxcms",
  "png",
  "postcard",

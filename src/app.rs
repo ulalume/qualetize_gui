@@ -200,6 +200,7 @@ impl QualetizeApp {
     fn install_input_image(&mut self, name: String, loaded: Result<ImageData, String>) {
         self.image_processor.cancel_all();
         self.state.reset_all_images();
+        self.state.record_result_when_idle = true;
 
         match loaded {
             Ok(image_data) => {
@@ -498,6 +499,7 @@ impl QualetizeApp {
     /// Replace the settings in use with `bundle`.
     fn apply_settings_bundle(&mut self, bundle: SettingsBundle, ctx: &egui::Context) {
         self.image_processor.cancel_all();
+        self.state.record_result_when_idle = true;
         self.state.engine = bundle.engine;
         self.state.settings = bundle.qualetize_settings;
         self.state.tpq_settings = bundle.tpq_settings;
@@ -596,6 +598,61 @@ impl QualetizeApp {
         self.apply_settings_bundle(bundle, ctx);
     }
 
+    /// Nothing is queued or running, so `output_image` is the finished result
+    /// for the settings in use.
+    fn pipeline_idle(&self) -> bool {
+        !self.image_processor.is_quantizing()
+            && !self.image_processor.is_tile_reducing()
+            && self.state.request_update_qualetized_image.is_none()
+            && !self.state.request_update_tile_reduce
+            && !self.state.palette_sort_needs_update()
+    }
+
+    /// Store the displayed output as a result, together with the settings
+    /// that produced it. The image is the one the Export button writes: the
+    /// tile reduced pass when it is enabled, otherwise the quantized one.
+    fn record_result(&mut self) {
+        let source = if self.state.settings.tile_reduce_post_enabled {
+            ExportSource::TileReduced
+        } else {
+            ExportSource::Qualetized
+        };
+        let Some((indexed, width, height)) = self.state.indexed_for_export(source) else {
+            return;
+        };
+        let settings = self.state.settings_bundle();
+        // The palette sort only reorders palette entries and remaps the
+        // indices to match, so the displayed RGBA is the sorted image's too.
+        let Some(rgba) = self
+            .state
+            .output_image
+            .as_ref()
+            .map(|image| &image.rgba_data)
+        else {
+            return;
+        };
+
+        let added = self.state.results.record(
+            &indexed,
+            rgba,
+            width,
+            height,
+            settings,
+            crate::time::Instant::now(),
+        );
+        let compressed = self
+            .state
+            .results
+            .entries()
+            .first()
+            .map_or(0, |entry| entry.compressed_len());
+        log::info!(
+            "{} result: {} entries, {compressed} bytes compressed",
+            if added { "Recorded" } else { "Refreshed" },
+            self.state.results.len(),
+        );
+    }
+
     fn update_palette_sort_settings(&mut self) {
         if !self.state.palette_sort_needs_update() {
             return;
@@ -658,13 +715,26 @@ impl eframe::App for QualetizeApp {
         // Record an undo step once the settings have stopped changing for a
         // moment, so a slider drag becomes one step instead of one per frame.
         let pointer_down = ctx.input(|i| i.pointer.any_down());
-        self.state.history.observe(
+        let committed = self.state.history.observe(
             &self.state.settings_bundle(),
             crate::time::Instant::now(),
             pointer_down,
         );
         if self.state.history.pending() {
             ctx.request_repaint_after(crate::types::history::SETTLE);
+        }
+        if committed {
+            self.state.record_result_when_idle = true;
+        }
+
+        // A result is recorded once the pipeline has finished the step the
+        // history committed. Settings that moved on again since that step
+        // drop the request; the next committed step raises it anew.
+        if self.state.record_result_when_idle && self.pipeline_idle() {
+            self.state.record_result_when_idle = false;
+            if self.state.settings_bundle() == *self.state.history.committed() {
+                self.record_result();
+            }
         }
 
         self.update_tile_counts();
