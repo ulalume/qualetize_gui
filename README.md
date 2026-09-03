@@ -63,7 +63,7 @@ qualetize_gui
 
 ## Web version
 
-A WebAssembly build is published to [https://ulalume.github.io/qualetize_gui/](https://ulalume.github.io/qualetize_gui/) by the `Pages` GitHub Actions workflow on every push to `main`. To build it locally, run `scripts/build-web.sh` and serve the resulting `web/dist` directory with any static file server.
+A WebAssembly build is published to [https://ulalume.github.io/qualetize_gui/](https://ulalume.github.io/qualetize_gui/) by the `Pages` GitHub Actions workflow on every version tag. The same files are attached to the [GitHub release](https://github.com/ulalume/qualetize_gui/releases/latest) as `qualetize-gui-<version>-web.zip`, with `index.html` at the root, for hosting elsewhere. To build it locally, run `scripts/build-web.sh` and serve the resulting `web/dist` directory with any static file server.
 
 ## Usage
 
