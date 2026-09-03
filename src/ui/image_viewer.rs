@@ -224,9 +224,13 @@ fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
 }
 
 /// The sample images offered on the welcome screen, with their file names.
-const SAMPLES: [(&str, &[u8]); 2] = [
+const SAMPLES: [(&str, &[u8]); 3] = [
     ("cat.png", include_bytes!("../../assets/sample/cat.png")),
     ("lenna.png", include_bytes!("../../assets/sample/lenna.png")),
+    (
+        "carina-nebula.png",
+        include_bytes!("../../assets/sample/carina-nebula.png"),
+    ),
 ];
 /// Longest side of a sample thumbnail, in points.
 const SAMPLE_THUMBNAIL_SIZE: f32 = 128.0;
