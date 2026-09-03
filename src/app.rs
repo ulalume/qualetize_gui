@@ -693,8 +693,8 @@ fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
 /// A seed for a run that asked for a random one. Wall clock nanoseconds are
 /// plenty: the seed is recorded in the settings, so any value reproduces.
 fn rand_seed_from_clock() -> u32 {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+    let nanos = crate::time::SystemTime::now()
+        .duration_since(crate::time::UNIX_EPOCH)
         .map(|d| d.subsec_nanos() ^ (d.as_secs() as u32))
         .unwrap_or(0);
     nanos.max(1)
