@@ -114,27 +114,29 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
         sender: app_state_request_sender,
     };
 
-    egui::ScrollArea::vertical().show(ui, |ui| {
-        // Every entry takes exactly its `entry_height`, so an animated slot
-        // and the entry it stands for occupy the same space.
-        ui.spacing_mut().item_spacing.y = 0.0;
-        match animation {
-            Some((animation, elapsed)) => {
-                let width = ui.available_width();
-                draw_animated(ui, results.entries(), &mut panel, animation, elapsed, width);
-            }
-            None => {
-                for entry in results.entries() {
-                    let interaction = if entry.settings.matches(&in_use) {
-                        Interaction::RemoveOnly
-                    } else {
-                        Interaction::Apply
-                    };
-                    draw_entry(ui, entry, &mut panel, 1.0, interaction);
+    egui::ScrollArea::vertical()
+        .auto_shrink([false, false])
+        .show(ui, |ui| {
+            // Every entry takes exactly its `entry_height`, so an animated slot
+            // and the entry it stands for occupy the same space.
+            ui.spacing_mut().item_spacing.y = 0.0;
+            match animation {
+                Some((animation, elapsed)) => {
+                    let width = ui.available_width();
+                    draw_animated(ui, results.entries(), &mut panel, animation, elapsed, width);
+                }
+                None => {
+                    for entry in results.entries() {
+                        let interaction = if entry.settings.matches(&in_use) {
+                            Interaction::RemoveOnly
+                        } else {
+                            Interaction::Apply
+                        };
+                        draw_entry(ui, entry, &mut panel, 1.0, interaction);
+                    }
                 }
             }
-        }
-    });
+        });
 
     if animation.is_some() {
         ui.ctx().request_repaint();
@@ -268,7 +270,6 @@ fn image_size(entry: &StoredResult, width: f32) -> Vec2 {
 /// The height of the palette strip of `entry` in a panel `width` wide, the
 /// gaps between its rows included.
 fn strip_height(entry: &StoredResult, width: f32) -> f32 {
-    let width = image_size(entry, width).x;
     let per_palette = entry.colors_per_palette;
     if per_palette == 0 || entry.palettes.is_empty() {
         return 0.0;
@@ -294,21 +295,26 @@ fn draw_entry_image(
     alpha: f32,
     interaction: Interaction,
 ) {
-    let size = image_size(entry, ui.available_width());
+    let row_width = ui.available_width();
+    let size = image_size(entry, row_width);
     if size == Vec2::ZERO {
         return;
     }
 
+    // The row spans the panel whatever the image's width, so the image
+    // never dictates the panel's size; a narrower image is centered in it.
+    let (row, _) = ui.allocate_exact_size(Vec2::new(row_width, size.y), Sense::hover());
+    if !ui.is_rect_visible(row) {
+        return;
+    }
+    panel.visible.push(entry.hash);
+    let rect = Rect::from_center_size(row.center(), size);
     let sense = if interaction == Interaction::Apply {
         Sense::click()
     } else {
         Sense::hover()
     };
-    let (rect, image_response) = ui.allocate_exact_size(size, sense);
-    if !ui.is_rect_visible(rect) {
-        return;
-    }
-    panel.visible.push(entry.hash);
+    let image_response = ui.interact(rect, ui.make_persistent_id(("result", entry.hash)), sense);
 
     let wants_full = size.x > THUMBNAIL_SIZE as f32 && panel.full_textures < MAX_FULL_TEXTURES;
     let ctx = ui.ctx().clone();
@@ -392,10 +398,8 @@ fn draw_remove_overlay(ui: &mut egui::Ui, entry: &StoredResult, image: Rect) -> 
 
 /// One row per palette, shrunk so a whole palette fits the panel width.
 fn draw_palette_strip(ui: &mut egui::Ui, entry: &StoredResult, alpha: f32) {
-    let panel_width = ui.available_width();
-    let height = strip_height(entry, panel_width);
-    // As wide as the image above it.
-    let width = image_size(entry, panel_width).x;
+    let width = ui.available_width();
+    let height = strip_height(entry, width);
     if height <= 0.0 {
         return;
     }
@@ -646,16 +650,14 @@ mod tests {
         assert!((entry_height(entry, 40.0) - (20.0 + 1.0 + strip + ENTRY_SPACING)).abs() < 1e-4);
     }
 
-    /// A tall image stops at the height cap, and its strip is as wide as it.
+    /// A tall image stops at the height cap; its strip still spans the panel.
     #[test]
     fn a_tall_image_is_capped_in_height() {
         let results = recorded(64, 640, 16, 8);
         let entry = &results.entries()[0];
         let size = image_size(entry, 200.0);
         assert_eq!((size.x, size.y), (32.0, MAX_IMAGE_HEIGHT));
-        let swatch = (32.0 - 7.0 * SWATCH_SPACING) / 8.0;
-        let strip = 2.0 * (swatch + SWATCH_SPACING) - SWATCH_SPACING;
-        assert!((strip_height(entry, 200.0) - strip).abs() < 1e-4);
+        assert!((strip_height(entry, 200.0) - 33.0).abs() < 1e-4);
     }
 
     /// Swatches shrink to fit a narrow panel and never grow past the size the
