@@ -3,6 +3,7 @@ pub mod color_correction;
 pub mod color_space;
 pub mod dither;
 pub mod export;
+pub mod history;
 pub mod image;
 pub mod palette_ramps;
 pub mod preferences;

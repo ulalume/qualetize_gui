@@ -571,7 +571,29 @@ impl QualetizeApp {
             AppStateRequest::LoadSettingsDialog => {
                 platform::pick_settings_file(self.dialog_context(ctx))
             }
+            AppStateRequest::Undo => {
+                let current = self.state.settings_bundle();
+                if let Some(bundle) = self.state.history.undo(&current) {
+                    self.restore_settings_bundle(bundle, ctx);
+                }
+            }
+            AppStateRequest::Redo => {
+                let current = self.state.settings_bundle();
+                if let Some(bundle) = self.state.history.redo(&current) {
+                    self.restore_settings_bundle(bundle, ctx);
+                }
+            }
         }
+    }
+
+    /// Apply a bundle restored from undo/redo history, also keeping
+    /// `palette_sort_mode_memory` in sync so the "Reorder palette colors"
+    /// checkbox restores the right mode if it is re-enabled afterward.
+    fn restore_settings_bundle(&mut self, bundle: SettingsBundle, ctx: &egui::Context) {
+        if bundle.sort_settings.mode != SortMode::None {
+            self.state.palette_sort_mode_memory = bundle.sort_settings.mode;
+        }
+        self.apply_settings_bundle(bundle, ctx);
     }
 
     fn update_palette_sort_settings(&mut self) {
@@ -632,7 +654,45 @@ impl eframe::App for QualetizeApp {
         self.handle_tile_reduce_changes(ctx);
 
         self.update_palette_sort_settings();
+
+        // Record an undo step once the settings have stopped changing for a
+        // moment, so a slider drag becomes one step instead of one per frame.
+        let pointer_down = ctx.input(|i| i.pointer.any_down());
+        self.state.history.observe(
+            &self.state.settings_bundle(),
+            crate::time::Instant::now(),
+            pointer_down,
+        );
+        if self.state.history.pending() {
+            ctx.request_repaint_after(crate::types::history::SETTLE);
+        }
+
         self.update_tile_counts();
+
+        // Redo is checked first: its shortcut is a superset of undo's. A
+        // focused text field keeps the shortcuts for its own undo.
+        let text_focused = ctx.memory(|m| m.focused().is_some());
+        let redo = !text_focused
+            && ctx.input_mut(|i| {
+                i.consume_key(
+                    egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                    egui::Key::Z,
+                )
+            });
+        let undo = !text_focused
+            && !redo
+            && ctx.input_mut(|i| i.consume_key(egui::Modifiers::COMMAND, egui::Key::Z));
+        if redo {
+            _ = self
+                .state
+                .app_state_request_sender
+                .send(AppStateRequest::Redo);
+        } else if undo {
+            _ = self
+                .state
+                .app_state_request_sender
+                .send(AppStateRequest::Undo);
+        }
 
         self.handle_requests(ctx);
         self.draw_large_image_prompt(ctx);

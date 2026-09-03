@@ -116,6 +116,35 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
 
         // --- Edit menu ---
         ui.menu_button("Edit", |ui| {
+            let undo_shortcut = egui::KeyboardShortcut::new(egui::Modifiers::COMMAND, egui::Key::Z);
+            let redo_shortcut = egui::KeyboardShortcut::new(
+                egui::Modifiers::COMMAND | egui::Modifiers::SHIFT,
+                egui::Key::Z,
+            );
+            if ui
+                .add_enabled(
+                    state.history.can_undo(),
+                    egui::Button::new("Undo")
+                        .shortcut_text(ui.ctx().format_shortcut(&undo_shortcut)),
+                )
+                .clicked()
+            {
+                _ = state.app_state_request_sender.send(AppStateRequest::Undo);
+                ui.close();
+            }
+            if ui
+                .add_enabled(
+                    state.history.can_redo(),
+                    egui::Button::new("Redo")
+                        .shortcut_text(ui.ctx().format_shortcut(&redo_shortcut)),
+                )
+                .clicked()
+            {
+                _ = state.app_state_request_sender.send(AppStateRequest::Redo);
+                ui.close();
+            }
+            ui.separator();
+
             ui.menu_button("Reset qualetization", |ui| {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
