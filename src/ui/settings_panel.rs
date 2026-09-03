@@ -6,7 +6,7 @@ use crate::color_processor::{
 use crate::engine::QuantEngine;
 use crate::types::qualetize::validate_0_255_array;
 use crate::types::tilepalquant::{
-    DITHER_WEIGHT_RANGE, DitherPattern, FRACTION_OF_PIXELS_RANGE, TpqDitherMode,
+    DITHER_WEIGHT_RANGE, DitherPattern, FRACTION_OF_PIXELS_RANGE, TpqDitherMode, random_seed,
 };
 use crate::types::{
     AppState, ColorSpace, DitherMode, FirstColor, QualetizePreset,
@@ -766,14 +766,14 @@ fn draw_tpq_misc_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         settings_changed |= ui
             .add(egui::DragValue::new(&mut state.tpq_settings.rand_seed))
             .changed();
-        settings_changed |= widgets::checkbox(
-            ui,
-            &mut state.tpq_settings.randomize_seed,
-            "Randomize each run",
-            Some(
-                "Pick a new seed for every run and store it here so the result can be reproduced.",
-            ),
-        );
+        if ui
+            .button("Random")
+            .on_hover_text("Pick a new seed")
+            .clicked()
+        {
+            state.tpq_settings.rand_seed = random_seed();
+            settings_changed = true;
+        }
     });
 
     settings_changed |= widgets::checkbox(
