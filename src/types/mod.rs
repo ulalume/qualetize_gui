@@ -15,4 +15,4 @@ pub use color_space::ColorSpace;
 pub use dither::DitherMode;
 pub use export::ExportFormat;
 pub use image::ImageData;
-pub use qualetize::{BGRA8, ClearColor, QualetizePreset, QualetizeSettings};
+pub use qualetize::{BGRA8, ClearColor, FirstColor, QualetizePreset, QualetizeSettings};

@@ -6,7 +6,8 @@ use super::color::{Rgb, color_distance, move_color_closer};
 use super::dither::closest_color_dither;
 use super::rng::RandomShuffle;
 use super::tile::{Pixel, Tile};
-use crate::types::tilepalquant::{ColorZero, TpqDitherMode};
+use crate::types::FirstColor;
+use crate::types::tilepalquant::TpqDitherMode;
 
 /// An entry picked by one of the searches, with the distance that won it.
 #[derive(Clone, Copy, Debug, Default)]
@@ -397,9 +398,9 @@ pub fn quantize_1_color(
     average.scale(1.0 / f64::from(pixels.len() as f32));
 
     let mut palettes = vec![vec![average]];
-    if p.color_zero == ColorZero::Shared {
+    if p.first_color == FirstColor::Shared {
         palettes[0].push(average);
-        palettes[0][0] = p.color_zero_value;
+        palettes[0][0] = p.first_color_value;
     }
 
     let mut split_index = 0;

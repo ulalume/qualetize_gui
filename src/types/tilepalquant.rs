@@ -1,51 +1,8 @@
 //! Settings specific to the tilepalquant engine. The target format (tile
-//! size, palettes, colors, channel levels) is shared with Qualetize and lives
-//! in `QualetizeSettings`.
+//! size, palettes, colors, channel levels, what index 0 of every palette
+//! holds) is shared with Qualetize and lives in `QualetizeSettings`.
 
 use serde::{Deserialize, Serialize};
-
-/// What goes into index 0 of every palette.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub enum ColorZero {
-    /// An ordinary quantized color, different per palette.
-    #[default]
-    Unique,
-    /// `shared_color` in every palette, kept fixed during optimization.
-    Shared,
-    /// `transparent_color`, inserted at output; pixels with alpha below 255 map to it.
-    TransparentFromAlpha,
-    /// `transparent_color`, inserted at output; pixels whose RGB equals it map to it.
-    TransparentFromColor,
-}
-
-impl ColorZero {
-    pub fn description(&self) -> &'static str {
-        match self {
-            ColorZero::Unique => "Index 0 is a normal color, chosen per palette",
-            ColorZero::Shared => "Index 0 of every palette is the same color, set beside it",
-            ColorZero::TransparentFromAlpha => {
-                "Index 0 is transparent; pixels with alpha below 255 map to it"
-            }
-            ColorZero::TransparentFromColor => {
-                "Index 0 is transparent; pixels matching the color beside it map to it"
-            }
-        }
-    }
-
-    /// Whether index 0 is reserved and must stay in place (palette sort,
-    /// optimization).
-    pub fn pins_index_zero(self) -> bool {
-        self != ColorZero::Unique
-    }
-
-    /// Whether index 0 is inserted at output rather than optimized.
-    pub fn is_transparent(self) -> bool {
-        matches!(
-            self,
-            ColorZero::TransparentFromAlpha | ColorZero::TransparentFromColor
-        )
-    }
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TpqDitherMode {
@@ -138,12 +95,6 @@ pub struct TpqSettings {
     #[serde(default = "default_fraction_of_pixels")]
     pub fraction_of_pixels: f32,
     #[serde(default)]
-    pub color_zero: ColorZero,
-    #[serde(default)]
-    pub shared_color: [u8; 3],
-    #[serde(default = "default_transparent_color")]
-    pub transparent_color: [u8; 3],
-    #[serde(default)]
     pub dither_mode: TpqDitherMode,
     #[serde(default)]
     pub dither_pattern: DitherPattern,
@@ -163,10 +114,6 @@ fn default_fraction_of_pixels() -> f32 {
     0.1
 }
 
-fn default_transparent_color() -> [u8; 3] {
-    [255, 0, 255]
-}
-
 fn default_dither_weight() -> f32 {
     0.5
 }
@@ -179,9 +126,6 @@ impl Default for TpqSettings {
     fn default() -> Self {
         Self {
             fraction_of_pixels: default_fraction_of_pixels(),
-            color_zero: ColorZero::default(),
-            shared_color: [0, 0, 0],
-            transparent_color: default_transparent_color(),
             dither_mode: TpqDitherMode::default(),
             dither_pattern: DitherPattern::default(),
             dither_weight: default_dither_weight(),
@@ -196,15 +140,10 @@ pub const FRACTION_OF_PIXELS_RANGE: std::ops::RangeInclusive<f32> = 0.01..=10.0;
 pub const DITHER_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 0.01..=1.0;
 
 impl TpqSettings {
-    /// Line the engine-specific values up with a Qualetize preset: no
-    /// dithering, and index 0 transparent exactly when the preset reserves it.
-    pub fn follow_preset(&mut self, preset: &crate::types::QualetizeSettings) {
+    /// Switch dithering off, which is what a Qualetize preset asks of the
+    /// engine-specific settings.
+    pub fn reset_dithering(&mut self) {
         self.dither_mode = TpqDitherMode::Off;
-        self.color_zero = if preset.col0_is_clear {
-            ColorZero::TransparentFromAlpha
-        } else {
-            ColorZero::Unique
-        };
     }
 
     /// Clamp values loaded from disk into the ranges the UI enforces.
@@ -236,18 +175,13 @@ mod tests {
     }
 
     #[test]
-    fn following_a_preset_clears_dithering_and_mirrors_its_transparency() {
+    fn resetting_dithering_switches_it_off() {
         let mut settings = TpqSettings {
             dither_mode: TpqDitherMode::Slow,
-            color_zero: ColorZero::Shared,
             ..TpqSettings::default()
         };
-        settings.follow_preset(&crate::types::QualetizeSettings::genesis_full_palettes());
+        settings.reset_dithering();
         assert_eq!(settings.dither_mode, TpqDitherMode::Off);
-        assert_eq!(settings.color_zero, ColorZero::TransparentFromAlpha);
-
-        settings.follow_preset(&crate::types::QualetizeSettings::genesis());
-        assert_eq!(settings.color_zero, ColorZero::Unique);
     }
 
     #[test]
@@ -270,11 +204,23 @@ mod tests {
         }
     }
 
+    /// A `.qset` written before the first color settings moved into
+    /// `QualetizeSettings` still carries them here; they have to be ignored
+    /// rather than refuse the file.
     #[test]
-    fn only_unique_leaves_index_zero_free() {
-        assert!(!ColorZero::Unique.pins_index_zero());
-        assert!(ColorZero::Shared.pins_index_zero());
-        assert!(ColorZero::TransparentFromAlpha.is_transparent());
-        assert!(!ColorZero::Shared.is_transparent());
+    fn an_old_settings_file_still_loads_with_the_moved_fields_present() {
+        let settings: TpqSettings = serde_json::from_str(
+            r#"{"color_zero": "Shared", "shared_color": [1, 2, 3],
+                 "transparent_color": [4, 5, 6], "rand_seed": 7}"#,
+        )
+        .expect("loads");
+        assert_eq!(settings.rand_seed, 7);
+        assert_eq!(
+            TpqSettings {
+                rand_seed: 0,
+                ..settings
+            },
+            TpqSettings::default()
+        );
     }
 }

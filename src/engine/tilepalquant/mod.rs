@@ -17,7 +17,8 @@ pub mod tile;
 mod parity;
 
 use super::{Progress, QuantizeResult, RunContext, TargetFormat};
-use crate::types::tilepalquant::{ColorZero, TpqDitherMode, TpqSettings};
+use crate::types::FirstColor;
+use crate::types::tilepalquant::{TpqDitherMode, TpqSettings};
 use color::Rgb;
 use levels::ColorLut;
 use output::quantize_tiles;
@@ -46,9 +47,9 @@ pub struct Params {
     pub dither_pattern: [[u8; 2]; 2],
     pub dither_pixels: usize,
     pub dither_weight: f32,
-    pub color_zero: ColorZero,
+    pub first_color: FirstColor,
     /// The color index 0 stands for, unsnapped. `Unique` does not use it.
-    pub color_zero_value: Rgb,
+    pub first_color_value: Rgb,
     pub lut: ColorLut,
     /// Pixel draws per optimization step.
     pub iterations: i32,
@@ -61,20 +62,20 @@ impl Params {
     /// The index the shared color occupies, and which the optimization must
     /// therefore leave alone.
     pub fn shared_color_index(&self) -> Option<usize> {
-        (self.color_zero == ColorZero::Shared).then_some(0)
+        (self.first_color == FirstColor::Shared).then_some(0)
     }
 
     /// How many entries the output palette has ahead of the optimized colors:
     /// the transparent modes insert one, the others none.
     pub fn adjusted_index(&self) -> usize {
-        usize::from(self.color_zero.is_transparent())
+        usize::from(self.first_color.is_transparent())
     }
 
     pub fn transparency(&self) -> Transparency {
-        match self.color_zero {
-            ColorZero::TransparentFromAlpha => Transparency::FromAlpha,
-            ColorZero::TransparentFromColor => Transparency::FromColor(self.color_zero_value),
-            ColorZero::Unique | ColorZero::Shared => Transparency::None,
+        match self.first_color {
+            FirstColor::TransparentFromAlpha => Transparency::FromAlpha,
+            FirstColor::TransparentFromColor => Transparency::FromColor(self.first_color_value),
+            FirstColor::Unique | FirstColor::Shared => Transparency::None,
         }
     }
 
@@ -123,13 +124,13 @@ pub fn run_with_shuffle(
         return Some(Err(message));
     }
 
-    let color_zero_value = match settings.color_zero {
-        ColorZero::Unique => Rgb::default(),
-        ColorZero::Shared => Rgb::from_u8(settings.shared_color),
+    let first_color_value = match target.first_color {
+        FirstColor::Unique => Rgb::default(),
+        FirstColor::Shared => Rgb::from_u8(target.shared_color),
         // Both transparent modes take the transparent color; the original
         // reads the shared color for neither of them.
-        ColorZero::TransparentFromAlpha | ColorZero::TransparentFromColor => {
-            Rgb::from_u8(settings.transparent_color)
+        FirstColor::TransparentFromAlpha | FirstColor::TransparentFromColor => {
+            Rgb::from_u8(target.transparent_color)
         }
     };
     let lut = ColorLut::new(&target.levels);
@@ -156,8 +157,8 @@ pub fn run_with_shuffle(
         dither_pattern: settings.dither_pattern.matrix(),
         dither_pixels: settings.dither_pattern.candidates(),
         dither_weight: settings.dither_weight,
-        color_zero: settings.color_zero,
-        color_zero_value,
+        first_color: target.first_color,
+        first_color_value,
         lut,
         iterations: 0,
         alpha: 0.3,
@@ -299,11 +300,11 @@ fn quantize(
     let mut palettes = quantize_1_color(tiles, pixels, shuffle, p);
 
     let mut start_index = 2;
-    if p.color_zero == ColorZero::Shared {
+    if p.first_color == FirstColor::Shared {
         start_index += 1;
     }
     let mut end_index = p.colors_per_palette;
-    if p.color_zero.is_transparent() {
+    if p.first_color.is_transparent() {
         end_index -= 1;
     }
 
@@ -428,6 +429,17 @@ mod tests {
             n_palettes: 2,
             n_colors: 4,
             levels: [levels(3), levels(3), levels(3), vec![0, 255]],
+            first_color: FirstColor::Unique,
+            shared_color: [0, 0, 0],
+            transparent_color: [255, 0, 255],
+        }
+    }
+
+    /// [`target`] with what index 0 holds picked by the caller.
+    fn target_with(first_color: FirstColor) -> TargetFormat {
+        TargetFormat {
+            first_color,
+            ..target()
         }
     }
 
@@ -463,8 +475,8 @@ mod tests {
             dither_pattern: DitherPattern::Diagonal4.matrix(),
             dither_pixels: DitherPattern::Diagonal4.candidates(),
             dither_weight: 0.5,
-            color_zero: ColorZero::Unique,
-            color_zero_value: Rgb::default(),
+            first_color: FirstColor::Unique,
+            first_color_value: Rgb::default(),
             lut: ColorLut::new(&target().levels),
             iterations: 1,
             alpha: 0.3,
@@ -484,21 +496,20 @@ mod tests {
         }
     }
 
-    fn settings(color_zero: ColorZero) -> TpqSettings {
+    fn settings() -> TpqSettings {
         TpqSettings {
-            color_zero,
             show_progress: false,
             ..TpqSettings::default()
         }
     }
 
-    fn run_engine(settings: &TpqSettings) -> Result<QuantizeResult, String> {
+    fn run_engine(target: &TargetFormat, settings: &TpqSettings) -> Result<QuantizeResult, String> {
         let cancel = AtomicBool::new(false);
         let ctx = RunContext {
             cancel: &cancel,
             progress: None,
         };
-        run(&two_tiles(), 16, 8, &target(), settings, &ctx).expect("not cancelled")
+        run(&two_tiles(), 16, 8, target, settings, &ctx).expect("not cancelled")
     }
 
     /// Which palette entry a pixel resolved to, as (palette, color).
@@ -512,7 +523,7 @@ mod tests {
 
     #[test]
     fn a_run_fills_every_palette_and_indexes_every_pixel() {
-        let result = run_engine(&settings(ColorZero::Unique)).expect("succeeds");
+        let result = run_engine(&target(), &settings()).expect("succeeds");
         assert_eq!(result.indexed_data.len(), 16 * 8);
         assert_eq!(result.colors_per_palette, 4);
         assert_eq!(result.palette_data.len(), 8);
@@ -522,7 +533,7 @@ mod tests {
 
     #[test]
     fn unique_leaves_index_zero_to_the_optimization() {
-        let result = run_engine(&settings(ColorZero::Unique)).expect("succeeds");
+        let result = run_engine(&target(), &settings()).expect("succeeds");
         let zeros: Vec<_> = result
             .palette_data
             .chunks(4)
@@ -536,9 +547,11 @@ mod tests {
 
     #[test]
     fn shared_puts_the_same_snapped_color_in_every_index_zero() {
-        let mut settings = settings(ColorZero::Shared);
-        settings.shared_color = [10, 200, 250];
-        let result = run_engine(&settings).expect("succeeds");
+        let target = TargetFormat {
+            shared_color: [10, 200, 250],
+            ..target_with(FirstColor::Shared)
+        };
+        let result = run_engine(&target, &settings()).expect("succeeds");
         // The shared color is snapped to the target levels like any other.
         for palette in result.palette_data.chunks(4) {
             assert_eq!(
@@ -550,7 +563,8 @@ mod tests {
 
     #[test]
     fn transparent_from_alpha_reserves_index_zero_for_the_clear_pixels() {
-        let result = run_engine(&settings(ColorZero::TransparentFromAlpha)).expect("succeeds");
+        let result = run_engine(&target_with(FirstColor::TransparentFromAlpha), &settings())
+            .expect("succeeds");
         for palette in result.palette_data.chunks(4) {
             assert_eq!(
                 (palette[0].r, palette[0].g, palette[0].b, palette[0].a),
@@ -570,7 +584,8 @@ mod tests {
 
     #[test]
     fn transparent_from_color_reserves_index_zero_for_the_key_color() {
-        let result = run_engine(&settings(ColorZero::TransparentFromColor)).expect("succeeds");
+        let result = run_engine(&target_with(FirstColor::TransparentFromColor), &settings())
+            .expect("succeeds");
         for palette in result.palette_data.chunks(4) {
             assert_eq!(
                 (palette[0].r, palette[0].g, palette[0].b, palette[0].a),
@@ -587,15 +602,15 @@ mod tests {
 
     #[test]
     fn a_seed_decides_the_run_and_a_different_one_changes_it() {
-        let mut settings = settings(ColorZero::Unique);
+        let mut settings = settings();
         settings.rand_seed = 1;
-        let first = run_engine(&settings).expect("succeeds");
-        let again = run_engine(&settings).expect("succeeds");
+        let first = run_engine(&target(), &settings).expect("succeeds");
+        let again = run_engine(&target(), &settings).expect("succeeds");
         assert_eq!(first.indexed_data, again.indexed_data);
         assert_eq!(palette_bytes(&first), palette_bytes(&again));
 
         settings.rand_seed = 12345;
-        let other = run_engine(&settings).expect("succeeds");
+        let other = run_engine(&target(), &settings).expect("succeeds");
         assert_ne!(
             (palette_bytes(&other), &other.indexed_data),
             (palette_bytes(&first), &first.indexed_data)
@@ -617,14 +632,7 @@ mod tests {
             cancel: &cancel,
             progress: None,
         };
-        let result = run(
-            &two_tiles(),
-            16,
-            8,
-            &target(),
-            &settings(ColorZero::Unique),
-            &ctx,
-        );
+        let result = run(&two_tiles(), 16, 8, &target(), &settings(), &ctx);
         assert!(result.is_none());
     }
 
@@ -641,7 +649,7 @@ mod tests {
         };
         let settings = TpqSettings {
             show_progress: true,
-            ..settings(ColorZero::Unique)
+            ..settings()
         };
         let result = run(&two_tiles(), 16, 8, &target(), &settings, &ctx)
             .expect("not cancelled")
@@ -687,14 +695,7 @@ mod tests {
             cancel: &cancel,
             progress: Some(&report),
         };
-        run(
-            &two_tiles(),
-            16,
-            8,
-            &target(),
-            &settings(ColorZero::Unique),
-            &ctx,
-        );
+        run(&two_tiles(), 16, 8, &target(), &settings(), &ctx);
         drop(sender);
         assert!(receiver.iter().all(|report| report.preview.is_none()));
     }
@@ -708,16 +709,9 @@ mod tests {
             cancel: &cancel,
             progress: None,
         };
-        let error = run(
-            &two_tiles(),
-            16,
-            8,
-            &target,
-            &settings(ColorZero::Unique),
-            &ctx,
-        )
-        .expect("not cancelled")
-        .expect_err("refused");
+        let error = run(&two_tiles(), 16, 8, &target, &settings(), &ctx)
+            .expect("not cancelled")
+            .expect_err("refused");
         assert!(error.contains("5x8 tiles"), "{error}");
     }
 
@@ -734,16 +728,9 @@ mod tests {
                 n_colors,
                 ..target()
             };
-            run(
-                &two_tiles(),
-                16,
-                8,
-                &target,
-                &settings(ColorZero::Unique),
-                &ctx,
-            )
-            .expect("not cancelled")
-            .expect_err("refused")
+            run(&two_tiles(), 16, 8, &target, &settings(), &ctx)
+                .expect("not cancelled")
+                .expect_err("refused")
         };
         assert!(refuse(2, 1).contains("at least 2 colors"));
         assert!(refuse(64, 16).contains("1024 colors"));
@@ -760,8 +747,8 @@ mod tests {
             &vec![0u8; 16 * 8 * 4],
             16,
             8,
-            &target(),
-            &settings(ColorZero::TransparentFromAlpha),
+            &target_with(FirstColor::TransparentFromAlpha),
+            &settings(),
             &ctx,
         )
         .expect("not cancelled")
@@ -776,16 +763,9 @@ mod tests {
             cancel: &cancel,
             progress: None,
         };
-        let error = run(
-            &[0u8; 16],
-            16,
-            8,
-            &target(),
-            &settings(ColorZero::Unique),
-            &ctx,
-        )
-        .expect("not cancelled")
-        .expect_err("refused");
+        let error = run(&[0u8; 16], 16, 8, &target(), &settings(), &ctx)
+            .expect("not cancelled")
+            .expect_err("refused");
         assert!(error.contains("512 bytes"), "{error}");
     }
 
@@ -794,23 +774,16 @@ mod tests {
         let target = TargetFormat {
             n_colors: 2,
             n_palettes: 1,
-            ..target()
+            ..target_with(FirstColor::TransparentFromAlpha)
         };
         let cancel = AtomicBool::new(false);
         let ctx = RunContext {
             cancel: &cancel,
             progress: None,
         };
-        let result = run(
-            &two_tiles(),
-            16,
-            8,
-            &target,
-            &settings(ColorZero::TransparentFromAlpha),
-            &ctx,
-        )
-        .expect("not cancelled")
-        .expect("succeeds");
+        let result = run(&two_tiles(), 16, 8, &target, &settings(), &ctx)
+            .expect("not cancelled")
+            .expect("succeeds");
         assert_eq!(result.palette_data.len(), 2);
         assert_eq!(result.palette_data[0].a, 0);
         assert!(result.indexed_data.iter().all(|&index| index < 2));
@@ -823,9 +796,9 @@ mod tests {
                 let settings = TpqSettings {
                     dither_mode: *mode,
                     dither_pattern: *pattern,
-                    ..settings(ColorZero::Unique)
+                    ..settings()
                 };
-                let result = run_engine(&settings).expect("succeeds");
+                let result = run_engine(&target(), &settings).expect("succeeds");
                 assert_eq!(result.indexed_data.len(), 16 * 8, "{mode:?} {pattern:?}");
                 assert!(
                     result.indexed_data.iter().all(|&index| index < 8),
@@ -849,16 +822,9 @@ mod tests {
             cancel: &cancel,
             progress: None,
         };
-        let result = run(
-            &[10, 20, 30, 255],
-            1,
-            1,
-            &target,
-            &settings(ColorZero::Unique),
-            &ctx,
-        )
-        .expect("not cancelled")
-        .expect("succeeds");
+        let result = run(&[10, 20, 30, 255], 1, 1, &target, &settings(), &ctx)
+            .expect("not cancelled")
+            .expect("succeeds");
         assert_eq!(result.indexed_data.len(), 1);
         assert_eq!(result.palette_data.len(), 4);
     }
@@ -875,16 +841,9 @@ mod tests {
             cancel: &cancel,
             progress: None,
         };
-        let result = run(
-            &two_tiles(),
-            16,
-            8,
-            &target,
-            &settings(ColorZero::Unique),
-            &ctx,
-        )
-        .expect("not cancelled")
-        .expect("succeeds");
+        let result = run(&two_tiles(), 16, 8, &target, &settings(), &ctx)
+            .expect("not cancelled")
+            .expect("succeeds");
         assert_eq!(result.indexed_data.len(), 16 * 8);
     }
 }
@@ -932,6 +891,9 @@ mod timing {
             n_palettes: 4,
             n_colors: 16,
             levels: [levels.clone(), levels.clone(), levels, vec![0, 255]],
+            first_color: FirstColor::Unique,
+            shared_color: [0, 0, 0],
+            transparent_color: [255, 0, 255],
         };
         for show_progress in [false, true] {
             let settings = TpqSettings {

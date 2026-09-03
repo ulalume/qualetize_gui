@@ -5,6 +5,7 @@ pub mod qualetize;
 pub mod tilepalquant;
 
 use crate::types::BGRA8;
+use crate::types::FirstColor;
 use crate::types::QualetizeSettings;
 use crate::types::tilepalquant::TpqSettings;
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,13 @@ pub struct TargetFormat {
     pub n_colors: u16,
     /// Allowed values per channel (R, G, B, A), ascending, each within 0..=255.
     pub levels: [Vec<u8>; 4],
+    /// What index 0 of every palette holds.
+    pub first_color: FirstColor,
+    /// The color index 0 takes in [`FirstColor::Shared`].
+    pub shared_color: [u8; 3],
+    /// The color index 0 takes in the two transparent modes of
+    /// [`FirstColor`], and the key color the second of them matches against.
+    pub transparent_color: [u8; 3],
 }
 
 impl TargetFormat {
@@ -71,6 +79,9 @@ impl TargetFormat {
             n_palettes: settings.n_palettes,
             n_colors: settings.n_colors,
             levels: settings.channel_levels(),
+            first_color: settings.first_color(),
+            shared_color: settings.shared_color,
+            transparent_color: settings.transparent_color,
         }
     }
 }
@@ -201,5 +212,18 @@ mod tests {
             (target.tile_width, target.n_palettes, target.n_colors),
             (8, 1, 16)
         );
+    }
+
+    /// The first color settings are shared, so the target format both engines
+    /// read has to carry them.
+    #[test]
+    fn target_format_carries_the_first_color_settings() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.shared_color = [1, 2, 3];
+        settings.set_first_color(FirstColor::TransparentFromColor);
+        let target = TargetFormat::from_settings(&settings);
+        assert_eq!(target.first_color, FirstColor::TransparentFromColor);
+        assert_eq!(target.shared_color, [1, 2, 3]);
+        assert_eq!(target.transparent_color, settings.transparent_color);
     }
 }

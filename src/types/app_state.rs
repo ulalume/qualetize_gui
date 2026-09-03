@@ -302,9 +302,12 @@ impl AppState {
     /// by the palette sort: Qualetize's transparent first color, or any
     /// tilepalquant mode other than Unique.
     pub fn first_color_pinned(&self) -> bool {
+        let first_color = self.settings.first_color();
         match self.engine {
-            QuantEngine::Qualetize => self.settings.col0_is_clear,
-            QuantEngine::TilePalQuant => self.tpq_settings.color_zero.pins_index_zero(),
+            // Qualetize has no shared color, so only the transparent modes
+            // reserve index 0 there.
+            QuantEngine::Qualetize => first_color.is_transparent(),
+            QuantEngine::TilePalQuant => first_color.pins_index_zero(),
         }
     }
 

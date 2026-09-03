@@ -86,6 +86,52 @@ impl ClearColor {
     }
 }
 
+/// What goes into index 0 of every palette. Shared by both engines; Qualetize
+/// has no shared color and runs [`FirstColor::Shared`] as [`FirstColor::Unique`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum FirstColor {
+    /// An ordinary quantized color, different per palette.
+    #[default]
+    Unique,
+    /// `shared_color` in every palette, kept fixed during optimization.
+    Shared,
+    /// `transparent_color`, inserted at output; pixels with alpha below 255 map to it.
+    TransparentFromAlpha,
+    /// `transparent_color`, inserted at output; pixels whose RGB equals it map to it.
+    TransparentFromColor,
+}
+
+impl FirstColor {
+    pub fn description(&self) -> &'static str {
+        match self {
+            FirstColor::Unique => "Index 0 is a normal color, chosen per palette",
+            FirstColor::Shared => {
+                "Index 0 of every palette is the same color; Qualetize has no shared color and treats this as Unique"
+            }
+            FirstColor::TransparentFromAlpha => {
+                "Index 0 is transparent; pixels with alpha below 255 map to it"
+            }
+            FirstColor::TransparentFromColor => {
+                "Index 0 is transparent; pixels matching the color beside it map to it"
+            }
+        }
+    }
+
+    /// Whether index 0 is reserved and must stay in place (palette sort,
+    /// optimization).
+    pub fn pins_index_zero(self) -> bool {
+        self != FirstColor::Unique
+    }
+
+    /// Whether index 0 is inserted at output rather than optimized.
+    pub fn is_transparent(self) -> bool {
+        matches!(
+            self,
+            FirstColor::TransparentFromAlpha | FirstColor::TransparentFromColor
+        )
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct QualetizeSettings {
     pub tile_width: u16,
@@ -99,8 +145,21 @@ pub struct QualetizeSettings {
     pub dither_level: f32,
     pub tile_passes: u32,
     pub color_passes: u32,
+    /// Both transparent modes of [`FirstColor`]. Serialized on its own since
+    /// `.qset` files predate [`FirstColor`].
     pub col0_is_clear: bool,
+    /// `Rgb` for [`FirstColor::TransparentFromColor`], `None` otherwise.
     pub clear_color: ClearColor,
+    /// [`FirstColor::Shared`]. Only meaningful while `col0_is_clear` is false.
+    #[serde(default)]
+    pub first_color_shared: bool,
+    /// The color index 0 takes in [`FirstColor::Shared`].
+    #[serde(default)]
+    pub shared_color: [u8; 3],
+    /// The key color of [`FirstColor::TransparentFromColor`], kept while
+    /// another mode is selected so switching back restores it.
+    #[serde(default = "default_transparent_color")]
+    pub transparent_color: [u8; 3],
     #[serde(default)]
     pub tile_reduce_post_enabled: bool,
     #[serde(default = "default_tile_reduce_post_threshold")]
@@ -216,6 +275,9 @@ impl QualetizeSettings {
             color_passes: 100,
             col0_is_clear: false,
             clear_color: ClearColor::default(),
+            first_color_shared: false,
+            shared_color: [0, 0, 0],
+            transparent_color: default_transparent_color(),
             tile_reduce_post_enabled: false,
             tile_reduce_post_threshold: default_tile_reduce_post_threshold(),
             tile_reduce_allow_flip_x: default_tile_reduce_allow_flip(),
@@ -229,6 +291,41 @@ impl QualetizeSettings {
             n_palettes: 4,
             col0_is_clear: true,
             ..Self::genesis()
+        }
+    }
+
+    /// What index 0 of every palette holds, read back from the three fields
+    /// that store it.
+    pub fn first_color(&self) -> FirstColor {
+        match (self.col0_is_clear, self.clear_color) {
+            (true, ClearColor::Rgb(..)) => FirstColor::TransparentFromColor,
+            (true, ClearColor::None) => FirstColor::TransparentFromAlpha,
+            (false, _) if self.first_color_shared => FirstColor::Shared,
+            (false, _) => FirstColor::Unique,
+        }
+    }
+
+    /// Write `mode` into the three fields that store it. The key color is left
+    /// alone, so switching away from [`FirstColor::TransparentFromColor`] and
+    /// back restores it.
+    pub fn set_first_color(&mut self, mode: FirstColor) {
+        self.col0_is_clear = mode.is_transparent();
+        self.first_color_shared = mode == FirstColor::Shared;
+        self.clear_color = match mode {
+            FirstColor::TransparentFromColor => {
+                let [r, g, b] = self.transparent_color;
+                ClearColor::Rgb(r, g, b)
+            }
+            _ => ClearColor::None,
+        };
+    }
+
+    /// Set the key color, which [`FirstColor::TransparentFromColor`] also
+    /// carries in `clear_color`.
+    pub fn set_transparent_color(&mut self, rgb: [u8; 3]) {
+        self.transparent_color = rgb;
+        if self.first_color() == FirstColor::TransparentFromColor {
+            self.clear_color = ClearColor::Rgb(rgb[0], rgb[1], rgb[2]);
         }
     }
 
@@ -276,6 +373,17 @@ impl QualetizeSettings {
         if !is_valid_rgba_depth(&self.rgba_depth) {
             self.rgba_depth = DEFAULT_RGBA_DEPTH.to_string();
         }
+
+        // The three first color fields describe one setting, and only one
+        // combination of them stands for each [`FirstColor`]: `clear_color`
+        // holds a color only while index 0 is transparent, and the shared flag
+        // is set only while it is not.
+        if self.col0_is_clear {
+            self.first_color_shared = false;
+        } else if let ClearColor::Rgb(r, g, b) = self.clear_color {
+            self.transparent_color = [r, g, b];
+            self.clear_color = ClearColor::None;
+        }
     }
 }
 
@@ -299,6 +407,10 @@ fn char_to_depth(c: char) -> f32 {
         Some(d @ 1..=8) => ((1u32 << d) - 1) as f32,
         _ => 255.0,
     }
+}
+
+fn default_transparent_color() -> [u8; 3] {
+    [255, 0, 255]
 }
 
 fn default_tile_reduce_post_threshold() -> f32 {
@@ -686,6 +798,163 @@ mod tests {
         assert!(settings.use_custom_levels);
         assert_eq!(settings.custom_levels[0], "0,49,87,119,146,174,206,255");
         assert_eq!(settings.custom_levels[3], "0,255");
+    }
+
+    const ALL_FIRST_COLORS: [FirstColor; 4] = [
+        FirstColor::Unique,
+        FirstColor::Shared,
+        FirstColor::TransparentFromAlpha,
+        FirstColor::TransparentFromColor,
+    ];
+
+    /// Index 0 is reserved in every mode but `Unique`, and inserted at output
+    /// only in the two transparent ones.
+    #[test]
+    fn only_unique_leaves_index_zero_free() {
+        assert!(!FirstColor::Unique.pins_index_zero());
+        assert!(FirstColor::Shared.pins_index_zero());
+        assert!(!FirstColor::Unique.is_transparent());
+        assert!(!FirstColor::Shared.is_transparent());
+        assert!(FirstColor::TransparentFromAlpha.is_transparent());
+        assert!(FirstColor::TransparentFromColor.is_transparent());
+    }
+
+    #[test]
+    fn every_first_color_mode_survives_a_write_and_a_read_back() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.transparent_color = [1, 2, 3];
+        for mode in ALL_FIRST_COLORS {
+            settings.set_first_color(mode);
+            assert_eq!(settings.first_color(), mode);
+            assert_eq!(settings.col0_is_clear, mode.is_transparent(), "{mode:?}");
+            assert_eq!(
+                settings.first_color_shared,
+                mode == FirstColor::Shared,
+                "{mode:?}"
+            );
+            assert_eq!(
+                settings.transparent_color,
+                [1, 2, 3],
+                "{mode:?} leaves the key color alone"
+            );
+        }
+    }
+
+    /// The key color is what `TransparentFromColor` puts into `clear_color`,
+    /// so a round trip through another mode has to come back to it.
+    #[test]
+    fn the_key_color_survives_a_trip_through_another_mode() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.set_first_color(FirstColor::TransparentFromColor);
+        settings.set_transparent_color([10, 20, 30]);
+        assert_eq!(settings.clear_color, ClearColor::Rgb(10, 20, 30));
+
+        settings.set_first_color(FirstColor::Unique);
+        assert_eq!(settings.clear_color, ClearColor::None);
+        assert_eq!(settings.transparent_color, [10, 20, 30]);
+
+        settings.set_first_color(FirstColor::TransparentFromColor);
+        assert_eq!(settings.clear_color, ClearColor::Rgb(10, 20, 30));
+    }
+
+    /// Setting the key color outside `TransparentFromColor` records it without
+    /// turning transparency on.
+    #[test]
+    fn setting_the_key_color_in_another_mode_leaves_the_mode_alone() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.set_first_color(FirstColor::TransparentFromAlpha);
+        settings.set_transparent_color([9, 9, 9]);
+        assert_eq!(settings.first_color(), FirstColor::TransparentFromAlpha);
+        assert_eq!(settings.clear_color, ClearColor::None);
+        assert_eq!(settings.transparent_color, [9, 9, 9]);
+    }
+
+    /// A `.qset` written before the three new fields existed carries only
+    /// `col0_is_clear` and `clear_color`, and has to load to the mode those two
+    /// described on their own.
+    #[test]
+    fn an_old_settings_file_loads_to_the_mode_its_two_fields_describe() {
+        let load = |col0_is_clear: bool, clear_color: &str| {
+            let json = format!(
+                r#"{{"tile_width": 8, "tile_height": 8, "n_palettes": 1, "n_colors": 16,
+                     "rgba_depth": "3331", "premul_alpha": false, "color_space": "RgbLinear",
+                     "dither_mode": "None", "dither_level": 0.5, "tile_passes": 1000,
+                     "color_passes": 100, "col0_is_clear": {col0_is_clear},
+                     "clear_color": {clear_color}}}"#
+            );
+            serde_json::from_str::<QualetizeSettings>(&json).expect("loads")
+        };
+
+        let unique = load(false, r#""None""#);
+        assert_eq!(unique.first_color(), FirstColor::Unique);
+        assert!(!unique.first_color_shared);
+        assert_eq!(
+            unique.transparent_color,
+            default_transparent_color(),
+            "the key color falls back to its default"
+        );
+
+        assert_eq!(
+            load(true, r#""None""#).first_color(),
+            FirstColor::TransparentFromAlpha
+        );
+        assert_eq!(
+            load(true, r#"{"Rgb": [255, 0, 255]}"#).first_color(),
+            FirstColor::TransparentFromColor
+        );
+    }
+
+    /// Only one combination of the three stored fields stands for each mode, so
+    /// `sanitize` folds a hand-edited file back onto one of them.
+    #[test]
+    fn sanitize_normalizes_the_first_color_fields() {
+        // A key color while index 0 is not transparent belongs in the field
+        // that keeps it for later.
+        let mut settings = QualetizeSettings::genesis();
+        settings.col0_is_clear = false;
+        settings.clear_color = ClearColor::Rgb(1, 2, 3);
+        settings.sanitize();
+        assert_eq!(settings.clear_color, ClearColor::None);
+        assert_eq!(settings.transparent_color, [1, 2, 3]);
+        assert_eq!(settings.first_color(), FirstColor::Unique);
+
+        // A transparent index 0 leaves no room for a shared color.
+        let mut settings = QualetizeSettings::genesis();
+        settings.col0_is_clear = true;
+        settings.first_color_shared = true;
+        settings.sanitize();
+        assert!(!settings.first_color_shared);
+        assert_eq!(settings.first_color(), FirstColor::TransparentFromAlpha);
+    }
+
+    /// Every mode is already normalized, so writing one and sanitizing is a
+    /// no-op.
+    #[test]
+    fn sanitize_leaves_every_first_color_mode_alone() {
+        for mode in ALL_FIRST_COLORS {
+            let mut settings = QualetizeSettings::genesis();
+            settings.set_first_color(mode);
+            let before = settings.clone();
+            settings.sanitize();
+            assert_eq!(settings, before, "{mode:?}");
+        }
+    }
+
+    /// A preset replaces the first color settings along with the rest, so
+    /// applying one drops a shared color picked before it.
+    #[test]
+    fn applying_a_preset_resets_the_first_color() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.set_first_color(FirstColor::Shared);
+        settings.shared_color = [1, 2, 3];
+        settings.set_transparent_color([4, 5, 6]);
+
+        settings.apply_preset(QualetizeSettings::genesis_full_palettes());
+
+        assert_eq!(settings.first_color(), FirstColor::TransparentFromAlpha);
+        assert!(!settings.first_color_shared);
+        assert_eq!(settings.shared_color, [0, 0, 0]);
+        assert_eq!(settings.transparent_color, default_transparent_color());
     }
 
     #[test]

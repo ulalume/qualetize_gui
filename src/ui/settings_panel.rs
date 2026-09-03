@@ -6,10 +6,10 @@ use crate::color_processor::{
 use crate::engine::QuantEngine;
 use crate::types::qualetize::validate_0_255_array;
 use crate::types::tilepalquant::{
-    ColorZero, DITHER_WEIGHT_RANGE, DitherPattern, FRACTION_OF_PIXELS_RANGE, TpqDitherMode,
+    DITHER_WEIGHT_RANGE, DitherPattern, FRACTION_OF_PIXELS_RANGE, TpqDitherMode,
 };
 use crate::types::{
-    AppState, ClearColor, ColorSpace, DitherMode,
+    AppState, ColorSpace, DitherMode, FirstColor,
     color_correction::ColorCorrectionPreset,
     image::{SortMode, SortOrder},
 };
@@ -66,14 +66,14 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     match state.engine {
         QuantEngine::Qualetize => {
-            settings_changed |= draw_qualetize_first_color_settings(ui, state);
+            settings_changed |= draw_first_color_settings(ui, state);
             group_space(ui);
             settings_changed |= draw_dithering_settings(ui, state);
             group_space(ui);
             settings_changed |= draw_color_space_settings(ui, state);
         }
         QuantEngine::TilePalQuant => {
-            settings_changed |= draw_tpq_color_zero_settings(ui, state);
+            settings_changed |= draw_first_color_settings(ui, state);
             group_space(ui);
             settings_changed |= draw_tpq_dithering_settings(ui, state);
         }
@@ -388,9 +388,6 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 /// Hover text on both engines' "Use top-left color" buttons.
 const TOP_LEFT_HOVER: &str = "Use the top-left pixel as the key color; a transparent top-left pixel selects transparency from pixels instead";
 
-/// The color the "from color" choice starts on.
-const DEFAULT_KEY_COLOR: [u8; 3] = [255, 0, 255];
-
 /// What the top-left pixel of the color corrected image offers as a key color.
 #[derive(Clone, Copy)]
 enum TopLeftPixel {
@@ -483,88 +480,100 @@ fn draw_transparency_radios(
     }
 }
 
-/// UI-only grouping over [`ColorZero`] for the combo box: the two transparent
+/// UI-only grouping over [`FirstColor`] for the combo box: the two transparent
 /// variants collapse into a single "Transparent" entry, since which one
 /// applies is picked by the radio buttons shown below the combo.
 #[derive(Clone, Copy, PartialEq)]
-enum ColorZeroKind {
+enum FirstColorKind {
     Unique,
     Shared,
     Transparent,
 }
 
-impl ColorZeroKind {
-    fn from(color_zero: ColorZero) -> Self {
-        match color_zero {
-            ColorZero::Unique => ColorZeroKind::Unique,
-            ColorZero::Shared => ColorZeroKind::Shared,
-            ColorZero::TransparentFromAlpha | ColorZero::TransparentFromColor => {
-                ColorZeroKind::Transparent
+impl FirstColorKind {
+    fn from(first_color: FirstColor) -> Self {
+        match first_color {
+            FirstColor::Unique => FirstColorKind::Unique,
+            FirstColor::Shared => FirstColorKind::Shared,
+            FirstColor::TransparentFromAlpha | FirstColor::TransparentFromColor => {
+                FirstColorKind::Transparent
             }
         }
     }
 
-    /// Applies the picked kind to `color_zero`. Picking "Transparent" while
-    /// already on one of the two transparent variants preserves that
-    /// sub-choice instead of resetting it.
-    fn apply(self, color_zero: &mut ColorZero) {
-        *color_zero = match self {
-            ColorZeroKind::Unique => ColorZero::Unique,
-            ColorZeroKind::Shared => ColorZero::Shared,
-            ColorZeroKind::Transparent if color_zero.is_transparent() => *color_zero,
-            ColorZeroKind::Transparent => ColorZero::TransparentFromAlpha,
-        };
+    /// The mode this kind stands for, coming from `current`. Picking
+    /// "Transparent" while already on one of the two transparent variants
+    /// preserves that sub-choice instead of resetting it.
+    fn resolve(self, current: FirstColor) -> FirstColor {
+        match self {
+            FirstColorKind::Unique => FirstColor::Unique,
+            FirstColorKind::Shared => FirstColor::Shared,
+            FirstColorKind::Transparent if current.is_transparent() => current,
+            FirstColorKind::Transparent => FirstColor::TransparentFromAlpha,
+        }
     }
 
     fn display_name(&self) -> &'static str {
         match self {
-            ColorZeroKind::Unique => "Unique",
-            ColorZeroKind::Shared => "Shared color",
-            ColorZeroKind::Transparent => "Transparent",
+            FirstColorKind::Unique => "Unique",
+            FirstColorKind::Shared => "Shared color",
+            FirstColorKind::Transparent => "Transparent",
         }
     }
 
     fn description(&self) -> &'static str {
         match self {
-            ColorZeroKind::Unique => ColorZero::Unique.description(),
-            ColorZeroKind::Shared => ColorZero::Shared.description(),
-            ColorZeroKind::Transparent => "Index 0 is transparent; choose how below",
+            FirstColorKind::Unique => FirstColor::Unique.description(),
+            FirstColorKind::Shared => FirstColor::Shared.description(),
+            FirstColorKind::Transparent => "Index 0 is transparent; choose how below",
         }
     }
 
-    fn all() -> &'static [ColorZeroKind] {
+    fn all() -> &'static [FirstColorKind] {
         &[
-            ColorZeroKind::Unique,
-            ColorZeroKind::Shared,
-            ColorZeroKind::Transparent,
+            FirstColorKind::Unique,
+            FirstColorKind::Shared,
+            FirstColorKind::Transparent,
         ]
     }
 }
 
-/// tilepalquant-only: what goes into index 0 of every palette, and the color
-/// that mode needs.
-fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
+/// Tooltip on Qualetize's "from transparent pixels" radio.
+const QUALETIZE_FROM_PIXELS_HOVER: &str =
+    "Index 0 is transparent; pixels with an alpha of 0 map to it";
+/// Tooltip on Qualetize's "from color" radio.
+const QUALETIZE_FROM_COLOR_HOVER: &str =
+    "Index 0 is transparent; pixels matching the color beside it map to it, whatever their alpha";
+
+/// What goes into index 0 of every palette, the color the shared mode puts
+/// there, and where transparency comes from when index 0 is transparent.
+///
+/// Shared by both engines: the values live in `state.settings`, and Qualetize
+/// runs [`FirstColor::Shared`] as [`FirstColor::Unique`]. Only the wording of
+/// the two transparency radios differs between them.
+fn draw_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     let top_left = top_left_pixel(state);
-    let mut kind = ColorZeroKind::from(state.tpq_settings.color_zero);
+    let mut kind = FirstColorKind::from(state.settings.first_color());
     ui.horizontal(|ui| {
         ui.label("Palette index 0:");
         if widgets::EnumCombo::new(
-            "tpq_color_zero",
-            ColorZeroKind::all(),
-            ColorZeroKind::display_name,
+            "first_color",
+            FirstColorKind::all(),
+            FirstColorKind::display_name,
         )
-        .description(ColorZeroKind::description)
+        .description(FirstColorKind::description)
         .show(ui, &mut kind)
         {
-            kind.apply(&mut state.tpq_settings.color_zero);
+            let mode = kind.resolve(state.settings.first_color());
+            state.settings.set_first_color(mode);
             settings_changed = true;
         }
 
-        if kind == ColorZeroKind::Shared {
+        if kind == FirstColorKind::Shared {
             settings_changed |= ui
-                .color_edit_button_srgb(&mut state.tpq_settings.shared_color)
+                .color_edit_button_srgb(&mut state.settings.shared_color)
                 .changed();
             if ui
                 .button("Use top-left color")
@@ -573,7 +582,7 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
             {
                 match top_left {
                     Some(TopLeftPixel::Color(rgb)) => {
-                        state.tpq_settings.shared_color = rgb;
+                        state.settings.shared_color = rgb;
                         settings_changed = true;
                     }
                     // A shared color is opaque, so there is nothing for a
@@ -587,33 +596,40 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
         }
     });
 
-    if kind != ColorZeroKind::Transparent {
+    if kind != FirstColorKind::Transparent {
         return settings_changed;
     }
 
+    let hovers = match state.engine {
+        QuantEngine::Qualetize => (QUALETIZE_FROM_PIXELS_HOVER, QUALETIZE_FROM_COLOR_HOVER),
+        QuantEngine::TilePalQuant => (
+            FirstColor::TransparentFromAlpha.description(),
+            FirstColor::TransparentFromColor.description(),
+        ),
+    };
+
     settings_changed |= ui
-        .indent("tpq_color_zero_transparency", |ui| {
-            let from_color = state.tpq_settings.color_zero == ColorZero::TransparentFromColor;
-            let edit = draw_transparency_radios(
-                ui,
-                from_color,
-                &mut state.tpq_settings.transparent_color,
-                (
-                    ColorZero::TransparentFromAlpha.description(),
-                    ColorZero::TransparentFromColor.description(),
-                ),
-                top_left,
-            );
+        .indent("first_color_transparency", |ui| {
+            let from_color = state.settings.first_color() == FirstColor::TransparentFromColor;
+            let mut color = state.settings.transparent_color;
+            let edit = draw_transparency_radios(ui, from_color, &mut color, hovers, top_left);
 
             let mut changed = false;
-            if edit.from_pixels {
-                state.tpq_settings.color_zero = ColorZero::TransparentFromAlpha;
-                changed = true;
-            } else if edit.from_color {
-                state.tpq_settings.color_zero = ColorZero::TransparentFromColor;
+            if edit.color_changed {
+                state.settings.set_transparent_color(color);
                 changed = true;
             }
-            changed |= edit.color_changed;
+            if edit.from_pixels {
+                state
+                    .settings
+                    .set_first_color(FirstColor::TransparentFromAlpha);
+                changed = true;
+            } else if edit.from_color {
+                state
+                    .settings
+                    .set_first_color(FirstColor::TransparentFromColor);
+                changed = true;
+            }
 
             changed
         })
@@ -828,115 +844,6 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         state.settings.reset_tile_reduce();
         settings_changed = true;
     }
-
-    settings_changed
-}
-
-/// What Qualetize puts into index 0 of every palette, as the combo shows it.
-#[derive(Clone, Copy, PartialEq)]
-enum QualetizeFirstColor {
-    Unique,
-    Transparent,
-}
-
-impl QualetizeFirstColor {
-    fn from_flag(col0_is_clear: bool) -> Self {
-        if col0_is_clear {
-            Self::Transparent
-        } else {
-            Self::Unique
-        }
-    }
-
-    fn all() -> &'static [QualetizeFirstColor] {
-        &[Self::Unique, Self::Transparent]
-    }
-
-    fn display_name(&self) -> &'static str {
-        match self {
-            Self::Unique => "Unique",
-            Self::Transparent => "Transparent",
-        }
-    }
-
-    fn description(&self) -> &'static str {
-        match self {
-            Self::Unique => "Index 0 is a normal color, chosen per palette",
-            Self::Transparent => {
-                "First color of every palette is transparent\nNote that this affects both input AND output images.\nTo set transparency in a direct-color input bitmap, an alpha channel must be used (32-bit input);\ntranslucent alpha values are supported by this tool."
-            }
-        }
-    }
-}
-
-/// Tooltip on Qualetize's "from transparent pixels" radio.
-const QUALETIZE_FROM_PIXELS_HOVER: &str =
-    "Index 0 is transparent; pixels with an alpha of 0 map to it";
-/// Tooltip on Qualetize's "from color" radio.
-const QUALETIZE_FROM_COLOR_HOVER: &str =
-    "Index 0 is transparent; pixels matching the color beside it map to it, whatever their alpha";
-
-/// Qualetize-only: what goes into index 0 of every palette, and where
-/// transparency comes from when index 0 is transparent.
-fn draw_qualetize_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    let mut settings_changed = false;
-
-    let mut first_color = QualetizeFirstColor::from_flag(state.settings.col0_is_clear);
-    ui.horizontal(|ui| {
-        ui.label("Palette index 0:");
-        if widgets::EnumCombo::new(
-            "qualetize_first_color",
-            QualetizeFirstColor::all(),
-            QualetizeFirstColor::display_name,
-        )
-        .description(QualetizeFirstColor::description)
-        .show(ui, &mut first_color)
-        {
-            state.settings.col0_is_clear = first_color == QualetizeFirstColor::Transparent;
-            // The clear color only applies while index 0 is transparent;
-            // clearing it keeps a hidden setting from acting on the next
-            // switch back to Transparent.
-            if !state.settings.col0_is_clear {
-                state.settings.clear_color = ClearColor::None;
-            }
-            settings_changed = true;
-        }
-    });
-
-    if first_color != QualetizeFirstColor::Transparent {
-        return settings_changed;
-    }
-
-    let top_left = top_left_pixel(state);
-    let from_color = matches!(state.settings.clear_color, ClearColor::Rgb(_, _, _));
-    let mut color = match state.settings.clear_color {
-        ClearColor::Rgb(r, g, b) => [r, g, b],
-        ClearColor::None => DEFAULT_KEY_COLOR,
-    };
-
-    settings_changed |= ui
-        .indent("qualetize_first_color_transparency", |ui| {
-            let edit = draw_transparency_radios(
-                ui,
-                from_color,
-                &mut color,
-                (QUALETIZE_FROM_PIXELS_HOVER, QUALETIZE_FROM_COLOR_HOVER),
-                top_left,
-            );
-
-            let mut changed = false;
-            if edit.from_pixels {
-                state.settings.clear_color = ClearColor::None;
-                state.settings.col0_is_clear = true;
-                changed = true;
-            } else if edit.from_color || edit.color_changed {
-                state.settings.clear_color = ClearColor::Rgb(color[0], color[1], color[2]);
-                changed = true;
-            }
-
-            changed
-        })
-        .inner;
 
     settings_changed
 }
