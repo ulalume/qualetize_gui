@@ -89,15 +89,15 @@ impl QualetizeApp {
             ui.set_width(320.0);
             ui.heading("Large image");
             ui.label(format!(
-                "This image is {width}x{height} pixels. Processing may take a while at this size; retro targets are usually far smaller.",
+                "This image is {width}x{height} pixels. Processing may take a while at this size.",
             ));
             ui.add_space(8.0);
             ui.horizontal(|ui| {
-                if ui.button("Load anyway").clicked() {
-                    decision = Some(true);
-                }
                 if ui.button("Cancel").clicked() {
                     decision = Some(false);
+                }
+                if ui.button("Load anyway").clicked() {
+                    decision = Some(true);
                 }
             });
         });
@@ -636,7 +636,7 @@ impl eframe::App for QualetizeApp {
     }
 }
 
-/// The size of the image `request` names when it exceeds
+/// The size of the image `request` names when it reaches
 /// [`LARGE_IMAGE_PIXELS`]; `None` when it is small enough or unreadable
 /// (loading it then reports the error).
 fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
@@ -648,7 +648,7 @@ fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
         _ => return None,
     }
     .ok()?;
-    (u64::from(width) * u64::from(height) > LARGE_IMAGE_PIXELS).then_some((width, height))
+    (u64::from(width) * u64::from(height) >= LARGE_IMAGE_PIXELS).then_some((width, height))
 }
 
 /// A seed for a run that asked for a random one. Wall clock nanoseconds are

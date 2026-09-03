@@ -132,10 +132,9 @@ pub enum TopLeftPixel {
     Transparent,
 }
 
-/// Images with more pixels than this ask for confirmation before loading:
-/// every stage of the pipeline runs over all pixels, and retro targets are
-/// far smaller than 640x480.
-pub const LARGE_IMAGE_PIXELS: u64 = 640 * 480;
+/// Images with at least this many pixels ask for confirmation before
+/// loading: every stage of the pipeline runs over all pixels.
+pub const LARGE_IMAGE_PIXELS: u64 = 1024 * 768;
 
 pub struct AppState {
     // Image management
