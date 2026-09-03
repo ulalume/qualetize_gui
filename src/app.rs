@@ -657,9 +657,12 @@ impl eframe::App for QualetizeApp {
 
         // Record an undo step once the settings have stopped changing for a
         // moment, so a slider drag becomes one step instead of one per frame.
-        self.state
-            .history
-            .observe(&self.state.settings_bundle(), crate::time::Instant::now());
+        let pointer_down = ctx.input(|i| i.pointer.any_down());
+        self.state.history.observe(
+            &self.state.settings_bundle(),
+            crate::time::Instant::now(),
+            pointer_down,
+        );
         if self.state.history.pending() {
             ctx.request_repaint_after(crate::types::history::SETTLE);
         }
