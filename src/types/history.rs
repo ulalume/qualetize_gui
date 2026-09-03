@@ -191,8 +191,8 @@ mod tests {
         let step = Duration::from_millis(100);
 
         // Ten values in a row, each less than SETTLE after the previous one.
-        for i in 1..=10 {
-            assert!(!history.observe(&bundle(8 + i), now + step * i, false));
+        for i in 1..=10u32 {
+            assert!(!history.observe(&bundle(8 + i as u16), now + step * i, false));
         }
         // Held down (dragging) it stays pending past SETTLE.
         assert!(!history.observe(&bundle(18), now + step * 10 + SETTLE, true));
@@ -231,8 +231,8 @@ mod tests {
         assert!(history.can_redo());
 
         let other = bundle(24);
-        history.observe(&other, now + SETTLE + Duration::from_millis(1, false));
-        history.observe(&other, now + 2 * SETTLE + Duration::from_millis(1, false));
+        history.observe(&other, now + SETTLE + Duration::from_millis(1), false);
+        history.observe(&other, now + 2 * SETTLE + Duration::from_millis(1), false);
 
         assert!(!history.can_redo());
     }
