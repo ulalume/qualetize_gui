@@ -3209,7 +3209,7 @@ dependencies = [
 
 [[package]]
 name = "qualetize_gui"
-version = "0.6.1"
+version = "0.6.2"
 dependencies = [
  "cc",
  "console_error_panic_hook",
