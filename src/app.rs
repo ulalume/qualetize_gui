@@ -92,13 +92,17 @@ impl QualetizeApp {
                 "This image is {width}x{height} pixels. Processing may take a while at this size.",
             ));
             ui.add_space(8.0);
+            // Laid out from the right edge, so the buttons sit in the corner
+            // and "Load anyway" is the rightmost one.
             ui.horizontal(|ui| {
-                if ui.button("Cancel").clicked() {
-                    decision = Some(false);
-                }
-                if ui.button("Load anyway").clicked() {
-                    decision = Some(true);
-                }
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Load anyway").clicked() {
+                        decision = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        decision = Some(false);
+                    }
+                });
             });
         });
         match decision {
