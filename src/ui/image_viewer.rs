@@ -64,7 +64,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
     let show_tile_reduced = state.settings.tile_reduce_post_enabled;
 
     // The palette is identical for both output panels, so it is only drawn on
-    // the Qualetized one to keep its position stable.
+    // the Quantized one to keep its position stable.
     let palettes: Option<&[Vec<Color32>]> = if state.preferences.show_palettes {
         state
             .output_palette_sorted_indexed_image
@@ -127,7 +127,7 @@ pub fn draw_image_view(ui: &mut egui::Ui, state: &mut AppState, qualetize_proces
             draw_image_panel(
                 ui,
                 ImagePanel {
-                    title: "Qualetized",
+                    title: "Quantized",
                     image: state.base_output_image.as_ref(),
                     size: Vec2::new(column_width, output_height),
                     view: &view,

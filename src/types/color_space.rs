@@ -23,9 +23,9 @@ impl ColorSpace {
             ColorSpace::Cielab => "CIELAB",
             ColorSpace::Ictcp => "ICtCp",
             ColorSpace::Oklab => "OkLab",
-            ColorSpace::RgbPsy => "RGB + psyopt",
-            ColorSpace::YcbcrPsy => "YCbCr + psyopt",
-            ColorSpace::YcocgPsy => "YCoCg + psyopt",
+            ColorSpace::RgbPsy => "RGB + Psyopt",
+            ColorSpace::YcbcrPsy => "YCbCr + Psyopt",
+            ColorSpace::YcocgPsy => "YCoCg + Psyopt",
         }
     }
 

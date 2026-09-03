@@ -36,10 +36,10 @@ pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bo
     (settings_changed, tile_reduce_changed)
 }
 
-/// Height of one control row, used as the gap between two groups of rows
-/// inside a section.
+/// Half the height of one control row, used as the gap between two groups of
+/// rows inside a section.
 fn group_space(ui: &mut egui::Ui) {
-    ui.add_space(ui.spacing().interact_size.y);
+    ui.add_space(ui.spacing().interact_size.y / 2.0);
 }
 
 /// The quantization section: the engine picker on its heading, the palette
@@ -51,6 +51,7 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     settings_changed |= widgets::heading_with_combo(
         ui,
         "Quantization",
+        "Engine:",
         widgets::EnumCombo::new(
             "quant_engine",
             QuantEngine::all(),
@@ -66,11 +67,14 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     match state.engine {
         QuantEngine::Qualetize => {
             settings_changed |= draw_qualetize_first_color_settings(ui, state);
-            settings_changed |= draw_color_space_settings(ui, state);
+            group_space(ui);
             settings_changed |= draw_dithering_settings(ui, state);
+            group_space(ui);
+            settings_changed |= draw_color_space_settings(ui, state);
         }
         QuantEngine::TilePalQuant => {
             settings_changed |= draw_tpq_color_zero_settings(ui, state);
+            group_space(ui);
             settings_changed |= draw_tpq_dithering_settings(ui, state);
         }
     }
@@ -88,44 +92,59 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     // A preference, not a setting: toggling it changes nothing about the
-    // output, so it does not report back a change.
-    _ = widgets::checkbox(
-        ui,
-        &mut state.preferences.show_advanced,
-        "Show advanced settings",
-        Some(
-            "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tilepalquant).",
-        ),
-    );
+    // output, so it does not report back a change. Right-aligned on its own
+    // row, the same way a section heading right-aligns its toggle.
+    // The horizontal row bounds the height; the nested layout only fills the
+    // row from the right.
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            _ = widgets::checkbox(
+                ui,
+                &mut state.preferences.show_advanced,
+                "Show advanced settings",
+                Some(
+                    "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tilepalquant).",
+                ),
+            );
+        });
+    });
     if !state.preferences.show_advanced {
         return settings_changed;
     }
 
-    settings_changed |= draw_tile_settings(ui, state);
+    settings_changed |= ui
+        .indent("advanced_settings", |ui| {
+            let mut settings_changed = false;
 
-    group_space(ui);
-    settings_changed |= draw_depth_settings(ui, state);
-
-    match state.engine {
-        QuantEngine::Qualetize => {
-            group_space(ui);
-            settings_changed |= draw_clustering_settings(ui, state);
+            settings_changed |= draw_tile_settings(ui, state);
 
             group_space(ui);
-            settings_changed |= widgets::checkbox(
-                ui,
-                &mut state.settings.premul_alpha,
-                "Premultiplied alpha",
-                Some(
-                    "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
-                ),
-            );
-        }
-        QuantEngine::TilePalQuant => {
-            group_space(ui);
-            settings_changed |= draw_tpq_misc_settings(ui, state);
-        }
-    }
+            settings_changed |= draw_depth_settings(ui, state);
+
+            match state.engine {
+                QuantEngine::Qualetize => {
+                    group_space(ui);
+                    settings_changed |= draw_clustering_settings(ui, state);
+
+                    group_space(ui);
+                    settings_changed |= widgets::checkbox(
+                        ui,
+                        &mut state.settings.premul_alpha,
+                        "Premultiplied alpha",
+                        Some(
+                            "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
+                        ),
+                    );
+                }
+                QuantEngine::TilePalQuant => {
+                    group_space(ui);
+                    settings_changed |= draw_tpq_misc_settings(ui, state);
+                }
+            }
+
+            settings_changed
+        })
+        .inner;
 
     settings_changed
 }
@@ -318,14 +337,27 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 }
 
 fn draw_color_space_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
-    ui.horizontal(|ui| {
-        ui.label("Color space:");
-        widgets::EnumCombo::new("color_space", ColorSpace::all(), ColorSpace::display_name)
-            .description(ColorSpace::description)
-            .hover("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.")
-            .show(ui, &mut state.settings.color_space)
-    })
-    .inner
+    let mut settings_changed = false;
+
+    ui.label("Color space:")
+        .on_hover_text("Set colorspace\nDifferent colorspaces may give better/worse results depending on the input image,\nand it may be necessary to experiment to find the optimal one.");
+
+    ui.indent("color_space_radios", |ui| {
+        ui.horizontal_wrapped(|ui| {
+            for space in ColorSpace::all() {
+                settings_changed |= ui
+                    .radio_value(
+                        &mut state.settings.color_space,
+                        *space,
+                        space.display_name(),
+                    )
+                    .on_hover_text(space.description())
+                    .changed();
+            }
+        });
+    });
+
+    settings_changed
 }
 
 fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
@@ -340,17 +372,21 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     });
 
     if state.settings.dither_mode != DitherMode::None {
-        ui.horizontal(|ui| {
-            ui.label("Dither level:")
-                .on_hover_text("Dithering intensity level");
-            settings_changed |= ui
-                .add(egui::Slider::new(
-                    &mut state.settings.dither_level,
-                    0.0..=2.0,
-                ))
-                .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
-                .changed();
-        });
+        settings_changed |= ui
+            .indent("qualetize_dither_level", |ui| {
+                ui.horizontal(|ui| {
+                    ui.label("Dither level:")
+                        .on_hover_text("Dithering intensity level");
+                    ui.add(egui::Slider::new(
+                        &mut state.settings.dither_level,
+                        0.0..=2.0,
+                    ))
+                    .on_hover_text("Adjust dithering intensity (0.0 = no dithering)")
+                    .changed()
+                })
+                .inner
+            })
+            .inner;
     }
 
     settings_changed
@@ -562,26 +598,33 @@ fn draw_tpq_color_zero_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool
         return settings_changed;
     }
 
-    let from_color = state.tpq_settings.color_zero == ColorZero::TransparentFromColor;
-    let edit = draw_transparency_radios(
-        ui,
-        from_color,
-        &mut state.tpq_settings.transparent_color,
-        (
-            ColorZero::TransparentFromAlpha.description(),
-            ColorZero::TransparentFromColor.description(),
-        ),
-        top_left,
-    );
+    settings_changed |= ui
+        .indent("tpq_color_zero_transparency", |ui| {
+            let from_color = state.tpq_settings.color_zero == ColorZero::TransparentFromColor;
+            let edit = draw_transparency_radios(
+                ui,
+                from_color,
+                &mut state.tpq_settings.transparent_color,
+                (
+                    ColorZero::TransparentFromAlpha.description(),
+                    ColorZero::TransparentFromColor.description(),
+                ),
+                top_left,
+            );
 
-    if edit.from_pixels {
-        state.tpq_settings.color_zero = ColorZero::TransparentFromAlpha;
-        settings_changed = true;
-    } else if edit.from_color {
-        state.tpq_settings.color_zero = ColorZero::TransparentFromColor;
-        settings_changed = true;
-    }
-    settings_changed |= edit.color_changed;
+            let mut changed = false;
+            if edit.from_pixels {
+                state.tpq_settings.color_zero = ColorZero::TransparentFromAlpha;
+                changed = true;
+            } else if edit.from_color {
+                state.tpq_settings.color_zero = ColorZero::TransparentFromColor;
+                changed = true;
+            }
+            changed |= edit.color_changed;
+
+            changed
+        })
+        .inner;
 
     settings_changed
 }
@@ -636,34 +679,45 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
     });
 
     if state.tpq_settings.dither_mode != TpqDitherMode::Off {
-        ui.horizontal(|ui| {
-            settings_changed |= ui
-                .radio_value(
-                    &mut state.tpq_settings.dither_mode,
-                    TpqDitherMode::Fast,
-                    "fast",
-                )
-                .on_hover_text(TpqDitherMode::Fast.description())
-                .changed();
-            settings_changed |= ui
-                .radio_value(
-                    &mut state.tpq_settings.dither_mode,
-                    TpqDitherMode::Slow,
-                    "slow",
-                )
-                .on_hover_text(TpqDitherMode::Slow.description())
-                .changed();
-        });
+        settings_changed |= ui
+            .indent("tpq_dither_details", |ui| {
+                let mut changed = false;
 
-        ui.horizontal(|ui| {
-            ui.label("Weight:");
-            settings_changed |= ui
-                .add(
-                    egui::Slider::new(&mut state.tpq_settings.dither_weight, DITHER_WEIGHT_RANGE)
-                        .fixed_decimals(2),
-                )
-                .changed();
-        });
+                ui.horizontal(|ui| {
+                    changed |= ui
+                        .radio_value(
+                            &mut state.tpq_settings.dither_mode,
+                            TpqDitherMode::Fast,
+                            "fast",
+                        )
+                        .on_hover_text(TpqDitherMode::Fast.description())
+                        .changed();
+                    changed |= ui
+                        .radio_value(
+                            &mut state.tpq_settings.dither_mode,
+                            TpqDitherMode::Slow,
+                            "slow",
+                        )
+                        .on_hover_text(TpqDitherMode::Slow.description())
+                        .changed();
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label("Weight:");
+                    changed |= ui
+                        .add(
+                            egui::Slider::new(
+                                &mut state.tpq_settings.dither_weight,
+                                DITHER_WEIGHT_RANGE,
+                            )
+                            .fixed_decimals(2),
+                        )
+                        .changed();
+                });
+
+                changed
+            })
+            .inner;
     }
 
     settings_changed
@@ -867,22 +921,29 @@ fn draw_qualetize_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) 
         ClearColor::None => DEFAULT_KEY_COLOR,
     };
 
-    let edit = draw_transparency_radios(
-        ui,
-        from_color,
-        &mut color,
-        (QUALETIZE_FROM_PIXELS_HOVER, QUALETIZE_FROM_COLOR_HOVER),
-        top_left,
-    );
+    settings_changed |= ui
+        .indent("qualetize_first_color_transparency", |ui| {
+            let edit = draw_transparency_radios(
+                ui,
+                from_color,
+                &mut color,
+                (QUALETIZE_FROM_PIXELS_HOVER, QUALETIZE_FROM_COLOR_HOVER),
+                top_left,
+            );
 
-    if edit.from_pixels {
-        state.settings.clear_color = ClearColor::None;
-        state.settings.col0_is_clear = true;
-        settings_changed = true;
-    } else if edit.from_color || edit.color_changed {
-        state.settings.clear_color = ClearColor::Rgb(color[0], color[1], color[2]);
-        settings_changed = true;
-    }
+            let mut changed = false;
+            if edit.from_pixels {
+                state.settings.clear_color = ClearColor::None;
+                state.settings.col0_is_clear = true;
+                changed = true;
+            } else if edit.from_color || edit.color_changed {
+                state.settings.clear_color = ClearColor::Rgb(color[0], color[1], color[2]);
+                changed = true;
+            }
+
+            changed
+        })
+        .inner;
 
     settings_changed
 }

@@ -34,13 +34,9 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     (
                         ExportSource::Qualetized,
                         ExportFormat::PngIndexed,
-                        "Qualetized PNG",
+                        "Quantized PNG",
                     ),
-                    (
-                        ExportSource::Qualetized,
-                        ExportFormat::Bmp,
-                        "Qualetized BMP",
-                    ),
+                    (ExportSource::Qualetized, ExportFormat::Bmp, "Quantized BMP"),
                     (
                         ExportSource::TileReduced,
                         ExportFormat::PngIndexed,
