@@ -6,9 +6,9 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum TpqDitherMode {
-    #[default]
     Off,
     /// Dither only when assigning final pixel colors.
+    #[default]
     Fast,
     /// Evaluate palettes with dithering during optimization as well.
     Slow,
@@ -35,10 +35,10 @@ impl TpqDitherMode {
 /// which of the error-diffused candidates a pixel takes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DitherPattern {
-    #[default]
     Diagonal4,
     Horizontal4,
     Vertical4,
+    #[default]
     Diagonal2,
     Horizontal2,
     Vertical2,
@@ -140,10 +140,11 @@ pub const FRACTION_OF_PIXELS_RANGE: std::ops::RangeInclusive<f32> = 0.01..=10.0;
 pub const DITHER_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 0.01..=1.0;
 
 impl TpqSettings {
-    /// Switch dithering off, which is what a Qualetize preset asks of the
-    /// engine-specific settings.
+    /// Restore the preset dithering: fast, Diagonal 2, weight 0.5.
     pub fn reset_dithering(&mut self) {
-        self.dither_mode = TpqDitherMode::Off;
+        self.dither_mode = TpqDitherMode::default();
+        self.dither_pattern = DitherPattern::default();
+        self.dither_weight = default_dither_weight();
     }
 
     /// Clamp values loaded from disk into the ranges the UI enforces.
@@ -181,7 +182,9 @@ mod tests {
             ..TpqSettings::default()
         };
         settings.reset_dithering();
-        assert_eq!(settings.dither_mode, TpqDitherMode::Off);
+        assert_eq!(settings.dither_mode, TpqDitherMode::Fast);
+        assert_eq!(settings.dither_pattern, DitherPattern::Diagonal2);
+        assert_eq!(settings.dither_weight, 0.5);
     }
 
     #[test]
