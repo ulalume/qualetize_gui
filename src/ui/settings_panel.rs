@@ -1,4 +1,4 @@
-use super::styles::{UiMarginExt, error_color, warning_color};
+use super::styles::{error_color, warning_color};
 use super::widgets;
 use crate::color_processor::{
     display_value_to_gamma, format_gamma, format_percentage, gamma_to_display_value,
@@ -70,10 +70,11 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     );
 
     ui.horizontal(|ui| {
-        ui.label("Qualetization engine:");
+        ui.label("Engine:");
         for engine in QuantEngine::all() {
             settings_changed |= ui
                 .radio_value(&mut state.engine, *engine, engine.display_name())
+                .on_hover_text(engine.source())
                 .changed();
         }
     });
@@ -122,7 +123,7 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
                 &mut state.preferences.show_advanced,
                 "Advanced",
                 Some(
-                    "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tilepalquant).",
+                    "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tiledpalettequant).",
                 ),
             );
         });
@@ -793,7 +794,6 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         ui,
         "Tile reduction",
         &mut state.settings.tile_reduce_post_enabled,
-        "Enable",
         Some(
             "Merge similar tiles after quantization using palette-aligned MSE.\nKeep threshold low to avoid visible changes.\nThis pass is heavy and increases processing time.",
         ),
@@ -1024,7 +1024,6 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
         ui,
         "Color correction",
         &mut state.color_correction.enabled,
-        "Enable",
         Some(
             "Adjust the image before quantization.\nWhen off the input image is passed through untouched.",
         ),
@@ -1138,22 +1137,51 @@ fn get_rgba_depth_error(rgba_str: &str) -> Option<String> {
     None
 }
 
+/// "Reorder palette colors": a checkbox heading, matching the other two
+/// sections, standing for whether the mode is [`SortMode::None`]. Turning it
+/// off stores the active mode in `state.palette_sort_mode_memory` and sets
+/// the mode to `None`; turning it back on restores that remembered mode.
 fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
-    ui.heading_with_margin("Reorder palette colors");
+    let mode = &mut state.palette_sort_settings.mode;
+    let mut enabled = *mode != SortMode::None;
+    if widgets::section_header(ui, "Reorder palette colors", &mut enabled, None) {
+        if enabled {
+            *mode = match state.palette_sort_mode_memory {
+                SortMode::None => SortMode::Ramps,
+                remembered => remembered,
+            };
+        } else {
+            state.palette_sort_mode_memory = *mode;
+            *mode = SortMode::None;
+        }
+    }
 
-    ui.horizontal(|ui| {
-        egui::ComboBox::from_id_salt("sort_mode")
-            .selected_text(state.palette_sort_settings.mode.display_name())
-            .show_ui(ui, |ui| {
-                for sort_mode in SortMode::all() {
-                    ui.selectable_value(
-                        &mut state.palette_sort_settings.mode,
-                        *sort_mode,
-                        sort_mode.display_name(),
-                    );
-                }
-            });
-        ui.add_enabled_ui(state.palette_sort_settings.mode != SortMode::None, |ui| {
+    ui.add_enabled_ui(enabled, |ui| {
+        ui.horizontal(|ui| {
+            let mut mode_changed = false;
+            // While off the combo shows the mode that turning it on restores.
+            let shown = if enabled {
+                state.palette_sort_settings.mode
+            } else {
+                state.palette_sort_mode_memory
+            };
+            egui::ComboBox::from_id_salt("sort_mode")
+                .selected_text(shown.display_name())
+                .show_ui(ui, |ui| {
+                    for sort_mode in SortMode::all() {
+                        mode_changed |= ui
+                            .selectable_value(
+                                &mut state.palette_sort_settings.mode,
+                                *sort_mode,
+                                sort_mode.display_name(),
+                            )
+                            .changed();
+                    }
+                });
+            if mode_changed {
+                state.palette_sort_mode_memory = state.palette_sort_settings.mode;
+            }
+
             egui::ComboBox::from_id_salt("sort_order")
                 .selected_text(state.palette_sort_settings.order.display_name())
                 .show_ui(ui, |ui| {

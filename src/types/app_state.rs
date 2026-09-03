@@ -196,6 +196,11 @@ pub struct AppState {
     // Palette Sort Settings
     pub palette_sort_settings: PaletteSortSettings,
     last_palette_sort_settings: PaletteSortSettings,
+    /// The mode to restore when the "Reorder palette colors" checkbox is
+    /// re-enabled after being turned off. Not persisted: only
+    /// `palette_sort_settings.mode` (which becomes [`SortMode::None`] while
+    /// off) is saved to the session.
+    pub palette_sort_mode_memory: SortMode,
     /// Set when the source of the sorted palette changed and it has to be recomputed.
     /// `output_palette_sorted_indexed_image` cannot be used for this on its own, because
     /// `None` is also the legitimate result of `SortMode::None`.
@@ -276,6 +281,10 @@ impl Default for AppState {
 
             palette_sort_settings: session.sort_settings,
             last_palette_sort_settings: session.sort_settings,
+            palette_sort_mode_memory: match session.sort_settings.mode {
+                SortMode::None => SortMode::Ramps,
+                mode => mode,
+            },
             palette_sort_dirty: false,
 
             tile_count: TileCountState::default(),

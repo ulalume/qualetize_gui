@@ -100,20 +100,37 @@ impl<'a, T: Copy + PartialEq + 'static> EnumCombo<'a, T> {
     }
 }
 
-/// A section heading with a toggle (an "Enable" or "Show" checkbox) aligned
-/// to the right edge of the same row, so the switch that governs a section
-/// sits on its title instead of taking a row of its own below it.
+/// A section heading that is itself the toggle governing the section: a
+/// checkbox whose label is the title, drawn in heading style, so the switch
+/// sits on the title instead of taking a row of its own. Clicking the title
+/// text toggles it, since egui checkbox labels are clickable.
 /// Returns whether the toggle changed.
 pub fn section_header(
     ui: &mut egui::Ui,
     title: &str,
     toggle: &mut bool,
-    toggle_label: &str,
     hover: Option<&str>,
 ) -> bool {
-    header_with_toggle(ui, toggle, toggle_label, hover, |ui| {
-        ui.heading(title);
-    })
+    let mut changed = false;
+    header_row(
+        ui,
+        |ui| {
+            // The checkbox square scales with the heading text instead of
+            // using the body-text size `ui.checkbox` defaults to.
+            let heading_height = ui.text_style_height(&egui::TextStyle::Heading);
+            ui.scope(|ui| {
+                ui.spacing_mut().icon_width = heading_height;
+                ui.spacing_mut().icon_width_inner = heading_height * 0.6;
+                let mut response = ui.checkbox(toggle, egui::RichText::new(title).heading());
+                if let Some(hover) = hover {
+                    response = response.on_hover_text(hover);
+                }
+                changed = response.changed();
+            });
+        },
+        |_ui| false,
+    );
+    changed
 }
 
 /// Shared layout for [`section_header`] and the Qualetization heading: draws
@@ -142,18 +159,4 @@ pub fn header_row(
             });
         });
     changed
-}
-
-/// [`header_row`] with a toggle checkbox as the right-aligned control, used
-/// by [`section_header`]. Returns whether the toggle changed.
-fn header_with_toggle(
-    ui: &mut egui::Ui,
-    toggle: &mut bool,
-    toggle_label: &str,
-    hover: Option<&str>,
-    draw_title: impl FnOnce(&mut egui::Ui),
-) -> bool {
-    header_row(ui, draw_title, |ui| {
-        checkbox(ui, toggle, toggle_label, hover)
-    })
 }
