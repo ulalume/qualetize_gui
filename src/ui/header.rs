@@ -84,6 +84,15 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
 
         // --- Edit menu ---
         ui.menu_button("Edit", |ui| {
+            ui.menu_button("Reset qualetization", |ui| {
+                for preset in QualetizePreset::all() {
+                    if ui.button(preset.display_name()).clicked() {
+                        state.apply_qualetize_preset(preset.qualetize_settings());
+                        settings_changed = true;
+                        ui.close();
+                    }
+                }
+            });
             ui.menu_button("Reset color correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
                     if ui.button(preset.display_name()).clicked() {
@@ -93,15 +102,6 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                         state
                             .color_correction
                             .apply_preset(preset.color_correction());
-                        ui.close();
-                    }
-                }
-            });
-            ui.menu_button("Reset qualetization", |ui| {
-                for preset in QualetizePreset::all() {
-                    if ui.button(preset.display_name()).clicked() {
-                        state.apply_qualetize_preset(preset.qualetize_settings());
-                        settings_changed = true;
                         ui.close();
                     }
                 }

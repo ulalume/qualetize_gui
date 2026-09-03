@@ -20,13 +20,13 @@ use std::ops::RangeInclusive;
 const RGBA_CHANNELS: [&str; 4] = ["R", "G", "B", "A"];
 
 pub fn draw_settings_panel(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
+    let settings_changed = draw_quantization_settings(ui, state);
+    ui.separator();
+
     // Color correction settings edit `state.color_correction`, not
     // `state.settings`, and app.rs already detects those changes itself, so
     // this does not feed into `settings_changed`.
     draw_color_correction_settings(ui, state);
-    ui.separator();
-
-    let settings_changed = draw_quantization_settings(ui, state);
     ui.separator();
 
     let tile_reduce_changed = draw_tile_reduce_settings(ui, state);
