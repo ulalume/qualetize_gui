@@ -35,6 +35,9 @@ const REMOVE_OVERLAY_SIZE: f32 = 18.0;
 const REMOVE_OVERLAY_INSET: f32 = 2.0;
 /// Gap between an image and its palette strip.
 const IMAGE_STRIP_GAP: f32 = 1.0;
+/// Tallest an entry's image is drawn: a tall image is shrunk to this, and a
+/// widened panel enlarges an image no further than this.
+const MAX_IMAGE_HEIGHT: f32 = 320.0;
 /// Vertical gap after an entry. The list drops the item spacing between its
 /// entries, so this is the whole gap.
 const ENTRY_SPACING: f32 = 9.0;
@@ -247,18 +250,25 @@ fn draw_entry(
 }
 
 /// The size the image of `entry` is drawn at in a panel `width` wide: the full
-/// width, never past 1:1.
+/// width, unless that would make it taller than [`MAX_IMAGE_HEIGHT`].
 fn image_size(entry: &StoredResult, width: f32) -> Vec2 {
     if entry.width == 0 || entry.height == 0 {
         return Vec2::ZERO;
     }
-    let width = width.min(entry.width as f32).max(1.0);
-    Vec2::new(width, width * entry.height as f32 / entry.width as f32)
+    let aspect = entry.height as f32 / entry.width as f32;
+    let width = width.max(1.0);
+    let height = width * aspect;
+    if height > MAX_IMAGE_HEIGHT {
+        Vec2::new(MAX_IMAGE_HEIGHT / aspect, MAX_IMAGE_HEIGHT)
+    } else {
+        Vec2::new(width, height)
+    }
 }
 
 /// The height of the palette strip of `entry` in a panel `width` wide, the
 /// gaps between its rows included.
 fn strip_height(entry: &StoredResult, width: f32) -> f32 {
+    let width = image_size(entry, width).x;
     let per_palette = entry.colors_per_palette;
     if per_palette == 0 || entry.palettes.is_empty() {
         return 0.0;
@@ -272,7 +282,7 @@ fn entry_height(entry: &StoredResult, width: f32) -> f32 {
     image_size(entry, width).y + IMAGE_STRIP_GAP + strip_height(entry, width) + ENTRY_SPACING
 }
 
-/// The image at the panel's width, never past 1:1, with a small "remove"
+/// The image at the panel's width, capped in height, with a small "remove"
 /// overlay at its top-right corner. Clicking the image applies the entry's
 /// settings; clicking the overlay removes it instead. The texture is only
 /// uploaded once the row has scrolled into view, and the full resolution one
@@ -382,8 +392,10 @@ fn draw_remove_overlay(ui: &mut egui::Ui, entry: &StoredResult, image: Rect) -> 
 
 /// One row per palette, shrunk so a whole palette fits the panel width.
 fn draw_palette_strip(ui: &mut egui::Ui, entry: &StoredResult, alpha: f32) {
-    let width = ui.available_width();
-    let height = strip_height(entry, width);
+    let panel_width = ui.available_width();
+    let height = strip_height(entry, panel_width);
+    // As wide as the image above it.
+    let width = image_size(entry, panel_width).x;
     if height <= 0.0 {
         return;
     }
