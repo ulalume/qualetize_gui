@@ -477,7 +477,13 @@ fn draw_image_panel(ui: &mut egui::Ui, panel: ImagePanel, view_change: &mut View
             }
 
             // Panning
+            // The canvas pans by dragging, so it shows a grab cursor rather
+            // than the pointing hand other clickable widgets get.
+            if response.hovered() && !response.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
             if response.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                 view_change.pan += response.drag_delta();
             }
 

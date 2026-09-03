@@ -736,10 +736,10 @@ fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
     (u64::from(width) * u64::from(height) >= LARGE_IMAGE_PIXELS).then_some((width, height))
 }
 
-/// Show a pointing hand while the pointer is over a widget that only
-/// responds to clicks (buttons, checkboxes, radios, menus, combos). Widgets
-/// that also drag, such as sliders and drag values, keep the cursor egui
-/// gives them.
+/// Show a pointing hand while the pointer is over an enabled widget that
+/// responds to clicks (buttons, checkboxes, radios, menus, combos, sliders).
+/// Widgets that set their own cursor afterwards, such as drag values and
+/// text fields, win.
 fn pointing_hand_over_clickables(ctx: &egui::Context) {
     let over_clickable = ctx.viewport(|viewport| {
         viewport.interact_widgets.hovered.iter().any(|id| {
@@ -747,7 +747,7 @@ fn pointing_hand_over_clickables(ctx: &egui::Context) {
                 .prev_pass
                 .widgets
                 .get(*id)
-                .is_some_and(|w| w.enabled && w.sense.senses_click() && !w.sense.senses_drag())
+                .is_some_and(|w| w.enabled && w.sense.senses_click())
         })
     });
     if over_clickable {
