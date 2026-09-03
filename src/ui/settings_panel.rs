@@ -112,15 +112,21 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     // A preference, not a setting: toggling it changes nothing about the
-    // output, so it does not report back a change.
-    _ = widgets::checkbox(
-        ui,
-        &mut state.preferences.show_advanced,
-        "Advanced",
-        Some(
-            "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tiledpalettequant).",
-        ),
-    );
+    // output, so it does not report back a change. Right-aligned on its own
+    // row. The horizontal row bounds the height; the nested layout only
+    // fills the row from the right.
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            _ = widgets::checkbox(
+                ui,
+                &mut state.preferences.show_advanced,
+                "Advanced",
+                Some(
+                    "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tiledpalettequant).",
+                ),
+            );
+        });
+    });
     if !state.preferences.show_advanced {
         return settings_changed;
     }
