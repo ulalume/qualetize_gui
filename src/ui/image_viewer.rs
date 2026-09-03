@@ -1,7 +1,7 @@
-use super::styles::UiMarginExt;
 use crate::engine::QuantEngine;
+use crate::types::app_state::AppStateRequest;
 use crate::types::{AppState, ImageData, app_state::Toast};
-use egui::{Align2, Color32, FontId, Id, Pos2, Rect, Vec2};
+use egui::{Align2, Color32, ColorImage, FontId, Id, Pos2, Rect, Vec2};
 
 /// Gap between the image panels.
 const PANEL_MARGIN: f32 = 4.0;
@@ -223,9 +223,60 @@ fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
     Some(message)
 }
 
-pub fn draw_main_content(ui: &mut egui::Ui) {
-    ui.centered_and_justified(|ui| {
-        ui.heading_with_margin("📁 Drop an image file here or use 'File > Open image...'");
+/// The sample image offered on the welcome screen.
+const SAMPLE_IMAGE: &[u8] = include_bytes!("../../assets/sample/cat.png");
+const SAMPLE_IMAGE_NAME: &str = "cat.png";
+/// Longest side of the sample thumbnail, in points.
+const SAMPLE_THUMBNAIL_SIZE: f32 = 256.0;
+
+/// The welcome screen shown while no image is loaded: how to open one, and
+/// a sample to try.
+pub fn draw_main_content(ui: &mut egui::Ui, state: &mut AppState) {
+    let thumbnail = state
+        .sample_thumbnail
+        .get_or_insert_with(|| {
+            let image = image::load_from_memory(SAMPLE_IMAGE)
+                .expect("the bundled sample image decodes")
+                .to_rgba8();
+            let size = [image.width() as usize, image.height() as usize];
+            let color_image = ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+            ui.ctx()
+                .load_texture("sample", color_image, egui::TextureOptions::NEAREST)
+        })
+        .clone();
+
+    let thumbnail_size = {
+        let [w, h] = thumbnail.size();
+        let scale = SAMPLE_THUMBNAIL_SIZE / w.max(h) as f32;
+        Vec2::new(w as f32 * scale, h as f32 * scale)
+    };
+
+    // Everything is stacked and centered; the block is placed at a third of
+    // the height rather than the middle so it reads as a welcome, not a dialog.
+    let block_height = 40.0 + thumbnail_size.y + 60.0;
+    ui.add_space(((ui.available_height() - block_height) / 3.0).max(0.0));
+    ui.vertical_centered(|ui| {
+        ui.horizontal(|ui| {
+            let text_width = 260.0 + 110.0;
+            ui.add_space(((ui.available_width() - text_width) / 2.0).max(0.0));
+            ui.heading("📁 Drop an image file here or");
+            if ui.button("Open image...").clicked() {
+                _ = state
+                    .app_state_request_sender
+                    .send(AppStateRequest::OpenImageDialog);
+            }
+        });
+        ui.add_space(24.0);
+        ui.add(egui::Image::new(&thumbnail).fit_to_exact_size(thumbnail_size));
+        ui.add_space(8.0);
+        if ui.button("Try sample image").clicked() {
+            _ = state
+                .app_state_request_sender
+                .send(AppStateRequest::LoadImageBytes {
+                    name: SAMPLE_IMAGE_NAME.to_string(),
+                    bytes: SAMPLE_IMAGE.to_vec(),
+                });
+        }
     });
 }
 fn draw_background_and_pixels(painter: &egui::Painter, canvas: Rect, base_color: Color32) {

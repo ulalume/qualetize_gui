@@ -616,7 +616,7 @@ impl eframe::App for QualetizeApp {
             )
             .show(ui, |ui| {
                 if self.state.input_path.is_none() {
-                    draw_main_content(ui);
+                    draw_main_content(ui, &mut self.state);
                 } else {
                     draw_image_view(ui, &mut self.state, qualetize_processing);
                 }

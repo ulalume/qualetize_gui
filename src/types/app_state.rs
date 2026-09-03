@@ -174,6 +174,9 @@ pub struct AppState {
     /// An image above [`LARGE_IMAGE_PIXELS`] waiting for the user to confirm
     /// loading it, with its size.
     pub pending_large_image: Option<(AppStateRequest, u32, u32)>,
+    /// Thumbnail of the bundled sample image, uploaded the first time the
+    /// welcome screen is drawn.
+    pub sample_thumbnail: Option<egui::TextureHandle>,
     /// Snapshot of what is mirrored to the session file, so it is only rewritten
     /// when something actually changed.
     last_saved_session: SettingsBundle,
@@ -256,6 +259,7 @@ impl Default for AppState {
             tpq_settings: session.tpq_settings.clone(),
             quantize_progress: None,
             pending_large_image: None,
+            sample_thumbnail: None,
             last_saved_session: session.clone(),
             session_save_deadline: None,
             request_update_qualetized_image: None,
