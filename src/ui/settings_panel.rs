@@ -82,10 +82,6 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     settings_changed |= draw_palette_size_settings(ui, state);
 
-    // The palette layout stands apart from the per-engine rows below it.
-    group_space(ui);
-    ui.add_space(ui.spacing().interact_size.y);
-
     match state.engine {
         QuantEngine::Qualetize => {
             settings_changed |= draw_first_color_settings(ui, state);
