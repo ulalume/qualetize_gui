@@ -184,7 +184,6 @@ fn check_case(case: &Case) -> Result<(), String> {
         dither_pattern: dither_pattern(&params.dither_pat),
         dither_weight: params.dither_wt,
         rand_seed: params.rand_seed,
-        randomize_seed: false,
         show_progress: false,
     };
     let cancel = AtomicBool::new(false);

@@ -183,9 +183,6 @@ impl QualetizeApp {
 
         self.state.request_update_qualetized_image = None;
         self.image_processor.cancel_tile_reduce();
-        if self.state.tpq_settings.randomize_seed {
-            self.state.tpq_settings.rand_seed = rand_seed_from_clock();
-        }
         self.state.quantize_progress = Some(0);
         self.image_processor.start_quantize(
             &color_corrected_image.rgba_data,
@@ -688,16 +685,6 @@ fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
     }
     .ok()?;
     (u64::from(width) * u64::from(height) >= LARGE_IMAGE_PIXELS).then_some((width, height))
-}
-
-/// A seed for a run that asked for a random one. Wall clock nanoseconds are
-/// plenty: the seed is recorded in the settings, so any value reproduces.
-fn rand_seed_from_clock() -> u32 {
-    let nanos = crate::time::SystemTime::now()
-        .duration_since(crate::time::UNIX_EPOCH)
-        .map(|d| d.subsec_nanos() ^ (d.as_secs() as u32))
-        .unwrap_or(0);
-    nanos.max(1)
 }
 
 /// Smallest size at or above `size` whose sides are multiples of the tile size.

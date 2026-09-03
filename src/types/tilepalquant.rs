@@ -102,9 +102,6 @@ pub struct TpqSettings {
     pub dither_weight: f32,
     #[serde(default)]
     pub rand_seed: u32,
-    /// Pick a fresh seed for every run and write it back to `rand_seed`.
-    #[serde(default)]
-    pub randomize_seed: bool,
     /// Report intermediate quantizations while running.
     #[serde(default = "default_true")]
     pub show_progress: bool,
@@ -130,7 +127,6 @@ impl Default for TpqSettings {
             dither_pattern: DitherPattern::default(),
             dither_weight: default_dither_weight(),
             rand_seed: 0,
-            randomize_seed: false,
             show_progress: true,
         }
     }
@@ -138,6 +134,16 @@ impl Default for TpqSettings {
 
 pub const FRACTION_OF_PIXELS_RANGE: std::ops::RangeInclusive<f32> = 0.01..=10.0;
 pub const DITHER_WEIGHT_RANGE: std::ops::RangeInclusive<f32> = 0.01..=1.0;
+
+/// A fresh non-zero seed from the wall clock; the seed is recorded in the
+/// settings, so any value reproduces.
+pub fn random_seed() -> u32 {
+    let nanos = crate::time::SystemTime::now()
+        .duration_since(crate::time::UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() ^ (d.as_secs() as u32))
+        .unwrap_or(0);
+    nanos.max(1)
+}
 
 impl TpqSettings {
     /// Restore the preset dithering: fast, Diagonal 2, weight 0.5.
@@ -214,7 +220,7 @@ mod tests {
     fn an_old_settings_file_still_loads_with_the_moved_fields_present() {
         let settings: TpqSettings = serde_json::from_str(
             r#"{"color_zero": "Shared", "shared_color": [1, 2, 3],
-                 "transparent_color": [4, 5, 6], "rand_seed": 7}"#,
+                 "transparent_color": [4, 5, 6], "rand_seed": 7, "randomize_seed": true}"#,
         )
         .expect("loads");
         assert_eq!(settings.rand_seed, 7);
