@@ -50,7 +50,7 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     settings_changed |= widgets::heading_with_combo(
         ui,
-        "Qualetize",
+        "Qualetization",
         "Engine:",
         widgets::EnumCombo::new(
             "quant_engine",
@@ -191,7 +191,7 @@ fn draw_palette_size_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
 fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
-    ui.label("Per-channel levels (0-255, comma separated, max 255 entries)");
+    ui.label("Per-channel levels (0-255, comma separated)");
 
     for (idx, label) in RGBA_CHANNELS.iter().enumerate() {
         ui.horizontal(|ui| {
@@ -221,9 +221,7 @@ fn draw_custom_level_inputs(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
             if !is_valid {
                 ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
-                    .on_hover_text(
-                        "Enter comma-separated integers between 0 and 255 (max 255 entries)",
-                    );
+                    .on_hover_text("Enter comma-separated integers between 0 and 255");
             }
         });
     }

@@ -84,6 +84,19 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
 
         // --- Edit menu ---
         ui.menu_button("Edit", |ui| {
+            ui.menu_button("Reset color correction", |ui| {
+                for preset in ColorCorrectionPreset::all() {
+                    if ui.button(preset.display_name()).clicked() {
+                        // Edits `state.color_correction`, not `state.settings`;
+                        // app.rs detects that change itself, so this does not
+                        // need to request a re-quantization.
+                        state
+                            .color_correction
+                            .apply_preset(preset.color_correction());
+                        ui.close();
+                    }
+                }
+            });
             ui.menu_button("Reset Qualetize", |ui| {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
@@ -99,19 +112,6 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                 tile_reduce_changed = true;
                 ui.close();
             }
-            ui.menu_button("Reset color correction", |ui| {
-                for preset in ColorCorrectionPreset::all() {
-                    if ui.button(preset.display_name()).clicked() {
-                        // Edits `state.color_correction`, not `state.settings`;
-                        // app.rs detects that change itself, so this does not
-                        // need to request a re-quantization.
-                        state
-                            .color_correction
-                            .apply_preset(preset.color_correction());
-                        ui.close();
-                    }
-                }
-            });
             ui.separator();
             ui.menu_button("Export format", |ui| {
                 for format in ExportFormat::indexed_list() {
