@@ -41,6 +41,8 @@ pub struct QualetizePlan {
     pub transparent_color: BGRA8,
     pub custom_levels: [*const f32; 4],
     pub custom_level_count: [u8; 4],
+    pub first_color_is_shared: u8,
+    pub shared_color: BGRA8,
 }
 
 unsafe extern "C" {
@@ -86,8 +88,7 @@ impl ClearColor {
     }
 }
 
-/// What goes into index 0 of every palette. Shared by both engines; Qualetize
-/// has no shared color and runs [`FirstColor::Shared`] as [`FirstColor::Unique`].
+/// What goes into index 0 of every palette. Shared by both engines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum FirstColor {
     /// An ordinary quantized color, different per palette.
@@ -105,9 +106,7 @@ impl FirstColor {
     pub fn description(&self) -> &'static str {
         match self {
             FirstColor::Unique => "Index 0 is a normal color, chosen per palette",
-            FirstColor::Shared => {
-                "Index 0 of every palette is the same color; Qualetize has no shared color and treats this as Unique"
-            }
+            FirstColor::Shared => "Index 0 of every palette is the same color, set below",
             FirstColor::TransparentFromAlpha => {
                 "Index 0 is transparent; pixels with alpha below 255 map to it"
             }
@@ -561,6 +560,11 @@ impl From<QualetizeSettings> for QualetizePlanOwned {
             transparent_color: settings.clear_color.to_bgra8(),
             custom_levels: [ptr::null(); 4],
             custom_level_count: [0; 4],
+            first_color_is_shared: u8::from(settings.first_color() == FirstColor::Shared),
+            shared_color: {
+                let [r, g, b] = settings.shared_color;
+                BGRA8 { b, g, r, a: 0xFF }
+            },
         };
 
         let mut custom_level_storage: [Option<Box<[f32]>>; 4] = [None, None, None, None];

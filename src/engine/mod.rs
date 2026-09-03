@@ -184,6 +184,37 @@ mod tests {
         assert!(result.indexed_data.iter().all(|&i| (i as usize) < 16));
     }
 
+    /// Every palette starts with the shared color, exactly as given.
+    #[test]
+    fn qualetize_pins_the_shared_color_at_index_zero_of_every_palette() {
+        let cancel = AtomicBool::new(false);
+        let ctx = RunContext {
+            cancel: &cancel,
+            progress: None,
+        };
+        let mut settings = QualetizeSettings::genesis();
+        settings.n_palettes = 2;
+        settings.tile_passes = 4;
+        settings.color_passes = 4;
+        settings.shared_color = [0, 49, 255];
+        settings.set_first_color(FirstColor::Shared);
+        let result = run(
+            QuantEngine::Qualetize,
+            &gradient(),
+            16,
+            16,
+            &settings,
+            &TpqSettings::default(),
+            &ctx,
+        )
+        .expect("not cancelled")
+        .expect("succeeds");
+        for palette in result.palette_data.chunks(16) {
+            let first = palette[0];
+            assert_eq!((first.r, first.g, first.b, first.a), (0, 49, 255, 255));
+        }
+    }
+
     #[test]
     fn a_cancelled_qualetize_run_returns_nothing() {
         let cancel = AtomicBool::new(true);
