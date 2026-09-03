@@ -1,9 +1,9 @@
 //! Parity between `palette_ramps::ramp_order` and the reference
-//! implementation in `.doc/palette-order/recommended.py`.
+//! implementation in `.doc/palette-order/ramps_v3.py`.
 //!
 //! `tests/fixtures/ramps/gen.py` regenerates `cases.json` by running the
-//! reference over 16-color chunks of every sample palette and three
-//! shuffled variants of sweetie-16.
+//! reference over 16-color chunks of every sample palette, three shuffled
+//! variants of sweetie-16 and two quantizer palettes.
 
 use qualetize_gui::types::palette_ramps::ramp_order;
 use serde::Deserialize;
@@ -12,6 +12,7 @@ use std::path::{Path, PathBuf};
 #[derive(Deserialize)]
 struct Case {
     name: String,
+    hue_gap: f64,
     input: Vec<[u8; 3]>,
     expected: Vec<[u8; 3]>,
 }
@@ -39,7 +40,7 @@ fn the_fixture_set_is_not_empty() {
 #[test]
 fn ramp_order_matches_the_reference_implementation() {
     for case in cases() {
-        let order = ramp_order(&case.input);
+        let order = ramp_order(&case.input, case.hue_gap);
 
         let mut seen = order.clone();
         seen.sort_unstable();

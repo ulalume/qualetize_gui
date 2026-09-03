@@ -1,6 +1,6 @@
 use super::BGRA8;
 use super::ColorCorrection;
-use super::palette_ramps::ramp_order;
+use super::palette_ramps::{DEFAULT_HUE_GAP, ramp_order};
 use crate::color_processor::ColorProcessor;
 use egui::{Color32, ColorImage, TextureHandle};
 use image::{DynamicImage, ImageDecoder, ImageReader, metadata::Orientation};
@@ -32,10 +32,28 @@ pub struct TileCountOptions {
     pub allow_flip_y: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PaletteSortSettings {
     pub mode: SortMode,
     pub order: SortOrder,
+    /// Hue distance, in degrees, that starts a new group of ramps in
+    /// [`SortMode::Ramps`].
+    #[serde(default = "default_ramps_hue_gap")]
+    pub ramps_hue_gap: f32,
+}
+
+fn default_ramps_hue_gap() -> f32 {
+    DEFAULT_HUE_GAP
+}
+
+impl Default for PaletteSortSettings {
+    fn default() -> Self {
+        Self {
+            mode: SortMode::default(),
+            order: SortOrder::default(),
+            ramps_hue_gap: DEFAULT_HUE_GAP,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
@@ -138,6 +156,7 @@ impl ImageDataIndexed {
         &self,
         mode: SortMode,
         order: SortOrder,
+        ramps_hue_gap: f32,
         first_color_is_transparent: bool,
     ) -> Self {
         let colors_per_palette = self.colors_per_palette();
@@ -161,7 +180,7 @@ impl ImageDataIndexed {
             }
 
             let order_of: Vec<usize> = if mode == SortMode::Ramps {
-                Self::ramps_order_of(palette, order, first_color_is_transparent)
+                Self::ramps_order_of(palette, order, ramps_hue_gap, first_color_is_transparent)
             } else {
                 let mut order_of: Vec<usize> = (0..colors_per_palette).collect();
                 order_of.sort_by(|&a, &b| {
@@ -221,6 +240,7 @@ impl ImageDataIndexed {
     fn ramps_order_of(
         palette: &[Color32],
         order: SortOrder,
+        ramps_hue_gap: f32,
         first_color_is_transparent: bool,
     ) -> Vec<usize> {
         let n = palette.len();
@@ -232,7 +252,7 @@ impl ImageDataIndexed {
             .map(|&i| [palette[i].r(), palette[i].g(), palette[i].b()])
             .collect();
 
-        let mut computed: Vec<usize> = ramp_order(&colors)
+        let mut computed: Vec<usize> = ramp_order(&colors, ramps_hue_gap as f64)
             .into_iter()
             .map(|i| rest_indices[i])
             .collect();
@@ -786,7 +806,12 @@ mod tests {
         let image = two_palettes();
         let before = resolved_colors(&image, 4);
 
-        let sorted = image.sorted(SortMode::Luminance, SortOrder::Ascending, false);
+        let sorted = image.sorted(
+            SortMode::Luminance,
+            SortOrder::Ascending,
+            DEFAULT_HUE_GAP,
+            false,
+        );
 
         assert_eq!(resolved_colors(&sorted, 4), before);
         assert_eq!(sorted.palettes.len(), image.palettes.len());
@@ -794,7 +819,12 @@ mod tests {
 
     #[test]
     fn sorted_orders_each_palette_independently() {
-        let sorted = two_palettes().sorted(SortMode::Luminance, SortOrder::Ascending, false);
+        let sorted = two_palettes().sorted(
+            SortMode::Luminance,
+            SortOrder::Ascending,
+            DEFAULT_HUE_GAP,
+            false,
+        );
 
         for palette in &sorted.palettes_for_ui {
             let luminances: Vec<u8> = palette.iter().map(|c| c.r()).collect();
@@ -807,7 +837,12 @@ mod tests {
 
     #[test]
     fn sorted_descending_reverses_the_order() {
-        let sorted = two_palettes().sorted(SortMode::Luminance, SortOrder::Descending, false);
+        let sorted = two_palettes().sorted(
+            SortMode::Luminance,
+            SortOrder::Descending,
+            DEFAULT_HUE_GAP,
+            false,
+        );
 
         for palette in &sorted.palettes_for_ui {
             let luminances: Vec<u8> = palette.iter().map(|c| c.r()).collect();
@@ -820,7 +855,12 @@ mod tests {
 
     #[test]
     fn sorted_pins_the_transparent_first_color() {
-        let sorted = two_palettes().sorted(SortMode::Luminance, SortOrder::Ascending, true);
+        let sorted = two_palettes().sorted(
+            SortMode::Luminance,
+            SortOrder::Ascending,
+            DEFAULT_HUE_GAP,
+            true,
+        );
 
         // Index 0 of each palette must keep its original color.
         assert_eq!(
@@ -839,7 +879,12 @@ mod tests {
 
     #[test]
     fn sorted_ramps_sorts_a_grayscale_palette_dark_to_light() {
-        let sorted = two_palettes().sorted(SortMode::Ramps, SortOrder::Ascending, false);
+        let sorted = two_palettes().sorted(
+            SortMode::Ramps,
+            SortOrder::Ascending,
+            DEFAULT_HUE_GAP,
+            false,
+        );
 
         for palette in &sorted.palettes_for_ui {
             let luminances: Vec<u8> = palette.iter().map(|c| c.r()).collect();
@@ -856,7 +901,8 @@ mod tests {
 
     #[test]
     fn sorted_ramps_pins_the_transparent_first_color() {
-        let sorted = two_palettes().sorted(SortMode::Ramps, SortOrder::Ascending, true);
+        let sorted =
+            two_palettes().sorted(SortMode::Ramps, SortOrder::Ascending, DEFAULT_HUE_GAP, true);
 
         assert_eq!(
             sorted.palettes_for_ui[0][0],
@@ -875,7 +921,12 @@ mod tests {
     #[test]
     fn sorted_is_a_noop_without_palettes() {
         let empty = ImageDataIndexed::new(Vec::new(), 4, vec![0, 1, 2]);
-        let sorted = empty.sorted(SortMode::Luminance, SortOrder::Ascending, false);
+        let sorted = empty.sorted(
+            SortMode::Luminance,
+            SortOrder::Ascending,
+            DEFAULT_HUE_GAP,
+            false,
+        );
         assert_eq!(sorted.indexed_pixels, vec![0, 1, 2]);
     }
 

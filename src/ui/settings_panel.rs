@@ -1165,8 +1165,31 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                     }
                 });
         });
+
+        if state.palette_sort_settings.mode == SortMode::Ramps {
+            ui.label("Hue grouping:");
+            let gap = &mut state.palette_sort_settings.ramps_hue_gap;
+            let changed = ui
+                .add(
+                    egui::DragValue::new(gap)
+                        .range(HUE_GAP_RANGE)
+                        .speed(HUE_GAP_STEP)
+                        .fixed_decimals(0)
+                        .suffix("°"),
+                )
+                .on_hover_text(HUE_GAP_HOVER)
+                .changed();
+            if changed {
+                *gap = snap(*gap, HUE_GAP_STEP);
+            }
+        }
     });
 }
+
+/// Bounds and step of the "Hue grouping" control, in degrees.
+const HUE_GAP_RANGE: std::ops::RangeInclusive<f32> = 5.0..=60.0;
+const HUE_GAP_STEP: f32 = 1.0;
+const HUE_GAP_HOVER: &str = "Hue distance that starts a new group of ramps; lower keeps hues apart, higher merges neighbouring hues into one dark-to-light run";
 
 #[cfg(test)]
 mod tests {

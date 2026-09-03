@@ -2,10 +2,11 @@
 
     python3 tests/fixtures/ramps/gen.py
 
-Runs .doc/palette-order/ramps_v2.py, the algorithm the Rust port in
+Runs .doc/palette-order/ramps_v3.py, the algorithm the Rust port in
 src/types/palette_ramps.rs replicates, over 16-color chunks of every sample
-palette, three shuffled variants of sweetie-16 and a quantizer palette, and
-writes the expected orders as JSON.
+palette, three shuffled variants of sweetie-16 and two quantizer palettes, and
+writes the expected orders as JSON. Each case carries the hue gap it was
+generated with.
 """
 
 import json
@@ -16,9 +17,18 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / ".doc" / "palette-order"))
 
 from palcore import all_palettes  # noqa: E402
-from ramps_v2 import sort_palette  # noqa: E402
+from ramps_v3 import BLOCK_GAP, sort_palette  # noqa: E402
 
 OUT = Path(__file__).parent / "cases.json"
+
+
+def case(name, colors, hue_gap=BLOCK_GAP):
+    return {
+        "name": name,
+        "hue_gap": hue_gap,
+        "input": colors,
+        "expected": sort_palette(colors, pin_first=False, block_gap=hue_gap),
+    }
 
 
 def chunk_cases():
@@ -28,13 +38,7 @@ def chunk_cases():
             chunk = colors[i : i + 16]
             if len(chunk) < 4:
                 continue
-            cases.append(
-                {
-                    "name": f"{name}[{i}:{i + len(chunk)}]",
-                    "input": chunk,
-                    "expected": sort_palette(chunk, pin_first=False),
-                }
-            )
+            cases.append(case(f"{name}[{i}:{i + len(chunk)}]", chunk))
     return cases
 
 
@@ -49,15 +53,9 @@ def shuffle_cases():
     cases = []
     for k, shuffled in enumerate(shuffles):
         assert sorted(shuffled) == sorted(colors), "shuffle must keep the same colors"
-        got = sort_palette(shuffled, pin_first=False)
-        assert got == expected, "the order must not depend on the input order"
-        cases.append(
-            {
-                "name": f"sweetie-16-shuffle-{k}",
-                "input": shuffled,
-                "expected": got,
-            }
-        )
+        entry = case(f"sweetie-16-shuffle-{k}", shuffled)
+        assert entry["expected"] == expected, "the order must not depend on the input order"
+        cases.append(entry)
     return cases
 
 
@@ -83,16 +81,38 @@ QUANTIZED = [
 ]
 
 
-def quantized_case():
-    return [
-        {
-            "name": "carina-nebula-tilepalquant",
-            "input": QUANTIZED,
-            "expected": sort_palette(QUANTIZED, pin_first=False),
-        }
+# A Qualetize palette (a.png, Genesis full palettes, palette 2) with its pinned
+# index 0 dropped: one wide hue block of greens, olives, yellows and a brown.
+QUALETIZE = [
+    (0xCE, 0xCE, 0xCE),
+    (0x31, 0x57, 0x31),
+    (0x92, 0xAE, 0x77),
+    (0xAE, 0x77, 0x31),
+    (0x57, 0x92, 0x31),
+    (0x77, 0xAE, 0x31),
+    (0x77, 0x77, 0x31),
+    (0x92, 0x92, 0x31),
+    (0x92, 0x92, 0x57),
+    (0xAE, 0xAE, 0x77),
+    (0xCE, 0xCE, 0x92),
+    (0xCE, 0xAE, 0x31),
+    (0xAE, 0xCE, 0x31),
+    (0xCE, 0xCE, 0x31),
+    (0x31, 0x92, 0xAE),
+]
+
+
+def quantized_cases():
+    """The two quantizer palettes, the second one twice to exercise the hue gap."""
+    cases = [
+        case("carina-nebula-tilepalquant", QUANTIZED),
+        case("a-png-qualetize-palette-2", QUALETIZE),
+        case("a-png-qualetize-palette-2-gap10", QUALETIZE, hue_gap=10.0),
     ]
+    assert cases[1]["expected"] != cases[2]["expected"], "the hue gap must change the order"
+    return cases
 
 
-cases = chunk_cases() + shuffle_cases() + quantized_case()
+cases = chunk_cases() + shuffle_cases() + quantized_cases()
 OUT.write_text(json.dumps(cases, indent=2) + "\n")
 print(f"wrote {len(cases)} cases to {OUT}")

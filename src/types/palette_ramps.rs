@@ -1,15 +1,20 @@
 //! The "Ramps" palette sort: neutrals first, then the chromatic colors cut into
-//! hue blocks, each block ordered dark to light in OKLab.
+//! hue blocks, each block's ramps walked along the hue wheel and each ramp dark
+//! to light in OKLab.
 //!
 //! `Cref`, the 90th-percentile chroma, scales every chroma threshold below so the
-//! grouping adapts to how saturated the palette is.
+//! grouping adapts to how saturated the palette is, and the ramp merge radius is
+//! raised to the palette's own nearest-neighbour spacing so a sparse quantizer
+//! palette groups into ramps the way a dense hand-made one does.
 
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
-/// Merge radius for single-link clustering, as a multiple of `Cref`.
+/// Floor of the ramp merge radius, as a multiple of `Cref`.
 const MERGE_K: f64 = 0.12;
+/// Multiple of the median nearest-neighbour distance the merge radius rises to.
+const ADAPT: f64 = 1.3;
 /// Mean chroma, as a multiple of `Cref`, below which a group counts as neutral.
 const NEUTRAL_K: f64 = 0.30;
 /// Weight on the chroma term of the merge distance, relative to the hue term.
@@ -17,7 +22,7 @@ const CHROMA_W: f64 = 0.55;
 /// `Cref` below which the whole palette is treated as grayscale.
 const GRAY_PAL: f64 = 0.02;
 /// Hue gap, in degrees, that starts a new block of chromatic colors.
-const BLOCK_GAP: f64 = 25.0;
+pub const DEFAULT_HUE_GAP: f32 = 25.0;
 
 /// Lightness, chroma and hue (radians) of one color in OKLab / OKLCh.
 struct Lch {
@@ -30,10 +35,10 @@ struct Lch {
 /// `0..colors.len()`. Deterministic regardless of the input order.
 ///
 /// The neutral group comes first, then the chromatic colors walk the hue wheel
-/// from the widest empty arc. A hue gap of at least [`BLOCK_GAP`] starts a new
-/// block; within a block, merge groups run dark to light, and so do the colors
-/// inside each merge group.
-pub fn ramp_order(colors: &[[u8; 3]]) -> Vec<usize> {
+/// from the widest empty arc. A hue gap of at least `hue_gap_degrees` starts a
+/// new block; within a block, merge groups run along the hue wheel and the
+/// colors inside each merge group run dark to light.
+pub fn ramp_order(colors: &[[u8; 3]], hue_gap_degrees: f64) -> Vec<usize> {
     let n = colors.len();
     if n < 2 {
         return (0..n).collect();
@@ -60,6 +65,7 @@ pub fn ramp_order(colors: &[[u8; 3]]) -> Vec<usize> {
 
     let merge_threshold = MERGE_K * cref;
     let neutral_threshold = NEUTRAL_K * cref;
+    let sub_threshold = adaptive_threshold(&p, merge_threshold, neutral_threshold);
 
     let groups = single_link_groups(&p, &all, merge_threshold);
     let neutral = neutral_group(&p, groups, neutral_threshold);
@@ -72,14 +78,58 @@ pub fn ramp_order(colors: &[[u8; 3]]) -> Vec<usize> {
     chromatic.sort_by(|&i, &j| cmp_f64(deg(&p, i), deg(&p, j)));
 
     let mut out = sorted_by_lightness(&p, &neutral);
-    for block in hue_blocks(&p, &chromatic) {
-        let mut subgroups = single_link_groups(&p, &block, merge_threshold);
-        subgroups.sort_by(|a, b| subgroup_key(&p, a).cmp_key(&subgroup_key(&p, b)));
+    for block in hue_blocks(&p, &chromatic, hue_gap_degrees) {
+        let mut subgroups = single_link_groups(&p, &block, sub_threshold);
+        let start_hue = deg(&p, block[0]);
+        subgroups.sort_by(|a, b| {
+            subgroup_key(&p, a, start_hue).cmp_key(&subgroup_key(&p, b, start_hue))
+        });
+        // Walk the block the other way when its hue order ends darker than it
+        // starts, so a block whose hue and lightness run opposite ways still
+        // reads dark to light.
+        if subgroups.len() > 1
+            && mean_lightness(&p, &subgroups[subgroups.len() - 1])
+                < mean_lightness(&p, &subgroups[0])
+        {
+            subgroups.reverse();
+        }
         for group in subgroups {
             out.extend(sorted_by_lightness(&p, &group));
         }
     }
     out
+}
+
+/// The merge radius used inside a block: [`MERGE_K`] x `Cref`, raised to
+/// [`ADAPT`] x the median nearest-neighbour distance of the chromatic colors.
+///
+/// Only the colors above `neutral_threshold` feed the estimate: the metric
+/// collapses to nothing near `C = 0`, so the neutrals would drag the median
+/// down. The neutral group itself keeps the fixed radius, which the adaptive
+/// one is wide enough to spill dark browns into.
+fn adaptive_threshold(p: &[Lch], merge_threshold: f64, neutral_threshold: f64) -> f64 {
+    let mut spread: Vec<usize> = (0..p.len())
+        .filter(|&i| p[i].c > neutral_threshold)
+        .collect();
+    if spread.len() < 2 {
+        spread = (0..p.len()).collect();
+    }
+    if spread.len() < 2 {
+        return merge_threshold;
+    }
+
+    let mut nearest: Vec<f64> = spread
+        .iter()
+        .map(|&i| {
+            spread
+                .iter()
+                .filter(|&&j| j != i)
+                .map(|&j| dist(p, i, j))
+                .fold(f64::INFINITY, f64::min)
+        })
+        .collect();
+    nearest.sort_by(|a, b| cmp_f64(*a, *b));
+    merge_threshold.max(ADAPT * nearest[nearest.len() / 2])
 }
 
 /// sRGB8 -> linear -> OKLab, Ottosson's constants.
@@ -251,9 +301,9 @@ fn neutral_group(p: &[Lch], mut groups: Vec<Vec<usize>>, neutral_threshold: f64)
 }
 
 /// `chromatic`, already sorted by hue, cut into blocks at every hue gap of at
-/// least [`BLOCK_GAP`], starting with the block that follows the widest gap.
+/// least `hue_gap_degrees`, starting with the block that follows the widest gap.
 /// Without any such gap the whole wheel is one block.
-fn hue_blocks(p: &[Lch], chromatic: &[usize]) -> Vec<Vec<usize>> {
+fn hue_blocks(p: &[Lch], chromatic: &[usize], hue_gap_degrees: f64) -> Vec<Vec<usize>> {
     let m = chromatic.len();
     if m == 0 {
         return Vec::new();
@@ -267,7 +317,9 @@ fn hue_blocks(p: &[Lch], chromatic: &[usize]) -> Vec<Vec<usize>> {
             widest = k;
         }
     }
-    let cuts: Vec<bool> = (0..m).map(|k| gap(k) >= BLOCK_GAP || k == widest).collect();
+    let cuts: Vec<bool> = (0..m)
+        .map(|k| gap(k) >= hue_gap_degrees || k == widest)
+        .collect();
 
     let start = (widest + 1) % m;
     let mut blocks = Vec::new();
@@ -285,8 +337,9 @@ fn hue_blocks(p: &[Lch], chromatic: &[usize]) -> Vec<Vec<usize>> {
     blocks
 }
 
-/// Sort key of a merge group inside a block: mean lightness, then the darkest
-/// and the least saturated color, so equal means stay deterministic.
+/// Sort key of a merge group inside a block: mean hue measured forward from the
+/// block's first hue, then mean lightness and the least saturated color, so
+/// equal hues stay deterministic.
 struct SubgroupKey(f64, f64, f64);
 
 impl SubgroupKey {
@@ -297,10 +350,14 @@ impl SubgroupKey {
     }
 }
 
-fn subgroup_key(p: &[Lch], g: &[usize]) -> SubgroupKey {
-    let min_l = g.iter().map(|&i| p[i].l).fold(f64::INFINITY, f64::min);
+fn subgroup_key(p: &[Lch], g: &[usize], start_hue: f64) -> SubgroupKey {
+    let mean_hue = g
+        .iter()
+        .map(|&i| py_mod(deg(p, i) - start_hue, 360.0))
+        .sum::<f64>()
+        / g.len() as f64;
     let min_c = g.iter().map(|&i| p[i].c).fold(f64::INFINITY, f64::min);
-    SubgroupKey(mean_lightness(p, g), min_l, min_c)
+    SubgroupKey(mean_hue, mean_lightness(p, g), min_c)
 }
 
 /// The indices in `group` sorted by (lightness, chroma) ascending.
@@ -321,7 +378,7 @@ mod tests {
     #[test]
     fn grayscale_palette_sorts_dark_to_light() {
         let colors = [gray(200), gray(0), gray(120), gray(60), gray(255)];
-        let order = ramp_order(&colors);
+        let order = ramp_order(&colors, DEFAULT_HUE_GAP as f64);
         let sorted: Vec<u8> = order.iter().map(|&i| colors[i][0]).collect();
         assert_eq!(sorted, vec![0, 60, 120, 200, 255]);
     }
@@ -338,7 +395,7 @@ mod tests {
             [10, 10, 10],
             [245, 245, 245],
         ];
-        let order = ramp_order(&colors);
+        let order = ramp_order(&colors, DEFAULT_HUE_GAP as f64);
         let mut seen: Vec<usize> = order.clone();
         seen.sort_unstable();
         assert_eq!(seen, (0..colors.len()).collect::<Vec<_>>());
@@ -361,12 +418,12 @@ mod tests {
             [40, 40, 43],
         ];
 
-        let order_a = ramp_order(&colors);
+        let order_a = ramp_order(&colors, DEFAULT_HUE_GAP as f64);
         let result_a: Vec<[u8; 3]> = order_a.iter().map(|&i| colors[i]).collect();
 
         let mut shuffled: Vec<[u8; 3]> = colors.into_iter().rev().collect();
         shuffled.rotate_left(3);
-        let order_b = ramp_order(&shuffled);
+        let order_b = ramp_order(&shuffled, DEFAULT_HUE_GAP as f64);
         let result_b: Vec<[u8; 3]> = order_b.iter().map(|&i| shuffled[i]).collect();
 
         assert_eq!(result_a, result_b);
