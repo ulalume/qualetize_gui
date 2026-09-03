@@ -56,7 +56,7 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         },
         |ui| {
             let mut applied = false;
-            ui.menu_button("Preset…", |ui| {
+            ui.menu_button("Load preset…", |ui| {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
                         state.apply_qualetize_preset(preset.qualetize_settings());
