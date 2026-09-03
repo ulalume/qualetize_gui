@@ -87,9 +87,13 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
 
 /// One entry: image (with its palette strip below) and the remove overlay.
 fn draw_entry(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) {
-    draw_entry_image(ui, entry, panel);
-    ui.add_space(2.0);
-    draw_palette_strip(ui, entry);
+    ui.scope(|ui| {
+        // Exactly one point between the image and its palette strip.
+        ui.spacing_mut().item_spacing.y = 0.0;
+        draw_entry_image(ui, entry, panel);
+        ui.add_space(1.0);
+        draw_palette_strip(ui, entry);
+    });
     ui.add_space(ENTRY_SPACING);
 }
 
