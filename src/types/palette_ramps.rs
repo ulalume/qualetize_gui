@@ -1,7 +1,7 @@
-//! The "Ramps" palette sort: colors are grouped into ramps by hue and chroma
-//! in OKLab, neutrals first, each ramp ordered dark to light.
+//! The "Ramps" palette sort: neutrals first, then the chromatic colors cut into
+//! hue blocks, each block ordered dark to light in OKLab.
 //!
-//! `Cref`, the 90th-percentile chroma, scales every threshold below so the
+//! `Cref`, the 90th-percentile chroma, scales every chroma threshold below so the
 //! grouping adapts to how saturated the palette is.
 
 use std::cmp::Ordering;
@@ -16,6 +16,8 @@ const NEUTRAL_K: f64 = 0.30;
 const CHROMA_W: f64 = 0.55;
 /// `Cref` below which the whole palette is treated as grayscale.
 const GRAY_PAL: f64 = 0.02;
+/// Hue gap, in degrees, that starts a new block of chromatic colors.
+const BLOCK_GAP: f64 = 25.0;
 
 /// Lightness, chroma and hue (radians) of one color in OKLab / OKLCh.
 struct Lch {
@@ -26,6 +28,11 @@ struct Lch {
 
 /// `colors` reordered into ramps: indices into `colors`, one permutation of
 /// `0..colors.len()`. Deterministic regardless of the input order.
+///
+/// The neutral group comes first, then the chromatic colors walk the hue wheel
+/// from the widest empty arc. A hue gap of at least [`BLOCK_GAP`] starts a new
+/// block; within a block, merge groups run dark to light, and so do the colors
+/// inside each merge group.
 pub fn ramp_order(colors: &[[u8; 3]]) -> Vec<usize> {
     let n = colors.len();
     if n < 2 {
@@ -44,25 +51,33 @@ pub fn ramp_order(colors: &[[u8; 3]]) -> Vec<usize> {
         })
         .collect();
 
+    let all: Vec<usize> = (0..n).collect();
+
     let cref = chroma_percentile(&p, 0.9);
     if cref < GRAY_PAL {
-        return sorted_by_lightness(&p, 0..n);
+        return sorted_by_lightness(&p, &all);
     }
 
     let merge_threshold = MERGE_K * cref;
     let neutral_threshold = NEUTRAL_K * cref;
 
-    let groups = single_link_groups(&p, merge_threshold);
+    let groups = single_link_groups(&p, &all, merge_threshold);
+    let neutral = neutral_group(&p, groups, neutral_threshold);
 
-    let (neutral, chrom) = split_neutral(&p, groups, neutral_threshold);
-    let chrom = rotate_at_widest_gap(&p, chrom);
-
-    let mut out = Vec::with_capacity(n);
-    if let Some(group) = neutral {
-        out.extend(sorted_by_lightness(&p, group.into_iter()));
+    let mut is_neutral = vec![false; n];
+    for &i in &neutral {
+        is_neutral[i] = true;
     }
-    for group in chrom {
-        out.extend(sorted_by_lightness(&p, group.into_iter()));
+    let mut chromatic: Vec<usize> = (0..n).filter(|&i| !is_neutral[i]).collect();
+    chromatic.sort_by(|&i, &j| cmp_f64(deg(&p, i), deg(&p, j)));
+
+    let mut out = sorted_by_lightness(&p, &neutral);
+    for block in hue_blocks(&p, &chromatic) {
+        let mut subgroups = single_link_groups(&p, &block, merge_threshold);
+        subgroups.sort_by(|a, b| subgroup_key(&p, a).cmp_key(&subgroup_key(&p, b)));
+        for group in subgroups {
+            out.extend(sorted_by_lightness(&p, &group));
+        }
     }
     out
 }
@@ -122,6 +137,11 @@ fn hue_dist(h1: f64, h2: f64) -> f64 {
     (py_mod(h2 - h1 + PI, 2.0 * PI) - PI).abs()
 }
 
+/// Hue in degrees, wrapped to `[0, 360)`.
+fn deg(p: &[Lch], i: usize) -> f64 {
+    py_mod(p[i].h.to_degrees(), 360.0)
+}
+
 /// Merge distance between two colors: chroma difference weighted against a
 /// chroma-scaled hue difference.
 fn dist(p: &[Lch], u: usize, v: usize) -> f64 {
@@ -130,21 +150,25 @@ fn dist(p: &[Lch], u: usize, v: usize) -> f64 {
     (CHROMA_W * dc).hypot(p[u].c.min(p[v].c) * dh)
 }
 
-/// Single-link clusters: a Euclidean MST (Prim, O(n^2)) cut at edges longer
-/// than `merge_threshold`. Groups are returned in the order their root was
-/// first reached while walking `0..n`.
-fn single_link_groups(p: &[Lch], merge_threshold: f64) -> Vec<Vec<usize>> {
-    let n = p.len();
+/// Single-link clusters over `members`: a Euclidean MST (Prim, O(n^2)) cut at
+/// edges longer than `merge_threshold`. Groups are returned in the order their
+/// root is first reached while walking `members`, and each group keeps the
+/// relative order of `members`.
+fn single_link_groups(p: &[Lch], members: &[usize], merge_threshold: f64) -> Vec<Vec<usize>> {
+    let n = members.len();
+    if n == 0 {
+        return Vec::new();
+    }
 
     let mut in_tree = vec![false; n];
     let mut best = vec![f64::INFINITY; n];
     let mut parent_of: Vec<i64> = vec![-1; n];
     best[0] = 0.0;
-    let mut edges: Vec<(f64, usize, usize)> = Vec::with_capacity(n.saturating_sub(1));
+    let mut edges: Vec<(f64, usize, usize)> = Vec::with_capacity(n - 1);
 
     for _ in 0..n {
-        let mut u = 0;
-        let mut best_val = f64::INFINITY;
+        let mut u = (0..n).find(|&i| !in_tree[i]).unwrap_or(0);
+        let mut best_val = best[u];
         for i in 0..n {
             if !in_tree[i] && best[i] < best_val {
                 best_val = best[i];
@@ -157,7 +181,7 @@ fn single_link_groups(p: &[Lch], merge_threshold: f64) -> Vec<Vec<usize>> {
         }
         for v in 0..n {
             if !in_tree[v] {
-                let d = dist(p, u, v);
+                let d = dist(p, members[u], members[v]);
                 if d < best[v] {
                     best[v] = d;
                     parent_of[v] = u as i64;
@@ -179,13 +203,13 @@ fn single_link_groups(p: &[Lch], merge_threshold: f64) -> Vec<Vec<usize>> {
 
     let mut groups: Vec<Vec<usize>> = Vec::new();
     let mut root_to_group: HashMap<usize, usize> = HashMap::new();
-    for i in 0..n {
+    for (i, &member) in members.iter().enumerate() {
         let root = find(&mut union_parent, i);
         let group_idx = *root_to_group.entry(root).or_insert_with(|| {
             groups.push(Vec::new());
             groups.len() - 1
         });
-        groups[group_idx].push(i);
+        groups[group_idx].push(member);
     }
     groups
 }
@@ -198,21 +222,21 @@ fn find(parent: &mut [usize], mut x: usize) -> usize {
     x
 }
 
-/// The group with the lowest mean chroma becomes the neutral group, but only
-/// when that mean is within `neutral_threshold`. The rest come back as the
-/// chromatic groups, in their original order.
-fn split_neutral(
-    p: &[Lch],
-    mut groups: Vec<Vec<usize>>,
-    neutral_threshold: f64,
-) -> (Option<Vec<usize>>, Vec<Vec<usize>>) {
-    let mean_chroma =
-        |g: &[usize]| -> f64 { g.iter().map(|&i| p[i].c).sum::<f64>() / g.len() as f64 };
+fn mean_chroma(p: &[Lch], g: &[usize]) -> f64 {
+    g.iter().map(|&i| p[i].c).sum::<f64>() / g.len() as f64
+}
 
+fn mean_lightness(p: &[Lch], g: &[usize]) -> f64 {
+    g.iter().map(|&i| p[i].l).sum::<f64>() / g.len() as f64
+}
+
+/// The merge group with the lowest mean chroma, when that mean is within
+/// `neutral_threshold`. Empty when the palette has no such group.
+fn neutral_group(p: &[Lch], mut groups: Vec<Vec<usize>>, neutral_threshold: f64) -> Vec<usize> {
     let mut candidate = 0;
     let mut best_mean = f64::INFINITY;
     for (idx, g) in groups.iter().enumerate() {
-        let m = mean_chroma(g);
+        let m = mean_chroma(p, g);
         if m < best_mean {
             best_mean = m;
             candidate = idx;
@@ -220,60 +244,68 @@ fn split_neutral(
     }
 
     if best_mean <= neutral_threshold {
-        let neutral = groups.remove(candidate);
-        (Some(neutral), groups)
+        groups.remove(candidate)
     } else {
-        (None, groups)
+        Vec::new()
     }
 }
 
-/// Hue in degrees, wrapped to `[0, 360)`.
-fn deg(p: &[Lch], i: usize) -> f64 {
-    py_mod(p[i].h.to_degrees(), 360.0)
-}
-
-fn group_hue_min(p: &[Lch], g: &[usize]) -> f64 {
-    g.iter().map(|&i| deg(p, i)).fold(f64::INFINITY, f64::min)
-}
-
-fn group_hue_max(p: &[Lch], g: &[usize]) -> f64 {
-    g.iter()
-        .map(|&i| deg(p, i))
-        .fold(f64::NEG_INFINITY, f64::max)
-}
-
-/// Chromatic groups ordered by their minimum hue, then rotated to start right
-/// after the widest empty hue arc between consecutive groups (wrapping
-/// around the wheel).
-fn rotate_at_widest_gap(p: &[Lch], mut chrom: Vec<Vec<usize>>) -> Vec<Vec<usize>> {
-    if chrom.is_empty() {
-        return chrom;
+/// `chromatic`, already sorted by hue, cut into blocks at every hue gap of at
+/// least [`BLOCK_GAP`], starting with the block that follows the widest gap.
+/// Without any such gap the whole wheel is one block.
+fn hue_blocks(p: &[Lch], chromatic: &[usize]) -> Vec<Vec<usize>> {
+    let m = chromatic.len();
+    if m == 0 {
+        return Vec::new();
     }
 
-    chrom.sort_by(|a, b| cmp_f64(group_hue_min(p, a), group_hue_min(p, b)));
+    let gap = |k: usize| py_mod(deg(p, chromatic[(k + 1) % m]) - deg(p, chromatic[k]), 360.0);
 
-    let len = chrom.len();
-    let mut best_gap = f64::NEG_INFINITY;
-    let mut best_k = 0;
-    for k in 0..len {
-        let next = &chrom[(k + 1) % len];
-        let cur = &chrom[k];
-        let gap = py_mod(group_hue_min(p, next) - group_hue_max(p, cur), 360.0);
-        if gap >= best_gap {
-            best_gap = gap;
-            best_k = k;
+    let mut widest = 0;
+    for k in 1..m {
+        if gap(k) >= gap(widest) {
+            widest = k;
         }
     }
+    let cuts: Vec<bool> = (0..m).map(|k| gap(k) >= BLOCK_GAP || k == widest).collect();
 
-    let mut rotated = Vec::with_capacity(len);
-    rotated.extend(chrom.drain(best_k + 1..));
-    rotated.append(&mut chrom);
-    rotated
+    let start = (widest + 1) % m;
+    let mut blocks = Vec::new();
+    let mut current = Vec::new();
+    for t in 0..m {
+        let k = (start + t) % m;
+        current.push(chromatic[k]);
+        if cuts[k] {
+            blocks.push(std::mem::take(&mut current));
+        }
+    }
+    if !current.is_empty() {
+        blocks.push(current);
+    }
+    blocks
+}
+
+/// Sort key of a merge group inside a block: mean lightness, then the darkest
+/// and the least saturated color, so equal means stay deterministic.
+struct SubgroupKey(f64, f64, f64);
+
+impl SubgroupKey {
+    fn cmp_key(&self, other: &Self) -> Ordering {
+        cmp_f64(self.0, other.0)
+            .then_with(|| cmp_f64(self.1, other.1))
+            .then_with(|| cmp_f64(self.2, other.2))
+    }
+}
+
+fn subgroup_key(p: &[Lch], g: &[usize]) -> SubgroupKey {
+    let min_l = g.iter().map(|&i| p[i].l).fold(f64::INFINITY, f64::min);
+    let min_c = g.iter().map(|&i| p[i].c).fold(f64::INFINITY, f64::min);
+    SubgroupKey(mean_lightness(p, g), min_l, min_c)
 }
 
 /// The indices in `group` sorted by (lightness, chroma) ascending.
-fn sorted_by_lightness(p: &[Lch], group: impl Iterator<Item = usize>) -> Vec<usize> {
-    let mut out: Vec<usize> = group.collect();
+fn sorted_by_lightness(p: &[Lch], group: &[usize]) -> Vec<usize> {
+    let mut out: Vec<usize> = group.to_vec();
     out.sort_by(|&i, &j| cmp_f64(p[i].l, p[j].l).then_with(|| cmp_f64(p[i].c, p[j].c)));
     out
 }

@@ -2,10 +2,10 @@
 
     python3 tests/fixtures/ramps/gen.py
 
-Runs .doc/palette-order/recommended.py, the algorithm the Rust port in
+Runs .doc/palette-order/ramps_v2.py, the algorithm the Rust port in
 src/types/palette_ramps.rs replicates, over 16-color chunks of every sample
-palette and three shuffled variants of sweetie-16, and writes the expected
-orders as JSON.
+palette, three shuffled variants of sweetie-16 and a quantizer palette, and
+writes the expected orders as JSON.
 """
 
 import json
@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(ROOT / ".doc" / "palette-order"))
 
 from palcore import all_palettes  # noqa: E402
-from recommended import sort_palette  # noqa: E402
+from ramps_v2 import sort_palette  # noqa: E402
 
 OUT = Path(__file__).parent / "cases.json"
 
@@ -61,6 +61,38 @@ def shuffle_cases():
     return cases
 
 
-cases = chunk_cases() + shuffle_cases()
+# A tilepalquant palette (carina-nebula.png, Genesis levels): 16 colors spread
+# over the whole gamut, far sparser than a hand-made palette.
+QUANTIZED = [
+    (0x31, 0x31, 0x31),
+    (0xAE, 0xCE, 0xCE),
+    (0x57, 0x92, 0xCE),
+    (0x31, 0x77, 0xCE),
+    (0x31, 0x57, 0x92),
+    (0x31, 0x31, 0x77),
+    (0x31, 0x00, 0x31),
+    (0x57, 0x31, 0x31),
+    (0x77, 0x57, 0x57),
+    (0x92, 0x77, 0x77),
+    (0xAE, 0x57, 0x31),
+    (0xCE, 0x77, 0x57),
+    (0xCE, 0x92, 0x77),
+    (0xFF, 0xAE, 0x77),
+    (0xFF, 0xCE, 0x92),
+    (0xFF, 0xFF, 0xCE),
+]
+
+
+def quantized_case():
+    return [
+        {
+            "name": "carina-nebula-tilepalquant",
+            "input": QUANTIZED,
+            "expected": sort_palette(QUANTIZED, pin_first=False),
+        }
+    ]
+
+
+cases = chunk_cases() + shuffle_cases() + quantized_case()
 OUT.write_text(json.dumps(cases, indent=2) + "\n")
 print(f"wrote {len(cases)} cases to {OUT}")
