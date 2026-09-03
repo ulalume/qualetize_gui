@@ -1,5 +1,6 @@
 use super::BGRA8;
 use super::ColorCorrection;
+use super::palette_ramps::ramp_order;
 use crate::color_processor::ColorProcessor;
 use egui::{Color32, ColorImage, TextureHandle};
 use image::{DynamicImage, ImageDecoder, ImageReader, metadata::Orientation};
@@ -64,6 +65,9 @@ pub enum SortMode {
     Hue,
     Brightness,
     Saturation,
+    /// Group colors into ramps by hue and chroma, neutrals first, each ramp
+    /// dark to light.
+    Ramps,
 }
 
 impl SortMode {
@@ -74,6 +78,7 @@ impl SortMode {
             Self::Hue => "Hue",
             Self::Brightness => "Brightness",
             Self::Saturation => "Saturation",
+            Self::Ramps => "Ramps",
         }
     }
     pub fn all() -> &'static [Self] {
@@ -83,6 +88,7 @@ impl SortMode {
             Self::Hue,
             Self::Brightness,
             Self::Saturation,
+            Self::Ramps,
         ]
     }
 }
@@ -154,10 +160,15 @@ impl ImageDataIndexed {
                 continue;
             }
 
-            let mut order_of: Vec<usize> = (0..colors_per_palette).collect();
-            order_of.sort_by(|&a, &b| {
-                Self::compare_colors(palette, a, b, mode, order, first_color_is_transparent)
-            });
+            let order_of: Vec<usize> = if mode == SortMode::Ramps {
+                Self::ramps_order_of(palette, order, first_color_is_transparent)
+            } else {
+                let mut order_of: Vec<usize> = (0..colors_per_palette).collect();
+                order_of.sort_by(|&a, &b| {
+                    Self::compare_colors(palette, a, b, mode, order, first_color_is_transparent)
+                });
+                order_of
+            };
 
             for (new_idx, &old_idx) in order_of.iter().enumerate() {
                 new_palettes[palette_start + new_idx] = self.palettes[palette_start + old_idx];
@@ -203,6 +214,40 @@ impl ImageDataIndexed {
         ordering.unwrap_or(std::cmp::Ordering::Equal)
     }
 
+    /// The palette order for [`SortMode::Ramps`]: a pinned first color stays
+    /// at index 0 and is excluded from the ramp computation, the rest are
+    /// permuted by [`ramp_order`]. `SortOrder::Descending` reverses the
+    /// computed order; the pinned entry is unaffected either way.
+    fn ramps_order_of(
+        palette: &[Color32],
+        order: SortOrder,
+        first_color_is_transparent: bool,
+    ) -> Vec<usize> {
+        let n = palette.len();
+        let rest_start = if first_color_is_transparent { 1 } else { 0 };
+        let rest_indices: Vec<usize> = (rest_start..n).collect();
+
+        let colors: Vec<[u8; 3]> = rest_indices
+            .iter()
+            .map(|&i| [palette[i].r(), palette[i].g(), palette[i].b()])
+            .collect();
+
+        let mut computed: Vec<usize> = ramp_order(&colors)
+            .into_iter()
+            .map(|i| rest_indices[i])
+            .collect();
+        if order == SortOrder::Descending {
+            computed.reverse();
+        }
+
+        let mut result = Vec::with_capacity(n);
+        if first_color_is_transparent {
+            result.push(0);
+        }
+        result.extend(computed);
+        result
+    }
+
     fn get_sort_key(color: &Color32, mode: SortMode) -> f32 {
         if mode == SortMode::None {
             return 0.0;
@@ -221,6 +266,9 @@ impl ImageDataIndexed {
             SortMode::Hue => h * 10000.0 + a + l,
             SortMode::Saturation => s * 10000.0 + a + l,
             SortMode::Brightness => v * 10000.0 + a + l,
+            // Ramps does not use a per-color key; sorted() computes its
+            // order for the whole palette with ramp_order instead.
+            SortMode::Ramps => 0.0,
         }
     }
 }
@@ -775,6 +823,41 @@ mod tests {
         let sorted = two_palettes().sorted(SortMode::Luminance, SortOrder::Ascending, true);
 
         // Index 0 of each palette must keep its original color.
+        assert_eq!(
+            sorted.palettes_for_ui[0][0],
+            ui_color(&bgra(200, 200, 200, 255))
+        );
+        assert_eq!(
+            sorted.palettes_for_ui[1][0],
+            ui_color(&bgra(10, 10, 10, 255))
+        );
+        assert_eq!(
+            resolved_colors(&sorted, 4),
+            resolved_colors(&two_palettes(), 4)
+        );
+    }
+
+    #[test]
+    fn sorted_ramps_sorts_a_grayscale_palette_dark_to_light() {
+        let sorted = two_palettes().sorted(SortMode::Ramps, SortOrder::Ascending, false);
+
+        for palette in &sorted.palettes_for_ui {
+            let luminances: Vec<u8> = palette.iter().map(|c| c.r()).collect();
+            assert!(
+                luminances.windows(2).all(|w| w[0] <= w[1]),
+                "palette not ascending: {luminances:?}"
+            );
+        }
+        assert_eq!(
+            resolved_colors(&sorted, 4),
+            resolved_colors(&two_palettes(), 4)
+        );
+    }
+
+    #[test]
+    fn sorted_ramps_pins_the_transparent_first_color() {
+        let sorted = two_palettes().sorted(SortMode::Ramps, SortOrder::Ascending, true);
+
         assert_eq!(
             sorted.palettes_for_ui[0][0],
             ui_color(&bgra(200, 200, 200, 255))

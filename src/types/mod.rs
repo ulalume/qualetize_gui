@@ -4,6 +4,7 @@ pub mod color_space;
 pub mod dither;
 pub mod export;
 pub mod image;
+pub mod palette_ramps;
 pub mod preferences;
 pub mod qualetize;
 pub mod tilepalquant;
