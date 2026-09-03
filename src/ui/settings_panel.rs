@@ -82,19 +82,19 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     settings_changed |= draw_palette_size_settings(ui, state);
 
+    // Index 0 belongs to the palette layout, so it sits under that row.
+    ui.indent("first_color", |ui| {
+        settings_changed |= draw_first_color_settings(ui, state);
+    });
     group_space(ui);
 
     match state.engine {
         QuantEngine::Qualetize => {
-            settings_changed |= draw_first_color_settings(ui, state);
-            group_space(ui);
             settings_changed |= draw_dithering_settings(ui, state);
             group_space(ui);
             settings_changed |= draw_color_space_settings(ui, state);
         }
         QuantEngine::TilePalQuant => {
-            settings_changed |= draw_first_color_settings(ui, state);
-            group_space(ui);
             settings_changed |= draw_tpq_dithering_settings(ui, state);
         }
     }
@@ -113,9 +113,8 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     // A preference, not a setting: toggling it changes nothing about the
     // output, so it does not report back a change. Right-aligned on its own
-    // row, the same way a section heading right-aligns its toggle.
-    // The horizontal row bounds the height; the nested layout only fills the
-    // row from the right.
+    // row. The horizontal row bounds the height; the nested layout only
+    // fills the row from the right.
     ui.horizontal(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             _ = widgets::checkbox(
@@ -706,7 +705,7 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
                         .radio_value(
                             &mut state.tpq_settings.dither_mode,
                             TpqDitherMode::Fast,
-                            "fast",
+                            "Fast",
                         )
                         .on_hover_text(TpqDitherMode::Fast.description())
                         .changed();
@@ -714,7 +713,7 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
                         .radio_value(
                             &mut state.tpq_settings.dither_mode,
                             TpqDitherMode::Slow,
-                            "slow",
+                            "Slow",
                         )
                         .on_hover_text(TpqDitherMode::Slow.description())
                         .changed();
@@ -845,7 +844,10 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.add_space(4.0);
     if ui
-        .add_sized([80.0, ROW_HEIGHT], egui::Button::new("🔄 Reset"))
+        .add_enabled(
+            !state.settings.tile_reduce_is_default(),
+            egui::Button::new("🔄 Reset").min_size(egui::vec2(80.0, ROW_HEIGHT)),
+        )
         .on_hover_text("Restore the threshold and flip options to their defaults")
         .clicked()
     {
@@ -1098,8 +1100,15 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 ColorCorrectionPreset::None => "🔄 Reset",
                 _ => preset.display_name(),
             };
+            let enabled = match preset {
+                ColorCorrectionPreset::None => !state.color_correction.is_default(),
+                _ => true,
+            };
             if ui
-                .add_sized([button_width, ROW_HEIGHT], egui::Button::new(label))
+                .add_enabled(
+                    enabled,
+                    egui::Button::new(label).min_size(egui::vec2(button_width, ROW_HEIGHT)),
+                )
                 .clicked()
             {
                 state
@@ -1156,45 +1165,55 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
         }
     }
 
-    ui.add_enabled_ui(enabled, |ui| {
-        ui.horizontal(|ui| {
-            let mut mode_changed = false;
-            // While off the combo shows the mode that turning it on restores.
-            let shown = if enabled {
-                state.palette_sort_settings.mode
-            } else {
-                state.palette_sort_mode_memory
-            };
-            egui::ComboBox::from_id_salt("sort_mode")
-                .selected_text(shown.display_name())
-                .show_ui(ui, |ui| {
-                    for sort_mode in SortMode::all() {
-                        mode_changed |= ui
-                            .selectable_value(
-                                &mut state.palette_sort_settings.mode,
-                                *sort_mode,
-                                sort_mode.display_name(),
-                            )
-                            .changed();
-                    }
-                });
-            if mode_changed {
-                state.palette_sort_mode_memory = state.palette_sort_settings.mode;
-            }
+    // The rows only exist while a mode is selected.
+    if !enabled {
+        return;
+    }
 
-            egui::ComboBox::from_id_salt("sort_order")
-                .selected_text(state.palette_sort_settings.order.display_name())
-                .show_ui(ui, |ui| {
-                    for sort_order in SortOrder::all() {
-                        ui.selectable_value(
-                            &mut state.palette_sort_settings.order,
-                            *sort_order,
-                            sort_order.display_name(),
-                        );
-                    }
-                });
-        });
+    ui.horizontal(|ui| {
+        let mut mode_changed = false;
+        egui::ComboBox::from_id_salt("sort_mode")
+            .selected_text(state.palette_sort_settings.mode.display_name())
+            .show_ui(ui, |ui| {
+                for sort_mode in SortMode::all() {
+                    mode_changed |= ui
+                        .selectable_value(
+                            &mut state.palette_sort_settings.mode,
+                            *sort_mode,
+                            sort_mode.display_name(),
+                        )
+                        .changed();
+                }
+            });
+        if mode_changed {
+            state.palette_sort_mode_memory = state.palette_sort_settings.mode;
+        }
+
+        egui::ComboBox::from_id_salt("sort_order")
+            .selected_text(state.palette_sort_settings.order.display_name())
+            .show_ui(ui, |ui| {
+                for sort_order in SortOrder::all() {
+                    ui.selectable_value(
+                        &mut state.palette_sort_settings.order,
+                        *sort_order,
+                        sort_order.display_name(),
+                    );
+                }
+            });
     });
+
+    ui.add_space(4.0);
+    if ui
+        .add_enabled(
+            !state.palette_sort_settings.is_default(),
+            egui::Button::new("🔄 Reset").min_size(egui::vec2(80.0, ROW_HEIGHT)),
+        )
+        .on_hover_text("Restore the mode and order to their defaults")
+        .clicked()
+    {
+        state.palette_sort_settings.reset();
+        state.palette_sort_mode_memory = state.palette_sort_settings.mode;
+    }
 }
 
 #[cfg(test)]

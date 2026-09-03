@@ -88,6 +88,16 @@ impl ColorCorrection {
         };
     }
 
+    /// Whether every adjustment is at its default; `enabled` is not an
+    /// adjustment and is left out.
+    pub fn is_default(&self) -> bool {
+        *self
+            == Self {
+                enabled: self.enabled,
+                ..Self::default()
+            }
+    }
+
     pub fn preset_dark() -> ColorCorrection {
         ColorCorrection {
             contrast: 1.75,

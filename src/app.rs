@@ -149,6 +149,53 @@ impl QualetizeApp {
         }
     }
 
+    /// Show the app icon, version, license, and third-party credits.
+    fn draw_about(&mut self, ctx: &egui::Context) {
+        if !self.state.show_about {
+            return;
+        }
+        let (_, large_icon) = self.state.app_icons(ctx).clone();
+        let mut close = false;
+        let response = egui::Modal::new(egui::Id::new("about_modal")).show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.vertical_centered(|ui| {
+                ui.add_space(10.0);
+                ui.add(egui::Image::new(&large_icon).fit_to_exact_size(egui::vec2(160.0, 160.0)));
+                ui.add_space(10.0);
+                ui.hyperlink_to(
+                    egui::RichText::new("QualetizeGUI").heading(),
+                    "https://github.com/ulalume/qualetize_gui",
+                );
+                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.label("MIT license");
+
+                ui.separator();
+
+                ui.hyperlink_to("Aikku93/qualetize", "https://github.com/Aikku93/qualetize");
+                ui.label(egui::RichText::new("Unlicense license").small());
+                ui.add_space(4.0);
+                ui.hyperlink_to(
+                    "rilden/tiledpalettequant",
+                    "https://github.com/rilden/tiledpalettequant",
+                );
+                ui.label(egui::RichText::new("MIT license").small());
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+        });
+
+        if close || response.should_close() {
+            self.state.show_about = false;
+        }
+    }
+
     /// Replace the input image (and everything derived from it) with `loaded`.
     fn install_input_image(&mut self, name: String, loaded: Result<ImageData, String>) {
         self.image_processor.cancel_all();
@@ -590,6 +637,8 @@ impl eframe::App for QualetizeApp {
         self.handle_requests(ctx);
         self.draw_large_image_prompt(ctx);
         self.draw_remove_image_prompt(ctx);
+        self.draw_about(ctx);
+        pointing_hand_over_clickables(ctx);
 
         // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
@@ -685,6 +734,25 @@ fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
     }
     .ok()?;
     (u64::from(width) * u64::from(height) >= LARGE_IMAGE_PIXELS).then_some((width, height))
+}
+
+/// Show a pointing hand while the pointer is over an enabled widget that
+/// responds to clicks or drags (buttons, checkboxes, radios, menus, combos,
+/// sliders). Widgets that set their own cursor afterwards, such as drag
+/// values, text fields and the image canvas, win.
+fn pointing_hand_over_clickables(ctx: &egui::Context) {
+    let over_clickable = ctx.viewport(|viewport| {
+        viewport.interact_widgets.hovered.iter().any(|id| {
+            viewport
+                .prev_pass
+                .widgets
+                .get(*id)
+                .is_some_and(|w| w.enabled && (w.sense.senses_click() || w.sense.senses_drag()))
+        })
+    });
+    if over_clickable {
+        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
 }
 
 /// Smallest size at or above `size` whose sides are multiples of the tile size.
