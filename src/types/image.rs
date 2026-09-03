@@ -466,6 +466,26 @@ impl ImageData {
 /// `path` decoded to RGBA8 with the Exif orientation applied and the embedded
 /// ICC profile converted to sRGB. Split out from [`ImageData::load`] so it can
 /// be tested without an egui context.
+/// Width and height of the image at `path`, read from its header only.
+pub fn dimensions_of_path(path: &str) -> Result<(u32, u32), String> {
+    let reader = ImageReader::open(path)
+        .and_then(|reader| reader.with_guessed_format())
+        .map_err(|e| format!("Image loading error: {e}"))?;
+    reader
+        .into_dimensions()
+        .map_err(|e| format!("Image loading error: {e}"))
+}
+
+/// Width and height of the image encoded in `bytes`, read from its header only.
+pub fn dimensions_of_bytes(bytes: &[u8]) -> Result<(u32, u32), String> {
+    let reader = ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .map_err(|e| format!("Image loading error: {e}"))?;
+    reader
+        .into_dimensions()
+        .map_err(|e| format!("Image loading error: {e}"))
+}
+
 fn load_rgba(path: &str) -> Result<(Vec<u8>, u32, u32), String> {
     let reader = ImageReader::open(path).map_err(|e| format!("Image loading error: {e}"))?;
     decode_rgba(reader, path)

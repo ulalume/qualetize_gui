@@ -132,6 +132,11 @@ pub enum TopLeftPixel {
     Transparent,
 }
 
+/// Images with more pixels than this ask for confirmation before loading:
+/// every stage of the pipeline runs over all pixels, and retro targets are
+/// far smaller than 640x480.
+pub const LARGE_IMAGE_PIXELS: u64 = 640 * 480;
+
 pub struct AppState {
     // Image management
     pub input_path: Option<String>,
@@ -167,6 +172,9 @@ pub struct AppState {
     pub tpq_settings: TpqSettings,
     /// Percent reported by the running quantization, for the panel.
     pub quantize_progress: Option<u8>,
+    /// An image above [`LARGE_IMAGE_PIXELS`] waiting for the user to confirm
+    /// loading it, with its size.
+    pub pending_large_image: Option<(AppStateRequest, u32, u32)>,
     /// Snapshot of what is mirrored to the session file, so it is only rewritten
     /// when something actually changed.
     last_saved_session: SettingsBundle,
@@ -248,6 +256,7 @@ impl Default for AppState {
             settings: session.qualetize_settings.clone(),
             tpq_settings: session.tpq_settings.clone(),
             quantize_progress: None,
+            pending_large_image: None,
             last_saved_session: session.clone(),
             session_save_deadline: None,
             request_update_qualetized_image: None,
