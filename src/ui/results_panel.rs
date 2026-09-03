@@ -42,7 +42,6 @@ struct Panel<'a> {
 pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     ui.heading_with_margin("Results");
 
-    let current = state.settings_bundle();
     let AppState {
         results,
         results_textures,
@@ -50,17 +49,8 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
         ..
     } = state;
 
-    // The result of the settings in use is on screen already, so the list
-    // holds only the others.
-    let listed: Vec<&StoredResult> = results
-        .entries()
-        .iter()
-        .filter(|entry| entry.settings != current)
-        .collect();
-    if listed.is_empty() {
-        if results.is_empty() {
-            results_textures.clear();
-        }
+    if results.is_empty() {
+        results_textures.clear();
         ui.vertical_centered(|ui| {
             ui.add_space(8.0);
             ui.label(egui::RichText::new("No results yet").small().weak());
@@ -76,7 +66,7 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     };
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for entry in listed {
+        for entry in results.entries() {
             draw_entry(ui, entry, &mut panel);
         }
     });
@@ -156,14 +146,30 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
         ),
         Vec2::splat(REMOVE_OVERLAY_SIZE),
     );
-    // A child Ui keeps the overlay out of the parent's layout: `put` would
-    // pull the cursor back up to the overlay's bottom edge.
+    // Drawn by hand rather than as a widget so the layout cursor stays at
+    // the image's bottom edge: a translucent disc with the glyph on it.
     let remove = ui
-        .new_child(egui::UiBuilder::new().max_rect(overlay_rect).layout(
-            egui::Layout::centered_and_justified(egui::Direction::TopDown),
-        ))
-        .add(egui::Button::new("×").small().frame(false))
+        .interact(
+            overlay_rect,
+            ui.make_persistent_id(("result-remove", entry.hash)),
+            Sense::click(),
+        )
         .on_hover_text("Remove");
+    let visuals = ui.visuals();
+    let (fill, text_color) = if remove.hovered() {
+        (Color32::from_black_alpha(200), visuals.strong_text_color())
+    } else {
+        (Color32::from_black_alpha(120), visuals.text_color())
+    };
+    let painter = ui.painter();
+    painter.circle_filled(overlay_rect.center(), REMOVE_OVERLAY_SIZE / 2.0, fill);
+    painter.text(
+        overlay_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        "×",
+        egui::FontId::proportional(14.0),
+        text_color,
+    );
 
     if remove.clicked() {
         _ = panel
