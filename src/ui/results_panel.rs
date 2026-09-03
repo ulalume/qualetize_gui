@@ -159,11 +159,12 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
             Sense::click(),
         )
         .on_hover_text("Remove");
-    let visuals = ui.visuals();
+    // Fixed colors rather than the theme's: the disc sits on the image, not
+    // on the panel, so it has to read the same in both themes.
     let (fill, text_color) = if remove.hovered() {
-        (Color32::from_black_alpha(200), visuals.strong_text_color())
+        (Color32::from_black_alpha(200), Color32::WHITE)
     } else {
-        (Color32::from_black_alpha(120), visuals.text_color())
+        (Color32::from_black_alpha(120), Color32::from_gray(230))
     };
     let painter = ui.painter();
     painter.circle_filled(overlay_rect.center(), REMOVE_OVERLAY_SIZE / 2.0, fill);
