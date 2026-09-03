@@ -101,7 +101,7 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             _ = widgets::checkbox(
                 ui,
                 &mut state.preferences.show_advanced,
-                "Show advanced settings",
+                "Advanced",
                 Some(
                     "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tilepalquant).",
                 ),
@@ -112,39 +112,31 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         return settings_changed;
     }
 
-    settings_changed |= ui
-        .indent("advanced_settings", |ui| {
-            let mut settings_changed = false;
+    settings_changed |= draw_tile_settings(ui, state);
 
-            settings_changed |= draw_tile_settings(ui, state);
+    group_space(ui);
+    settings_changed |= draw_depth_settings(ui, state);
+
+    match state.engine {
+        QuantEngine::Qualetize => {
+            group_space(ui);
+            settings_changed |= draw_clustering_settings(ui, state);
 
             group_space(ui);
-            settings_changed |= draw_depth_settings(ui, state);
-
-            match state.engine {
-                QuantEngine::Qualetize => {
-                    group_space(ui);
-                    settings_changed |= draw_clustering_settings(ui, state);
-
-                    group_space(ui);
-                    settings_changed |= widgets::checkbox(
-                        ui,
-                        &mut state.settings.premul_alpha,
-                        "Premultiplied alpha",
-                        Some(
-                            "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
-                        ),
-                    );
-                }
-                QuantEngine::TilePalQuant => {
-                    group_space(ui);
-                    settings_changed |= draw_tpq_misc_settings(ui, state);
-                }
-            }
-
-            settings_changed
-        })
-        .inner;
+            settings_changed |= widgets::checkbox(
+                ui,
+                &mut state.settings.premul_alpha,
+                "Premultiplied alpha",
+                Some(
+                    "Alpha is pre-multiplied (y/n)\nWhile most formats generally pre-multiply the colors by the alpha value,\n32-bit BMP files generally do not.\nNote that if this option is set, then output colors in the palette will also be pre-multiplied.",
+                ),
+            );
+        }
+        QuantEngine::TilePalQuant => {
+            group_space(ui);
+            settings_changed |= draw_tpq_misc_settings(ui, state);
+        }
+    }
 
     settings_changed
 }
@@ -262,41 +254,42 @@ fn draw_depth_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         state.settings.use_custom_levels = mode_is_custom;
     });
 
-    if state.settings.use_custom_levels {
-        settings_changed |= draw_custom_level_inputs(ui, state);
-    } else {
-        let error = get_rgba_depth_error(&state.settings.rgba_depth);
-        let is_empty = state.settings.rgba_depth.is_empty();
+    ui.indent("rgba_depth_value", |ui| {
+        if state.settings.use_custom_levels {
+            settings_changed |= draw_custom_level_inputs(ui, state);
+        } else {
+            let error = get_rgba_depth_error(&state.settings.rgba_depth);
+            let is_empty = state.settings.rgba_depth.is_empty();
 
-        let mut response = ui.add_sized(
-            [60.0, ui.spacing().interact_size.y],
-            egui::TextEdit::singleline(&mut state.settings.rgba_depth),
-        );
-
-        if error.is_some() && !is_empty {
-            response = response.highlight();
-            ui.painter().rect_stroke(
-                response.rect,
-                2.0,
-                egui::Stroke::new(1.0_f32, error_color(ui.visuals())),
-                egui::StrokeKind::Outside,
+            let mut response = ui.add_sized(
+                [60.0, ui.spacing().interact_size.y],
+                egui::TextEdit::singleline(&mut state.settings.rgba_depth),
             );
+
+            if error.is_some() && !is_empty {
+                response = response.highlight();
+                ui.painter().rect_stroke(
+                    response.rect,
+                    2.0,
+                    egui::Stroke::new(1.0_f32, error_color(ui.visuals())),
+                    egui::StrokeKind::Outside,
+                );
+            }
+
+            response = response.on_hover_text(
+                "RGBA bit depth (e.g., 8888, 5551, 3331)\nR: 1-8, G: 1-8, B: 1-8, A: 1-8",
+            );
+
+            // Invalid text is still being edited, so it must not trigger a
+            // re-quantization: the C library would silently drop a channel.
+            settings_changed |= response.changed() && error.is_none();
+
+            if let Some(error) = error {
+                ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
+                    .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
+            }
         }
-
-        response = response.on_hover_text(
-            "RGBA bit depth (e.g., 8888, 5551, 3331)\nR: 1-8, G: 1-8, B: 1-8, A: 1-8",
-        );
-
-        // Invalid text is still being edited, so it must not trigger a
-        // re-quantization: the C library would silently drop a channel.
-        settings_changed |= response.changed() && error.is_none();
-
-        if let Some(error) = error {
-            ui.label(egui::RichText::new("⚠").color(warning_color(ui.visuals())))
-                .on_hover_text(format!("{error}\nExamples: 8888, 5551, 3331"));
-        }
-    }
-
+    });
     settings_changed
 }
 
@@ -322,15 +315,17 @@ fn draw_tile_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
         );
     });
 
-    ui.horizontal(|ui| {
-        ui.label("Quick presets:");
-        for n in [8u16, 16, 32] {
-            if ui.small_button(format!("{n}x{n}")).clicked() {
-                state.settings.tile_width = n;
-                state.settings.tile_height = n;
-                settings_changed = true;
+    ui.indent("tile_presets", |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Quick presets:");
+            for n in [8u16, 16, 32] {
+                if ui.small_button(format!("{n}x{n}")).clicked() {
+                    state.settings.tile_width = n;
+                    state.settings.tile_height = n;
+                    settings_changed = true;
+                }
             }
-        }
+        });
     });
 
     settings_changed
