@@ -224,16 +224,15 @@ fn live_toast(slot: &mut Option<Toast>, ctx: &egui::Context) -> Option<String> {
 }
 
 /// The sample images offered on the welcome screen, with their file names.
-const SAMPLES: [(&str, &[u8]); 3] = [
+const SAMPLES: [(&str, &[u8]); 2] = [
     ("cat.png", include_bytes!("../../assets/sample/cat.png")),
-    ("lenna.png", include_bytes!("../../assets/sample/lenna.png")),
     (
         "carina-nebula.png",
         include_bytes!("../../assets/sample/carina-nebula.png"),
     ),
 ];
-/// Longest side of a sample thumbnail, in points.
-const SAMPLE_THUMBNAIL_SIZE: f32 = 128.0;
+/// Height of a sample thumbnail, in points; the width keeps the aspect ratio.
+const SAMPLE_THUMBNAIL_HEIGHT: f32 = 96.0;
 
 /// The welcome screen shown while no image is loaded: how to open one, and
 /// samples to try.
@@ -256,12 +255,14 @@ pub fn draw_main_content(ui: &mut egui::Ui, state: &mut AppState) {
 
     let thumbnail_size = |texture: &egui::TextureHandle| {
         let [w, h] = texture.size();
-        let scale = SAMPLE_THUMBNAIL_SIZE / w.max(h) as f32;
-        Vec2::new(w as f32 * scale, h as f32 * scale)
+        Vec2::new(
+            w as f32 * SAMPLE_THUMBNAIL_HEIGHT / h as f32,
+            SAMPLE_THUMBNAIL_HEIGHT,
+        )
     };
 
     // The whole block is centered in the view.
-    let block_height = 24.0 + 24.0 + 20.0 + 8.0 + SAMPLE_THUMBNAIL_SIZE;
+    let block_height = 24.0 + 24.0 + 20.0 + 8.0 + SAMPLE_THUMBNAIL_HEIGHT;
     ui.add_space(((ui.available_height() - block_height) / 2.0).max(0.0));
     ui.vertical_centered(|ui| {
         ui.horizontal(|ui| {
