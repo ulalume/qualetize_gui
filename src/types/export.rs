@@ -31,7 +31,7 @@ impl ExportFormat {
     }
 
     /// Formats offered in the export UI. `Png` is reached only through the
-    /// dedicated "Color Corrected PNG" menu entry.
+    /// dedicated "Color corrected PNG" menu entry.
     pub fn indexed_list() -> &'static [ExportFormat] {
         &[ExportFormat::Bmp, ExportFormat::PngIndexed]
     }

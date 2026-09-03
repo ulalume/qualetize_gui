@@ -11,6 +11,7 @@ use super::{
 use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
 use crate::time::Instant;
+use crate::types::FirstColor;
 use crate::types::image::TileCountOptions;
 use crate::types::tilepalquant::TpqSettings;
 
@@ -121,6 +122,20 @@ pub struct QualetizeRequest {
     pub time: Instant,
 }
 
+/// The top-left pixel of the input, as the "Use top-left color" buttons and
+/// the presets read it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TopLeftPixel {
+    /// Fully opaque, so its RGB is usable as a key or shared color.
+    Color([u8; 3]),
+    /// Not fully opaque: the image marks transparency with alpha, not a color.
+    Transparent,
+}
+
+/// Images with at least this many pixels ask for confirmation before
+/// loading: every stage of the pipeline runs over all pixels.
+pub const LARGE_IMAGE_PIXELS: u64 = 1024 * 768;
+
 pub struct AppState {
     // Image management
     pub input_path: Option<String>,
@@ -156,6 +171,9 @@ pub struct AppState {
     pub tpq_settings: TpqSettings,
     /// Percent reported by the running quantization, for the panel.
     pub quantize_progress: Option<u8>,
+    /// An image above [`LARGE_IMAGE_PIXELS`] waiting for the user to confirm
+    /// loading it, with its size.
+    pub pending_large_image: Option<(AppStateRequest, u32, u32)>,
     /// Snapshot of what is mirrored to the session file, so it is only rewritten
     /// when something actually changed.
     last_saved_session: SettingsBundle,
@@ -237,6 +255,7 @@ impl Default for AppState {
             settings: session.qualetize_settings.clone(),
             tpq_settings: session.tpq_settings.clone(),
             quantize_progress: None,
+            pending_large_image: None,
             last_saved_session: session.clone(),
             session_save_deadline: None,
             request_update_qualetized_image: None,
@@ -298,14 +317,39 @@ impl AppState {
         }
     }
 
+    /// The top-left pixel of the image the pipeline runs on, classified by
+    /// whether its RGB can serve as a key or shared color.
+    pub fn top_left_pixel(&self) -> Option<TopLeftPixel> {
+        let [r, g, b, a] = self.color_corrected_image.as_ref()?.top_left_pixel();
+        Some(if a == 255 {
+            TopLeftPixel::Color([r, g, b])
+        } else {
+            TopLeftPixel::Transparent
+        })
+    }
+
+    /// Apply a Qualetize preset and, when it asks for a shared first color,
+    /// take that color from the image: an opaque top-left pixel becomes the
+    /// shared color, a transparent one switches to transparency from pixels.
+    pub fn apply_qualetize_preset(&mut self, preset: QualetizeSettings) {
+        self.settings.apply_preset(preset);
+        self.tpq_settings.reset_dithering();
+        if self.settings.first_color() == FirstColor::Shared {
+            match self.top_left_pixel() {
+                Some(TopLeftPixel::Color(rgb)) => self.settings.shared_color = rgb,
+                Some(TopLeftPixel::Transparent) => self
+                    .settings
+                    .set_first_color(FirstColor::TransparentFromAlpha),
+                None => {}
+            }
+        }
+    }
+
     /// Whether index 0 of every palette is reserved and must not be moved
     /// by the palette sort: Qualetize's transparent first color, or any
     /// tilepalquant mode other than Unique.
     pub fn first_color_pinned(&self) -> bool {
-        match self.engine {
-            QuantEngine::Qualetize => self.settings.col0_is_clear,
-            QuantEngine::TilePalQuant => self.tpq_settings.color_zero.pins_index_zero(),
-        }
+        self.settings.first_color().pins_index_zero()
     }
 
     /// Mirror the settings to the session file so they survive a restart.

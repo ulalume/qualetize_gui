@@ -20,12 +20,12 @@ impl DitherMode {
             DitherMode::Floyd => "Floyd-Steinberg",
             DitherMode::Atkinson => "Atkinson",
             DitherMode::Checker => "Checkerboard",
-            DitherMode::Ord2 => "2x2 Ordered",
-            DitherMode::Ord4 => "4x4 Ordered",
-            DitherMode::Ord8 => "8x8 Ordered",
-            DitherMode::Ord16 => "16x16 Ordered",
-            DitherMode::Ord32 => "32x32 Ordered",
-            DitherMode::Ord64 => "64x64 Ordered",
+            DitherMode::Ord2 => "2x2 ordered",
+            DitherMode::Ord4 => "4x4 ordered",
+            DitherMode::Ord8 => "8x8 ordered",
+            DitherMode::Ord16 => "16x16 ordered",
+            DitherMode::Ord32 => "32x32 ordered",
+            DitherMode::Ord64 => "64x64 ordered",
         }
     }
 

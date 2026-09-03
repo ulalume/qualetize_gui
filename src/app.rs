@@ -3,7 +3,9 @@ use crate::image_processor::{ImageProcessor, TileReduceOptions};
 use crate::platform::{self, DialogContext};
 use crate::settings_manager::SettingsBundle;
 use crate::types::ImageData;
-use crate::types::app_state::{AppStateRequest, AppearanceMode, ExportSource, FittedInput, Toast};
+use crate::types::app_state::{
+    AppStateRequest, AppearanceMode, ExportSource, FittedInput, LARGE_IMAGE_PIXELS, Toast,
+};
 use crate::types::image::{ImageDataIndexed, SortMode};
 use crate::types::{AppState, ExportFormat};
 use crate::ui::{
@@ -60,6 +62,58 @@ impl QualetizeApp {
     fn load_image_bytes(&mut self, name: String, bytes: &[u8], ctx: &egui::Context) {
         let loaded = ImageData::load_from_bytes(bytes, &name, ctx);
         self.install_input_image(name, loaded);
+    }
+
+    /// Load the image a `LoadImage` / `LoadImageBytes` request names and run
+    /// the pipeline on it.
+    fn load_image_request(&mut self, request: AppStateRequest, ctx: &egui::Context) {
+        match request {
+            AppStateRequest::LoadImage { path } => self.load_image_file(path, ctx),
+            AppStateRequest::LoadImageBytes { name, bytes } => {
+                self.load_image_bytes(name, &bytes, ctx)
+            }
+            _ => return,
+        }
+        self.update_tile_fit(ctx);
+        self.refresh_color_corrected_image(ctx);
+    }
+
+    /// Ask whether a large image should be loaded, and load or drop it.
+    fn draw_large_image_prompt(&mut self, ctx: &egui::Context) {
+        let Some((_, width, height)) = self.state.pending_large_image.as_ref() else {
+            return;
+        };
+        let (width, height) = (*width, *height);
+        let mut decision = None;
+        egui::Modal::new(egui::Id::new("large_image_prompt")).show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.heading("Large image");
+            ui.label(format!(
+                "This image is {width}x{height} pixels. Processing may take a while at this size.",
+            ));
+            ui.add_space(8.0);
+            // Laid out from the right edge, so the buttons sit in the corner
+            // and "Load anyway" is the rightmost one.
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Load anyway").clicked() {
+                        decision = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() {
+                        decision = Some(false);
+                    }
+                });
+            });
+        });
+        match decision {
+            Some(true) => {
+                if let Some((request, _, _)) = self.state.pending_large_image.take() {
+                    self.load_image_request(request, ctx);
+                }
+            }
+            Some(false) => self.state.pending_large_image = None,
+            None => {}
+        }
     }
 
     /// Replace the input image (and everything derived from it) with `loaded`.
@@ -381,16 +435,13 @@ impl QualetizeApp {
             return;
         };
         match request {
-            AppStateRequest::LoadImage { path } => {
-                self.load_image_file(path, ctx);
-                self.update_tile_fit(ctx);
-                self.refresh_color_corrected_image(ctx);
-            }
-            AppStateRequest::LoadImageBytes { name, bytes } => {
-                self.load_image_bytes(name, &bytes, ctx);
-                self.update_tile_fit(ctx);
-                self.refresh_color_corrected_image(ctx);
-            }
+            request @ (AppStateRequest::LoadImage { .. }
+            | AppStateRequest::LoadImageBytes { .. }) => match large_image_size(&request) {
+                Some((width, height)) => {
+                    self.state.pending_large_image = Some((request, width, height));
+                }
+                None => self.load_image_request(request, ctx),
+            },
             AppStateRequest::LoadSettings { path } => match SettingsBundle::load_from_file(&path) {
                 Ok(bundle) => {
                     self.apply_settings_bundle(bundle, ctx);
@@ -506,6 +557,7 @@ impl eframe::App for QualetizeApp {
         self.update_tile_counts();
 
         self.handle_requests(ctx);
+        self.draw_large_image_prompt(ctx);
 
         // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
@@ -586,6 +638,21 @@ impl eframe::App for QualetizeApp {
             ctx.request_repaint();
         }
     }
+}
+
+/// The size of the image `request` names when it reaches
+/// [`LARGE_IMAGE_PIXELS`]; `None` when it is small enough or unreadable
+/// (loading it then reports the error).
+fn large_image_size(request: &AppStateRequest) -> Option<(u32, u32)> {
+    let (width, height) = match request {
+        AppStateRequest::LoadImage { path } => crate::types::image::dimensions_of_path(path),
+        AppStateRequest::LoadImageBytes { bytes, .. } => {
+            crate::types::image::dimensions_of_bytes(bytes)
+        }
+        _ => return None,
+    }
+    .ok()?;
+    (u64::from(width) * u64::from(height) >= LARGE_IMAGE_PIXELS).then_some((width, height))
 }
 
 /// A seed for a run that asked for a random one. Wall clock nanoseconds are

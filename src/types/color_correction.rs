@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ColorCorrection {
     /// When off the input image is passed through untouched, the settings are
-    /// hidden and no "Color Corrected" view is shown.
+    /// hidden and no "Color corrected" view is shown.
     ///
     /// A settings file missing this field carries no on/off intent, so it
     /// loads as enabled. A fresh [`ColorCorrection::default()`] on the other

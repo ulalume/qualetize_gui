@@ -8,7 +8,8 @@ use super::palette::{closest_color, closest_palette_index, closest_palette_index
 use super::tile::{Pixel, SourceImage, extract_tile};
 use crate::engine::QuantizeResult;
 use crate::types::BGRA8;
-use crate::types::tilepalquant::{ColorZero, TpqDitherMode};
+use crate::types::FirstColor;
+use crate::types::tilepalquant::TpqDitherMode;
 
 /// Quantize the whole image against `palettes`.
 ///
@@ -33,18 +34,18 @@ pub fn quantize_tiles(
     // is off, so the color the transparent pixels are recognized by is snapped
     // in exactly the other case.
     let transparent_color = if p.dither == TpqDitherMode::Off {
-        p.color_zero_value
+        p.first_color_value
     } else {
-        p.lut.snap(p.color_zero_value)
+        p.lut.snap(p.first_color_value)
     };
-    let color_zero = p.lut.snap(p.color_zero_value);
+    let snapped_first_color = p.lut.snap(p.first_color_value);
 
     let palette_len = reduced[0].len();
     let colors_per_palette = palette_len + adjusted_index;
     let mut palette_data = Vec::with_capacity(reduced.len() * colors_per_palette);
     for palette in &reduced {
         if adjusted_index == 1 {
-            let [r, g, b] = color_zero.to_u8();
+            let [r, g, b] = snapped_first_color.to_u8();
             palette_data.push(BGRA8 { b, g, r, a: 0 });
         }
         for &color in palette {
@@ -81,10 +82,10 @@ pub fn quantize_tiles(
             for y in start_y..end_y {
                 for x in start_x..end_x {
                     let color = image.color(x, y);
-                    let transparent = match p.color_zero {
-                        ColorZero::TransparentFromAlpha => image.alpha(x, y) < 255,
-                        ColorZero::TransparentFromColor => color == transparent_color,
-                        ColorZero::Unique | ColorZero::Shared => false,
+                    let transparent = match p.first_color {
+                        FirstColor::TransparentFromAlpha => image.alpha(x, y) < 255,
+                        FirstColor::TransparentFromColor => color == transparent_color,
+                        FirstColor::Unique | FirstColor::Shared => false,
                     };
                     let index = if transparent {
                         palette_base
@@ -152,8 +153,8 @@ mod tests {
     #[test]
     fn a_transparent_mode_inserts_index_zero_and_widens_the_stride() {
         let mut p = Params {
-            color_zero: ColorZero::TransparentFromColor,
-            color_zero_value: Rgb::new(255.0, 0.0, 0.0),
+            first_color: FirstColor::TransparentFromColor,
+            first_color_value: Rgb::new(255.0, 0.0, 0.0),
             ..single_pixel_tiles()
         };
         p.colors_per_palette = 3;
@@ -210,8 +211,8 @@ mod tests {
     fn a_tile_with_nothing_opaque_falls_back_to_the_first_palette() {
         let image = SourceImage::new(vec![0; 8], 2, 1);
         let p = Params {
-            color_zero: ColorZero::TransparentFromAlpha,
-            color_zero_value: Rgb::new(255.0, 0.0, 255.0),
+            first_color: FirstColor::TransparentFromAlpha,
+            first_color_value: Rgb::new(255.0, 0.0, 255.0),
             ..single_pixel_tiles()
         };
         let palettes = vec![vec![Rgb::new(1.0, 2.0, 3.0)], vec![Rgb::new(4.0, 5.0, 6.0)]];

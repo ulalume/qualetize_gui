@@ -3,8 +3,6 @@
 
 use std::ops::RangeInclusive;
 
-use super::styles::RichTextExt;
-
 /// A `DragValue` bound to `range`, with a hover tooltip on the control itself.
 /// Returns whether the drag changed the value.
 pub fn drag_u16(
@@ -118,46 +116,11 @@ pub fn section_header(
     })
 }
 
-/// Same as [`section_header`], but at the subheading level used for a
-/// settings block that is itself a subsection of a larger one (e.g.
-/// "Advanced Settings" under "Qualetize"), matching sibling subsections
-/// drawn with [`crate::ui::styles::UiMarginExt::subheading_with_margin`].
-pub fn subsection_header(
-    ui: &mut egui::Ui,
-    title: &str,
-    toggle: &mut bool,
-    toggle_label: &str,
-    hover: Option<&str>,
-) -> bool {
-    header_with_toggle(ui, toggle, toggle_label, hover, |ui| {
-        ui.label(egui::RichText::new(title).subheading());
-    })
-}
-
-/// A heading with an [`EnumCombo`] right-aligned on the same row, e.g. the
-/// engine picker atop the settings panel. Same layout as [`section_header`],
-/// with the toggle checkbox replaced by a combo box. Returns whether the
-/// selection changed.
-pub fn heading_with_combo<T: Copy + PartialEq + 'static>(
-    ui: &mut egui::Ui,
-    title: &str,
-    combo: EnumCombo<'_, T>,
-    value: &mut T,
-) -> bool {
-    header_row(
-        ui,
-        |ui| {
-            ui.heading(title);
-        },
-        |ui| combo.show(ui, value),
-    )
-}
-
-/// Shared layout for [`section_header`], [`subsection_header`] and
-/// [`heading_with_combo`]: draws `draw_title` on the left and a right-aligned
-/// control on the same row, inside the Frame margin the heading levels
-/// already use elsewhere. Returns whatever `draw_right` returns.
-fn header_row(
+/// Shared layout for [`section_header`] and the Qualetization heading: draws
+/// `draw_title` on the left and a right-aligned control on the same row,
+/// inside the Frame margin the heading level already uses elsewhere.
+/// Returns whatever `draw_right` returns.
+pub fn header_row(
     ui: &mut egui::Ui,
     draw_title: impl FnOnce(&mut egui::Ui),
     draw_right: impl FnOnce(&mut egui::Ui) -> bool,
@@ -167,8 +130,8 @@ fn header_row(
         .inner_margin(egui::Margin {
             left: 0,
             right: 0,
-            top: 2,
-            bottom: 4,
+            top: 4,
+            bottom: 6,
         })
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -182,8 +145,7 @@ fn header_row(
 }
 
 /// [`header_row`] with a toggle checkbox as the right-aligned control, used
-/// by [`section_header`] and [`subsection_header`]. Returns whether the
-/// toggle changed.
+/// by [`section_header`]. Returns whether the toggle changed.
 fn header_with_toggle(
     ui: &mut egui::Ui,
     toggle: &mut bool,

@@ -78,13 +78,16 @@ pub trait UiMarginExt {
 
 impl UiMarginExt for egui::Ui {
     fn heading_with_margin(&mut self, text: &str) {
+        // Matches the margin `widgets::header_row` gives a heading that
+        // carries a control on its row, so both kinds of section heading
+        // sit at the same rhythm.
         self.heading_with_margin_custom(
             text,
             egui::Margin {
                 left: 0,
                 right: 0,
-                top: 2,
-                bottom: 4,
+                top: 4,
+                bottom: 6,
             },
         );
     }

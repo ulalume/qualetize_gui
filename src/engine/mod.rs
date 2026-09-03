@@ -5,6 +5,7 @@ pub mod qualetize;
 pub mod tilepalquant;
 
 use crate::types::BGRA8;
+use crate::types::FirstColor;
 use crate::types::QualetizeSettings;
 use crate::types::tilepalquant::TpqSettings;
 use serde::{Deserialize, Serialize};
@@ -61,6 +62,13 @@ pub struct TargetFormat {
     pub n_colors: u16,
     /// Allowed values per channel (R, G, B, A), ascending, each within 0..=255.
     pub levels: [Vec<u8>; 4],
+    /// What index 0 of every palette holds.
+    pub first_color: FirstColor,
+    /// The color index 0 takes in [`FirstColor::Shared`].
+    pub shared_color: [u8; 3],
+    /// The color index 0 takes in the two transparent modes of
+    /// [`FirstColor`], and the key color the second of them matches against.
+    pub transparent_color: [u8; 3],
 }
 
 impl TargetFormat {
@@ -71,6 +79,9 @@ impl TargetFormat {
             n_palettes: settings.n_palettes,
             n_colors: settings.n_colors,
             levels: settings.channel_levels(),
+            first_color: settings.first_color(),
+            shared_color: settings.shared_color,
+            transparent_color: settings.transparent_color,
         }
     }
 }
@@ -173,6 +184,37 @@ mod tests {
         assert!(result.indexed_data.iter().all(|&i| (i as usize) < 16));
     }
 
+    /// Every palette starts with the shared color, exactly as given.
+    #[test]
+    fn qualetize_pins_the_shared_color_at_index_zero_of_every_palette() {
+        let cancel = AtomicBool::new(false);
+        let ctx = RunContext {
+            cancel: &cancel,
+            progress: None,
+        };
+        let mut settings = QualetizeSettings::genesis();
+        settings.n_palettes = 2;
+        settings.tile_passes = 4;
+        settings.color_passes = 4;
+        settings.shared_color = [0, 49, 255];
+        settings.set_first_color(FirstColor::Shared);
+        let result = run(
+            QuantEngine::Qualetize,
+            &gradient(),
+            16,
+            16,
+            &settings,
+            &TpqSettings::default(),
+            &ctx,
+        )
+        .expect("not cancelled")
+        .expect("succeeds");
+        for palette in result.palette_data.chunks(16) {
+            let first = palette[0];
+            assert_eq!((first.r, first.g, first.b, first.a), (0, 49, 255, 255));
+        }
+    }
+
     #[test]
     fn a_cancelled_qualetize_run_returns_nothing() {
         let cancel = AtomicBool::new(true);
@@ -201,5 +243,18 @@ mod tests {
             (target.tile_width, target.n_palettes, target.n_colors),
             (8, 1, 16)
         );
+    }
+
+    /// The first color settings are shared, so the target format both engines
+    /// read has to carry them.
+    #[test]
+    fn target_format_carries_the_first_color_settings() {
+        let mut settings = QualetizeSettings::genesis();
+        settings.shared_color = [1, 2, 3];
+        settings.set_first_color(FirstColor::TransparentFromColor);
+        let target = TargetFormat::from_settings(&settings);
+        assert_eq!(target.first_color, FirstColor::TransparentFromColor);
+        assert_eq!(target.shared_color, [1, 2, 3]);
+        assert_eq!(target.transparent_color, settings.transparent_color);
     }
 }

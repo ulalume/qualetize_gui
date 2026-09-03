@@ -11,7 +11,8 @@
 //! `tests/tpq_parity.rs` checks the fixture set itself.
 
 use super::*;
-use crate::types::tilepalquant::{ColorZero, DitherPattern, TpqDitherMode, TpqSettings};
+use crate::types::FirstColor;
+use crate::types::tilepalquant::{DitherPattern, TpqDitherMode, TpqSettings};
 use serde::Deserialize;
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
@@ -118,12 +119,12 @@ fn read_indexed(path: &Path) -> (Vec<u8>, Vec<[u8; 3]>, u32, u32) {
     )
 }
 
-fn color_zero(name: &str) -> ColorZero {
+fn first_color(name: &str) -> FirstColor {
     match name {
-        "unique" => ColorZero::Unique,
-        "shared" => ColorZero::Shared,
-        "transp" => ColorZero::TransparentFromAlpha,
-        "transp_color" => ColorZero::TransparentFromColor,
+        "unique" => FirstColor::Unique,
+        "shared" => FirstColor::Shared,
+        "transp" => FirstColor::TransparentFromAlpha,
+        "transp_color" => FirstColor::TransparentFromColor,
         other => panic!("unknown col_zero {other:?}"),
     }
 }
@@ -173,12 +174,12 @@ fn check_case(case: &Case) -> Result<(), String> {
         n_palettes: params.num_pals,
         n_colors: params.cols_per_pal,
         levels: [levels.clone(), levels.clone(), levels, vec![0, 255]],
+        first_color: first_color(&params.col_zero),
+        shared_color: params.shared_col,
+        transparent_color: params.transp_col,
     };
     let settings = TpqSettings {
         fraction_of_pixels: params.frac_of_px,
-        color_zero: color_zero(&params.col_zero),
-        shared_color: params.shared_col,
-        transparent_color: params.transp_col,
         dither_mode: dither_mode(&params.dither),
         dither_pattern: dither_pattern(&params.dither_pat),
         dither_weight: params.dither_wt,
@@ -277,7 +278,7 @@ fn check_case(case: &Case) -> Result<(), String> {
     // The reference writes every palette entry opaque, including the one it
     // reserves for transparency; this engine marks that one transparent so the
     // host can draw it as such.
-    let transparent_mode = settings.color_zero.is_transparent();
+    let transparent_mode = target.first_color.is_transparent();
     for (index, color) in result.palette_data.iter().enumerate() {
         let expected_alpha = if transparent_mode && index % colors_per_palette == 0 {
             0
