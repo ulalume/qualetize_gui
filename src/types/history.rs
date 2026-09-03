@@ -9,10 +9,18 @@ use std::time::Duration;
 /// Maximum number of steps kept on the undo stack.
 pub const CAP: usize = 100;
 
-/// How long a change has to sit unchanged before it is committed as its own
-/// undo step. This coalesces a slider drag (many changes in quick
-/// succession) into a single step instead of one per frame.
-pub const SETTLE: Duration = Duration::from_millis(600);
+/// How long a change made without the pointer (typing into a field) has to
+/// sit unchanged before it is committed as its own undo step, so a typed
+/// number becomes one step rather than one per keystroke. A change made
+/// while a pointer button is down commits the moment the button is
+/// released.
+pub const SETTLE: Duration = Duration::from_millis(300);
+
+struct Pending {
+    seen: SettingsBundle,
+    since: Instant,
+    held: bool,
+}
 
 /// Undo / redo history over the app's settings.
 ///
@@ -31,9 +39,9 @@ pub struct SettingsHistory {
     /// The most recently committed bundle: the baseline the next change is
     /// compared against.
     committed: SettingsBundle,
-    /// The uncommitted settings last seen and when they last changed; the
-    /// settle timer restarts on every change.
-    pending: Option<(SettingsBundle, Instant)>,
+    /// The uncommitted change: the settings last seen, when they last
+    /// changed, and whether a pointer button was down at any point of it.
+    pending: Option<Pending>,
 }
 
 impl SettingsHistory {
@@ -61,25 +69,40 @@ impl SettingsHistory {
     /// Report the live settings for this frame. Returns `true` when a step
     /// was just recorded.
     ///
-    /// A change is committed once it has stayed the same for [`SETTLE`];
-    /// every further change restarts that timer, so a slider drag becomes
-    /// one undo step however long it lasts. `hold` postpones the commit
-    /// without restarting the timer, for as long as a pointer button is
-    /// down.
+    /// `hold` is whether a pointer button is down. A change made while held
+    /// (a slider drag) is committed as one step the moment the button is
+    /// released, however long the drag took. A change made without the
+    /// pointer (typing) is committed once it has stayed the same for
+    /// [`SETTLE`].
     pub fn observe(&mut self, current: &SettingsBundle, now: Instant, hold: bool) -> bool {
         if *current == self.committed {
             self.pending = None;
             return false;
         }
 
-        match &self.pending {
-            Some((seen, since)) if seen == current => {
-                if !hold && now.duration_since(*since) >= SETTLE {
+        match &mut self.pending {
+            Some(pending) if pending.seen == *current => {
+                pending.held |= hold;
+                if hold {
+                    return false;
+                }
+                if pending.held || now.duration_since(pending.since) >= SETTLE {
                     self.commit(current.clone());
                     return true;
                 }
             }
-            _ => self.pending = Some((current.clone(), now)),
+            Some(pending) => {
+                pending.seen = current.clone();
+                pending.since = now;
+                pending.held |= hold;
+            }
+            None => {
+                self.pending = Some(Pending {
+                    seen: current.clone(),
+                    since: now,
+                    held: hold,
+                });
+            }
         }
         false
     }
@@ -196,11 +219,20 @@ mod tests {
         }
         // Held down (dragging) it stays pending past SETTLE.
         assert!(!history.observe(&bundle(18), now + step * 10 + SETTLE, true));
-        // Released and unchanged for SETTLE: exactly one step.
+        // Released: exactly one step, at once.
         assert!(history.observe(&bundle(18), now + step * 10 + SETTLE, false));
         let restored = history.undo(&bundle(18)).expect("a step was recorded");
         assert_eq!(restored, bundle(8));
         assert!(!history.can_undo());
+    }
+
+    #[test]
+    fn a_dragged_change_commits_on_release() {
+        let mut history = SettingsHistory::new(bundle(8));
+        let now = Instant::now();
+        assert!(!history.observe(&bundle(16), now, true));
+        assert!(history.observe(&bundle(16), now + Duration::from_millis(1), false));
+        assert!(history.can_undo());
     }
 
     #[test]
