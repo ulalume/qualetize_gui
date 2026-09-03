@@ -26,9 +26,8 @@ const MAX_FULL_TEXTURES: usize = 8;
 const REMOVE_OVERLAY_SIZE: f32 = 18.0;
 /// Gap between the "remove" overlay and the image's top and right edges.
 const REMOVE_OVERLAY_INSET: f32 = 2.0;
-/// Vertical gap after an ordinary entry.
+/// Vertical gap after an entry.
 const ENTRY_SPACING: f32 = 6.0;
-/// Vertical gap after the entry whose settings are the ones in use, standing
 
 /// What the entries being drawn share: the texture cache, which rows turned
 /// out to be visible, how many full resolution textures are in use, and
@@ -157,8 +156,13 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
         ),
         Vec2::splat(REMOVE_OVERLAY_SIZE),
     );
+    // A child Ui keeps the overlay out of the parent's layout: `put` would
+    // pull the cursor back up to the overlay's bottom edge.
     let remove = ui
-        .put(overlay_rect, egui::Button::new("×").small().frame(false))
+        .new_child(egui::UiBuilder::new().max_rect(overlay_rect).layout(
+            egui::Layout::centered_and_justified(egui::Direction::TopDown),
+        ))
+        .add(egui::Button::new("×").small().frame(false))
         .on_hover_text("Remove");
 
     if remove.clicked() {
