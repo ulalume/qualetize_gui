@@ -39,7 +39,9 @@ fn main() {
     }
 
     // GCC/Clang/MinGW flags
-    build.flag("-std=c99");
+    // gnu99 rather than c99: the library calls alloca, which glibc only declares
+    // outside strict ISO mode.
+    build.flag("-std=gnu99");
     build.flag("-O3");
     build.flag("-ffast-math");
     build.flag("-funroll-loops");
