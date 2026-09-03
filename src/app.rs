@@ -125,7 +125,7 @@ impl QualetizeApp {
         egui::Modal::new(egui::Id::new("remove_image_prompt")).show(ctx, |ui| {
             ui.set_width(320.0);
             ui.heading("Remove image");
-            ui.label("Remove the loaded image? Results that are not exported are lost.");
+            ui.label("Remove the loaded image?");
             ui.add_space(8.0);
             ui.horizontal(|ui| {
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
