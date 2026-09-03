@@ -12,6 +12,14 @@ This application uses the following third-party components:
 - **Source**: https://github.com/rsms/inter
 - **Copyright**: Copyright (c) 2016 The Inter Project Authors
 
+## Sample Images
+
+### carina-nebula.png
+- **Title**: "Cosmic Cliffs" in the Carina Nebula (NIRCam Image), reduced to 256x144
+- **Credit**: NASA, ESA, CSA, STScI
+- **Source**: https://science.nasa.gov/asset/webb/cosmic-cliffs-in-the-carina-nebula-nircam-image/
+- **Terms**: NASA content is generally not subject to copyright; used with the credit above
+
 ## Major Libraries
 
 ### qualetize

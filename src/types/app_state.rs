@@ -109,6 +109,8 @@ pub enum AppStateRequest {
     },
 
     OpenImageDialog,
+    /// Drop the loaded image and everything derived from it, after asking.
+    RemoveImage,
     ExportImageDialog {
         source: ExportSource,
         format: ExportFormat,
@@ -174,6 +176,11 @@ pub struct AppState {
     /// An image above [`LARGE_IMAGE_PIXELS`] waiting for the user to confirm
     /// loading it, with its size.
     pub pending_large_image: Option<(AppStateRequest, u32, u32)>,
+    /// Thumbnails of the bundled sample images, uploaded the first time the
+    /// welcome screen is drawn.
+    pub sample_thumbnails: Vec<egui::TextureHandle>,
+    /// The Remove image confirmation is up.
+    pub confirm_remove_image: bool,
     /// Snapshot of what is mirrored to the session file, so it is only rewritten
     /// when something actually changed.
     last_saved_session: SettingsBundle,
@@ -256,6 +263,8 @@ impl Default for AppState {
             tpq_settings: session.tpq_settings.clone(),
             quantize_progress: None,
             pending_large_image: None,
+            sample_thumbnails: Vec::new(),
+            confirm_remove_image: false,
             last_saved_session: session.clone(),
             session_save_deadline: None,
             request_update_qualetized_image: None,

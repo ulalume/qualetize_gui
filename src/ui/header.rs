@@ -20,6 +20,18 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     .send(AppStateRequest::OpenImageDialog);
                 ui.close();
             }
+            if ui
+                .add_enabled(
+                    state.input_image.is_some(),
+                    egui::Button::new("Remove image"),
+                )
+                .clicked()
+            {
+                _ = state
+                    .app_state_request_sender
+                    .send(AppStateRequest::RemoveImage);
+                ui.close();
+            }
             ui.separator();
 
             ui.menu_button("Export image", |ui| {
