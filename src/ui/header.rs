@@ -5,6 +5,9 @@ use crate::types::{
 };
 use crate::ui::styles::UiMarginExt;
 
+/// Small app icon shown at the start of the menu bar, in points.
+const MENU_ICON_SIZE: f32 = 16.0;
+
 /// Returns `(settings_changed, tile_reduce_changed)`, matching the settings
 /// panel: resetting tile reduction only needs the post-pass to rerun.
 pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
@@ -12,6 +15,23 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
     let mut tile_reduce_changed = false;
 
     egui::MenuBar::new().ui(ui, |ui| {
+        // --- App icon ---
+        let (small_icon, _) = state.app_icons(ui.ctx()).clone();
+        if ui
+            .add(
+                egui::Button::image(
+                    egui::Image::new(&small_icon)
+                        .fit_to_exact_size(egui::vec2(MENU_ICON_SIZE, MENU_ICON_SIZE)),
+                )
+                .frame(false),
+            )
+            .on_hover_text("About QualetizeGUI")
+            .clicked()
+        {
+            state.show_about = true;
+        }
+        ui.add_space(4.0);
+
         // --- File menu ---
         ui.menu_button("File", |ui| {
             if ui.button("Open image...").clicked() {
@@ -107,7 +127,14 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             });
             ui.menu_button("Reset color correction", |ui| {
                 for preset in ColorCorrectionPreset::all() {
-                    if ui.button(preset.display_name()).clicked() {
+                    let enabled = match preset {
+                        ColorCorrectionPreset::None => !state.color_correction.is_default(),
+                        _ => true,
+                    };
+                    if ui
+                        .add_enabled(enabled, egui::Button::new(preset.display_name()))
+                        .clicked()
+                    {
                         // Edits `state.color_correction`, not `state.settings`;
                         // app.rs detects that change itself, so this does not
                         // need to request a re-quantization.
@@ -118,9 +145,25 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     }
                 }
             });
-            if ui.button("Reset tile reduction").clicked() {
+            if ui
+                .add_enabled(
+                    !state.settings.tile_reduce_is_default(),
+                    egui::Button::new("Reset tile reduction"),
+                )
+                .clicked()
+            {
                 state.settings.reset_tile_reduce();
                 tile_reduce_changed = true;
+                ui.close();
+            }
+            if ui
+                .add_enabled(
+                    !state.palette_sort_settings.is_default(),
+                    egui::Button::new("Reset palette order"),
+                )
+                .clicked()
+            {
+                state.palette_sort_settings.reset();
                 ui.close();
             }
             ui.separator();

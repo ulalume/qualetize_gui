@@ -181,6 +181,11 @@ pub struct AppState {
     pub sample_thumbnails: Vec<egui::TextureHandle>,
     /// The Remove image confirmation is up.
     pub confirm_remove_image: bool,
+    /// The About modal is up.
+    pub show_about: bool,
+    /// The app icon, small (menu bar) and large (About modal), decoded the
+    /// first time either is drawn.
+    pub app_icons: Option<(egui::TextureHandle, egui::TextureHandle)>,
     /// Snapshot of what is mirrored to the session file, so it is only rewritten
     /// when something actually changed.
     last_saved_session: SettingsBundle,
@@ -265,6 +270,8 @@ impl Default for AppState {
             pending_large_image: None,
             sample_thumbnails: Vec::new(),
             confirm_remove_image: false,
+            show_about: false,
+            app_icons: None,
             last_saved_session: session.clone(),
             session_save_deadline: None,
             request_update_qualetized_image: None,
@@ -352,6 +359,30 @@ impl AppState {
                 None => {}
             }
         }
+    }
+
+    /// The app icon textures, small (32 px) and large (256 px), decoding the
+    /// bundled PNGs the first time either is needed.
+    pub fn app_icons(
+        &mut self,
+        ctx: &egui::Context,
+    ) -> &(egui::TextureHandle, egui::TextureHandle) {
+        self.app_icons.get_or_insert_with(|| {
+            let load = |name: &str, bytes: &[u8]| {
+                let image = image::load_from_memory(bytes)
+                    .expect("the bundled app icon decodes")
+                    .to_rgba8();
+                let size = [image.width() as usize, image.height() as usize];
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
+                ctx.load_texture(name, color_image, egui::TextureOptions::LINEAR)
+            };
+            let small = load("app_icon_small", include_bytes!("../../assets/icon-32.png"));
+            let large = load(
+                "app_icon_large",
+                include_bytes!("../../assets/icon-256.png"),
+            );
+            (small, large)
+        })
     }
 
     /// Whether index 0 of every palette is reserved and must not be moved

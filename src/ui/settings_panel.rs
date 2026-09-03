@@ -845,7 +845,10 @@ fn draw_tile_reduce_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     ui.add_space(4.0);
     if ui
-        .add_sized([80.0, ROW_HEIGHT], egui::Button::new("🔄 Reset"))
+        .add_enabled(
+            !state.settings.tile_reduce_is_default(),
+            egui::Button::new("🔄 Reset").min_size(egui::vec2(80.0, ROW_HEIGHT)),
+        )
         .on_hover_text("Restore the threshold and flip options to their defaults")
         .clicked()
     {
@@ -1099,8 +1102,15 @@ fn draw_color_correction_settings(ui: &mut egui::Ui, state: &mut AppState) {
                 ColorCorrectionPreset::None => "🔄 Reset",
                 _ => preset.display_name(),
             };
+            let enabled = match preset {
+                ColorCorrectionPreset::None => !state.color_correction.is_default(),
+                _ => true,
+            };
             if ui
-                .add_sized([button_width, ROW_HEIGHT], egui::Button::new(label))
+                .add_enabled(
+                    enabled,
+                    egui::Button::new(label).min_size(egui::vec2(button_width, ROW_HEIGHT)),
+                )
                 .clicked()
             {
                 state
@@ -1153,7 +1163,9 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                     );
                 }
             });
-        ui.add_enabled_ui(state.palette_sort_settings.mode != SortMode::None, |ui| {
+
+        // The order only matters once a mode is picked.
+        if state.palette_sort_settings.mode != SortMode::None {
             egui::ComboBox::from_id_salt("sort_order")
                 .selected_text(state.palette_sort_settings.order.display_name())
                 .show_ui(ui, |ui| {
@@ -1165,8 +1177,24 @@ fn draw_palette_sort_settings(ui: &mut egui::Ui, state: &mut AppState) {
                         );
                     }
                 });
-        });
+        }
     });
+
+    if state.palette_sort_settings.mode == SortMode::None {
+        return;
+    }
+
+    ui.add_space(4.0);
+    if ui
+        .add_enabled(
+            !state.palette_sort_settings.is_default(),
+            egui::Button::new("🔄 Reset").min_size(egui::vec2(80.0, ROW_HEIGHT)),
+        )
+        .on_hover_text("Restore the mode and order to their defaults")
+        .clicked()
+    {
+        state.palette_sort_settings.reset();
+    }
 }
 
 #[cfg(test)]

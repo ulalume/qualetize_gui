@@ -88,6 +88,10 @@ impl ColorCorrection {
         };
     }
 
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
     pub fn preset_dark() -> ColorCorrection {
         ColorCorrection {
             contrast: 1.75,

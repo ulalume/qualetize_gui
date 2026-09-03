@@ -237,6 +237,14 @@ impl QualetizeSettings {
         self.tile_reduce_allow_flip_y = default_tile_reduce_allow_flip();
     }
 
+    /// Whether the fields [`Self::reset_tile_reduce`] resets are already at
+    /// their defaults.
+    pub fn tile_reduce_is_default(&self) -> bool {
+        self.tile_reduce_post_threshold == default_tile_reduce_post_threshold()
+            && self.tile_reduce_allow_flip_x == default_tile_reduce_allow_flip()
+            && self.tile_reduce_allow_flip_y == default_tile_reduce_allow_flip()
+    }
+
     /// Identical to [`Self::genesis`] apart from the pixel format and color space;
     /// expressed as a struct update over it so the two presets can't drift apart on
     /// the fields they share.

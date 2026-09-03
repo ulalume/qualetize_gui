@@ -38,6 +38,17 @@ pub struct PaletteSortSettings {
     pub order: SortOrder,
 }
 
+impl PaletteSortSettings {
+    /// Restore the mode and order to their defaults (Ramps, Ascending).
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SortOrder {
     #[default]

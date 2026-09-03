@@ -149,6 +149,52 @@ impl QualetizeApp {
         }
     }
 
+    /// Show the app icon, version, license, and third-party credits.
+    fn draw_about(&mut self, ctx: &egui::Context) {
+        if !self.state.show_about {
+            return;
+        }
+        let (_, large_icon) = self.state.app_icons(ctx).clone();
+        let mut close = false;
+        let response = egui::Modal::new(egui::Id::new("about_modal")).show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Image::new(&large_icon).fit_to_exact_size(egui::vec2(200.0, 200.0)));
+                ui.heading("QualetizeGUI");
+                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.label("MIT license");
+
+                ui.separator();
+                ui.label(egui::widget_text::RichText::new("Third-party").small());
+
+                ui.horizontal(|ui| {
+                    ui.hyperlink_to("Aikku93/qualetize", "https://github.com/Aikku93/qualetize");
+                    ui.label("Unlicense license");
+                });
+                ui.horizontal(|ui| {
+                    ui.hyperlink_to(
+                        "rilden/tiledpalettequant",
+                        "https://github.com/rilden/tiledpalettequant",
+                    );
+                    ui.label("MIT license");
+                });
+            });
+
+            ui.add_space(8.0);
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+            });
+        });
+
+        if close || response.should_close() {
+            self.state.show_about = false;
+        }
+    }
+
     /// Replace the input image (and everything derived from it) with `loaded`.
     fn install_input_image(&mut self, name: String, loaded: Result<ImageData, String>) {
         self.image_processor.cancel_all();
@@ -590,6 +636,7 @@ impl eframe::App for QualetizeApp {
         self.handle_requests(ctx);
         self.draw_large_image_prompt(ctx);
         self.draw_remove_image_prompt(ctx);
+        self.draw_about(ctx);
 
         // Mirror preferences and settings to disk so they survive a restart
         self.state.check_and_save_preferences();
