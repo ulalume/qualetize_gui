@@ -268,7 +268,7 @@ impl QualetizeSettings {
             rgba_depth: rgba_depth.clone(),
             premul_alpha: false,
             color_space: ColorSpace::default(),
-            dither_mode: DitherMode::None,
+            dither_mode: DitherMode::Floyd,
             dither_level: 0.5,
             tile_passes: 1000,
             color_passes: 100,
