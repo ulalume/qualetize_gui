@@ -59,7 +59,6 @@ impl SortOrder {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SortMode {
-    #[default]
     None,
     Luminance,
     Hue,
@@ -67,13 +66,14 @@ pub enum SortMode {
     Saturation,
     /// Group colors into ramps by hue and chroma, neutrals first, each ramp
     /// dark to light.
+    #[default]
     Ramps,
 }
 
 impl SortMode {
     pub fn display_name(&self) -> &'static str {
         match self {
-            Self::None => "Default",
+            Self::None => "None",
             Self::Luminance => "Luminance",
             Self::Hue => "Hue",
             Self::Brightness => "Brightness",
@@ -84,11 +84,11 @@ impl SortMode {
     pub fn all() -> &'static [Self] {
         &[
             Self::None,
+            Self::Ramps,
             Self::Luminance,
             Self::Hue,
             Self::Brightness,
             Self::Saturation,
-            Self::Ramps,
         ]
     }
 }

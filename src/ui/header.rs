@@ -97,7 +97,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
                     }
                 }
             });
-            ui.menu_button("Reset Qualetize", |ui| {
+            ui.menu_button("Reset qualetization", |ui| {
                 for preset in QualetizePreset::all() {
                     if ui.button(preset.display_name()).clicked() {
                         state.settings.apply_preset(preset.qualetize_settings());
