@@ -12,6 +12,7 @@ use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
 use crate::time::Instant;
 use crate::types::FirstColor;
+use crate::types::history::SettingsHistory;
 use crate::types::image::TileCountOptions;
 use crate::types::tilepalquant::TpqSettings;
 
@@ -117,6 +118,9 @@ pub enum AppStateRequest {
     },
     SaveSettingsDialog,
     LoadSettingsDialog,
+
+    Undo,
+    Redo,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +217,10 @@ pub struct AppState {
 
     pub tile_count: TileCountState,
 
+    /// Undo / redo history over the settings (engine, Qualetize settings,
+    /// tilepalquant settings, color correction, palette sort).
+    pub history: SettingsHistory,
+
     // Export requests
     pub app_state_request_receiver: mpsc::Receiver<AppStateRequest>,
     pub app_state_request_sender: mpsc::Sender<AppStateRequest>,
@@ -295,6 +303,19 @@ impl Default for AppState {
             palette_sort_dirty: false,
 
             tile_count: TileCountState::default(),
+
+            // Built the same way as `settings_bundle()`, so the initial
+            // history baseline matches what the first `observe` call sees
+            // (which stamps the current app version, not the session file's).
+            history: SettingsHistory::new(SettingsBundle {
+                engine: session.engine,
+                tpq_settings: session.tpq_settings.clone(),
+                ..SettingsBundle::new(
+                    session.qualetize_settings.clone(),
+                    session.color_correction.clone(),
+                    session.sort_settings,
+                )
+            }),
 
             app_state_request_receiver: receiver,
             app_state_request_sender: sender,

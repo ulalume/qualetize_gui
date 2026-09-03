@@ -10,7 +10,7 @@ use std::path::Path;
 /// Key the settings in use are kept under so they survive a restart.
 const SESSION_KEY: &str = "session";
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SettingsBundle {
     pub qualetize_settings: QualetizeSettings,
     pub color_correction: ColorCorrection,
