@@ -10,6 +10,7 @@ use crate::types::tilepalquant::{
 };
 use crate::types::{
     AppState, ColorSpace, DitherMode, FirstColor,
+    app_state::TopLeftPixel,
     color_correction::ColorCorrectionPreset,
     image::{SortMode, SortOrder},
 };
@@ -388,24 +389,6 @@ fn draw_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 /// Hover text on both engines' "Use top-left color" buttons.
 const TOP_LEFT_HOVER: &str = "Use the top-left pixel as the key color; a transparent top-left pixel selects transparency from pixels instead";
 
-/// What the top-left pixel of the color corrected image offers as a key color.
-#[derive(Clone, Copy)]
-enum TopLeftPixel {
-    /// Fully opaque, so its RGB is usable as the key color.
-    Color([u8; 3]),
-    /// Not fully opaque: the image marks transparency with alpha, not a color.
-    Transparent,
-}
-
-fn top_left_pixel(state: &AppState) -> Option<TopLeftPixel> {
-    let [r, g, b, a] = state.color_corrected_image.as_ref()?.top_left_pixel();
-    Some(if a == 255 {
-        TopLeftPixel::Color([r, g, b])
-    } else {
-        TopLeftPixel::Transparent
-    })
-}
-
 /// What the transparency radios asked for this frame.
 #[derive(Default)]
 struct TransparencyEdit {
@@ -554,7 +537,7 @@ const QUALETIZE_FROM_COLOR_HOVER: &str =
 fn draw_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
-    let top_left = top_left_pixel(state);
+    let top_left = state.top_left_pixel();
     let mut kind = FirstColorKind::from(state.settings.first_color());
     ui.horizontal(|ui| {
         ui.label("Palette index 0:");

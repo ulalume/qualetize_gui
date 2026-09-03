@@ -285,10 +285,12 @@ impl QualetizeSettings {
             custom_levels: genesis_custom_level_strings(),
         }
     }
+    /// Four palettes sharing their first color, the way the Mega Drive shares
+    /// the backdrop color across its palettes.
     pub fn genesis_full_palettes() -> Self {
         Self {
             n_palettes: 4,
-            col0_is_clear: true,
+            first_color_shared: true,
             ..Self::genesis()
         }
     }
@@ -953,12 +955,16 @@ mod tests {
         settings.shared_color = [1, 2, 3];
         settings.set_transparent_color([4, 5, 6]);
 
-        settings.apply_preset(QualetizeSettings::genesis_full_palettes());
+        settings.apply_preset(QualetizeSettings::gba_nds_full_palettes());
 
         assert_eq!(settings.first_color(), FirstColor::TransparentFromAlpha);
         assert!(!settings.first_color_shared);
         assert_eq!(settings.shared_color, [0, 0, 0]);
         assert_eq!(settings.transparent_color, default_transparent_color());
+
+        settings.apply_preset(QualetizeSettings::genesis_full_palettes());
+        assert_eq!(settings.first_color(), FirstColor::Shared);
+        assert_eq!(settings.shared_color, [0, 0, 0]);
     }
 
     #[test]
@@ -966,7 +972,7 @@ mod tests {
         let base = QualetizeSettings::genesis();
         let full = QualetizeSettings::genesis_full_palettes();
         assert_eq!(full.n_palettes, 4);
-        assert!(full.col0_is_clear);
+        assert_eq!(full.first_color(), FirstColor::Shared);
         assert_eq!(full.rgba_depth, base.rgba_depth);
         assert_eq!(full.custom_levels, base.custom_levels);
     }
