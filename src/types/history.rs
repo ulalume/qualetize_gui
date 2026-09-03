@@ -107,6 +107,21 @@ impl SettingsHistory {
         false
     }
 
+    /// Record `next` as its own step, without waiting for it to settle.
+    ///
+    /// An unsettled change in `current` is committed first, so applying a
+    /// stored result right after moving a slider keeps both as separate
+    /// steps. Settings that are already the committed ones add nothing.
+    pub fn record(&mut self, current: &SettingsBundle, next: &SettingsBundle) {
+        if *current != self.committed {
+            self.commit(current.clone());
+        }
+        if *next != self.committed {
+            self.commit(next.clone());
+        }
+        self.pending = None;
+    }
+
     /// A change is waiting to settle. The caller uses this to request a
     /// repaint after [`SETTLE`] so the step is recorded even without
     /// further input.
@@ -142,6 +157,12 @@ impl SettingsHistory {
             .push(std::mem::replace(&mut self.committed, next.clone()));
         self.pending = None;
         Some(next)
+    }
+
+    /// The bundle the last committed step left in place: what an uncommitted
+    /// change is compared against.
+    pub fn committed(&self) -> &SettingsBundle {
+        &self.committed
     }
 
     pub fn can_undo(&self) -> bool {
@@ -297,6 +318,32 @@ mod tests {
         let other = bundle(24);
         assert!(history.redo(&other).is_none());
         assert!(!history.can_redo());
+    }
+
+    #[test]
+    fn record_commits_the_unsettled_change_and_the_new_one_as_two_steps() {
+        let start = bundle(8);
+        let mut history = SettingsHistory::new(start.clone());
+        let unsettled = bundle(16);
+        history.observe(&unsettled, Instant::now(), false);
+        assert!(history.pending());
+
+        let applied = bundle(24);
+        history.record(&unsettled, &applied);
+        assert!(!history.pending());
+        assert_eq!(*history.committed(), applied);
+
+        assert_eq!(history.undo(&applied).expect("the applied step"), unsettled);
+        assert_eq!(history.undo(&unsettled).expect("the earlier step"), start);
+        assert!(!history.can_undo());
+    }
+
+    #[test]
+    fn recording_the_settings_already_in_place_adds_no_step() {
+        let start = bundle(8);
+        let mut history = SettingsHistory::new(start.clone());
+        history.record(&start, &start);
+        assert!(!history.can_undo());
     }
 
     #[test]

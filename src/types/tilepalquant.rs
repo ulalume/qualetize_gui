@@ -15,6 +15,15 @@ pub enum TpqDitherMode {
 }
 
 impl TpqDitherMode {
+    /// Matches the Dithering combo, where [`Self::Off`] is the "None" entry.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TpqDitherMode::Off => "None",
+            TpqDitherMode::Fast => "Fast",
+            TpqDitherMode::Slow => "Slow",
+        }
+    }
+
     pub fn description(&self) -> &'static str {
         match self {
             TpqDitherMode::Off => "No dithering",

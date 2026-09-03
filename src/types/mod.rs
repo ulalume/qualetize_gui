@@ -8,6 +8,7 @@ pub mod image;
 pub mod palette_ramps;
 pub mod preferences;
 pub mod qualetize;
+pub mod results;
 pub mod tilepalquant;
 
 // Re-export all public types for convenience
@@ -18,3 +19,4 @@ pub use dither::DitherMode;
 pub use export::ExportFormat;
 pub use image::ImageData;
 pub use qualetize::{BGRA8, ClearColor, FirstColor, QualetizePreset, QualetizeSettings};
+pub use results::{Results, StoredResult};
