@@ -637,13 +637,25 @@ mod tests {
             assert!((entry_height(entry, width) - parts).abs() < 1e-4, "{width}");
         }
 
-        // 64 points wide in a 200 point panel: 1:1, so 32 points tall. Two
-        // rows of 8 swatches at the largest size: 2 * (16 + 1) - 1 = 33.
-        assert!((entry_height(entry, 200.0) - (32.0 + 1.0 + 33.0 + ENTRY_SPACING)).abs() < 1e-4);
+        // The image fills a 200 point panel: 200 x 100. Two rows of 8
+        // swatches at the largest size: 2 * (16 + 1) - 1 = 33.
+        assert!((entry_height(entry, 200.0) - (100.0 + 1.0 + 33.0 + ENTRY_SPACING)).abs() < 1e-4);
         // Narrower than the image: half the size, with swatches shrunk to fit.
         let swatch = (40.0 - 7.0 * SWATCH_SPACING) / 8.0;
         let strip = 2.0 * (swatch + SWATCH_SPACING) - SWATCH_SPACING;
         assert!((entry_height(entry, 40.0) - (20.0 + 1.0 + strip + ENTRY_SPACING)).abs() < 1e-4);
+    }
+
+    /// A tall image stops at the height cap, and its strip is as wide as it.
+    #[test]
+    fn a_tall_image_is_capped_in_height() {
+        let results = recorded(64, 640, 16, 8);
+        let entry = &results.entries()[0];
+        let size = image_size(entry, 200.0);
+        assert_eq!((size.x, size.y), (32.0, MAX_IMAGE_HEIGHT));
+        let swatch = (32.0 - 7.0 * SWATCH_SPACING) / 8.0;
+        let strip = 2.0 * (swatch + SWATCH_SPACING) - SWATCH_SPACING;
+        assert!((strip_height(entry, 200.0) - strip).abs() < 1e-4);
     }
 
     /// Swatches shrink to fit a narrow panel and never grow past the size the
