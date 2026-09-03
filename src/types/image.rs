@@ -92,9 +92,11 @@ impl SortMode {
             Self::Ramps => "Ramps",
         }
     }
+    /// Every mode a color sort can actually run, in menu order.
+    /// [`Self::None`] (no sort) is not a menu entry: the "Reorder palette
+    /// colors" checkbox stands for it instead.
     pub fn all() -> &'static [Self] {
         &[
-            Self::None,
             Self::Ramps,
             Self::Luminance,
             Self::Hue,

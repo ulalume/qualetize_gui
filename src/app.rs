@@ -167,17 +167,14 @@ impl QualetizeApp {
                 ui.separator();
                 ui.label(egui::widget_text::RichText::new("Third-party").small());
 
-                ui.horizontal(|ui| {
-                    ui.hyperlink_to("Aikku93/qualetize", "https://github.com/Aikku93/qualetize");
-                    ui.label("Unlicense license");
-                });
-                ui.horizontal(|ui| {
-                    ui.hyperlink_to(
-                        "rilden/tiledpalettequant",
-                        "https://github.com/rilden/tiledpalettequant",
-                    );
-                    ui.label("MIT license");
-                });
+                ui.hyperlink_to("Aikku93/qualetize", "https://github.com/Aikku93/qualetize");
+                ui.label(egui::RichText::new("Unlicense license").small());
+                ui.add_space(4.0);
+                ui.hyperlink_to(
+                    "rilden/tiledpalettequant",
+                    "https://github.com/rilden/tiledpalettequant",
+                );
+                ui.label(egui::RichText::new("MIT license").small());
             });
 
             ui.add_space(8.0);

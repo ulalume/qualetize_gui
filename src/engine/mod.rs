@@ -21,8 +21,17 @@ pub enum QuantEngine {
 impl QuantEngine {
     pub fn display_name(&self) -> &'static str {
         match self {
-            QuantEngine::Qualetize => "Qualetize",
-            QuantEngine::TilePalQuant => "tilepalquant",
+            QuantEngine::Qualetize => "qualetize",
+            QuantEngine::TilePalQuant => "tiledpalettequant",
+        }
+    }
+
+    /// The upstream repository this engine is ported or bound from, shown as
+    /// a tooltip on the engine radio.
+    pub fn source(&self) -> &'static str {
+        match self {
+            QuantEngine::Qualetize => "Aikku93/qualetize",
+            QuantEngine::TilePalQuant => "rilden/tiledpalettequant",
         }
     }
 
