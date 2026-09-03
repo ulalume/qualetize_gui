@@ -128,10 +128,6 @@ pub enum AppStateRequest {
     ApplyResult {
         hash: u64,
     },
-    /// Write the result with this hash out in the selected export format.
-    ExportResult {
-        hash: u64,
-    },
     /// Drop the result with this hash from the list.
     RemoveResult {
         hash: u64,

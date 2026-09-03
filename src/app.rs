@@ -597,7 +597,6 @@ impl QualetizeApp {
                 self.restore_settings_bundle(settings.clone(), ctx);
                 self.state.history.record(&before, &settings);
             }
-            AppStateRequest::ExportResult { hash } => self.export_result(hash, ctx),
             AppStateRequest::RemoveResult { hash } => {
                 if let Some(index) = self.result_index(hash) {
                     self.state.results.remove(index);
@@ -618,55 +617,6 @@ impl QualetizeApp {
     fn result_settings(&self, hash: u64) -> Option<SettingsBundle> {
         let index = self.result_index(hash)?;
         Some(self.state.results.entries()[index].settings.clone())
-    }
-
-    /// Write a stored result out in the selected export format, decoding it
-    /// instead of re-running the pipeline. The name follows the export menu's:
-    /// the input file name plus the suffix of the pass the entry came from.
-    fn export_result(&mut self, hash: u64, ctx: &egui::Context) {
-        let Some(input_path) = self.state.input_path.clone() else {
-            return;
-        };
-        let Some(index) = self.result_index(hash) else {
-            log::error!("Export failed: no result {hash:016x} in the list");
-            return;
-        };
-        let entry = &self.state.results.entries()[index];
-        let format = self.state.preferences.selected_export_format;
-
-        let encoded = entry.decode().and_then(|indexed| {
-            let pixels = &indexed.indexed_pixels;
-            let palettes = &indexed.palettes;
-            match format {
-                ExportFormat::Bmp => {
-                    encode_indexed_bmp(pixels, palettes, entry.width, entry.height)
-                }
-                ExportFormat::PngIndexed => {
-                    encode_indexed_png(pixels, palettes, entry.width, entry.height)
-                }
-                ExportFormat::Png => Err("indexed export needs an indexed format".to_string()),
-            }
-        });
-        let bytes = match encoded {
-            Ok(bytes) => bytes,
-            Err(e) => {
-                log::error!("Export failed: {e}");
-                return;
-            }
-        };
-
-        let source = if entry.settings.qualetize_settings.tile_reduce_post_enabled {
-            ExportSource::TileReduced
-        } else {
-            ExportSource::Qualetized
-        };
-        let default_path = platform::export_path(&input_path, format, Some(source.file_suffix()));
-        platform::export_image(
-            bytes,
-            default_path.display().to_string(),
-            format,
-            self.dialog_context(ctx),
-        );
     }
 
     /// Apply a bundle restored from undo/redo history, also keeping
@@ -902,7 +852,7 @@ impl eframe::App for QualetizeApp {
         // Right (results)
         if self.state.preferences.show_results {
             egui::Panel::right("results_panel")
-                .default_size(200.0)
+                .default_size(150.0)
                 .min_size(120.0)
                 .resizable(true)
                 .show(ui, |ui| {

@@ -1,7 +1,7 @@
 //! The Results side panel: the recorded outputs, newest first. Each entry
-//! shows its image, the palettes it uses and a summary of the settings that
-//! produced it, and can put those settings back in use or write the image
-//! out without re-running the pipeline.
+//! shows its image and the palettes it uses, with the full settings in a
+//! hover tooltip. Clicking the image puts those settings back in use;
+//! the overlay in its top-right corner removes the entry.
 
 use crate::engine::QuantEngine;
 use crate::settings_manager::SettingsBundle;
@@ -22,10 +22,17 @@ const SWATCH_SPACING: f32 = 1.0;
 /// Full resolution textures held at once. One costs as much memory as the
 /// image itself, so only the topmost visible rows get one.
 const MAX_FULL_TEXTURES: usize = 8;
+/// Side length of the "remove" overlay drawn over an image's top-right corner.
+const REMOVE_OVERLAY_SIZE: f32 = 18.0;
+/// Gap between the "remove" overlay and the image's top and right edges.
+const REMOVE_OVERLAY_INSET: f32 = 2.0;
+/// Vertical gap after an ordinary entry.
+const ENTRY_SPACING: f32 = 6.0;
+/// Vertical gap after the entry whose settings are the ones in use, standing
 
 /// What the entries being drawn share: the texture cache, which rows turned
-/// out to be visible, how many full resolution textures are in use, and where
-/// the buttons send their requests.
+/// out to be visible, how many full resolution textures are in use, and
+/// where clicks send their requests.
 struct Panel<'a> {
     textures: &'a mut HashMap<u64, ResultTextures>,
     visible: Vec<u64>,
@@ -44,8 +51,17 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
         ..
     } = state;
 
-    if results.is_empty() {
-        results_textures.clear();
+    // The result of the settings in use is on screen already, so the list
+    // holds only the others.
+    let listed: Vec<&StoredResult> = results
+        .entries()
+        .iter()
+        .filter(|entry| entry.settings != current)
+        .collect();
+    if listed.is_empty() {
+        if results.is_empty() {
+            results_textures.clear();
+        }
         ui.vertical_centered(|ui| {
             ui.add_space(8.0);
             ui.label(egui::RichText::new("No results yet").small().weak());
@@ -61,9 +77,8 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     };
 
     egui::ScrollArea::vertical().show(ui, |ui| {
-        for entry in results.entries() {
-            draw_entry(ui, entry, entry.settings == current, &mut panel);
-            ui.add_space(4.0);
+        for entry in listed {
+            draw_entry(ui, entry, &mut panel);
         }
     });
 
@@ -81,30 +96,17 @@ pub fn draw_results_panel(ui: &mut egui::Ui, state: &mut AppState) {
     });
 }
 
-/// One entry: image, palette strip, summary line and buttons, inside a frame
-/// that carries the accent stroke while its settings are the ones in use.
-fn draw_entry(ui: &mut egui::Ui, entry: &StoredResult, selected: bool, panel: &mut Panel) {
-    let mut frame = egui::Frame::group(ui.style());
-    if selected {
-        frame = frame.stroke(egui::Stroke::new(1.0, ui.visuals().selection.stroke.color));
-    }
-
-    let drawn = frame.show(ui, |ui| {
-        draw_entry_image(ui, entry, panel);
-        ui.add_space(2.0);
-        draw_palette_strip(ui, entry);
-        ui.add_space(2.0);
-        ui.label(egui::RichText::new(summary(&entry.settings)).small());
-        draw_buttons(ui, entry.hash, panel.sender)
-    });
-
-    // The buttons carry their own tooltips; the entry's would stack on top.
-    if !drawn.inner {
-        drawn.response.on_hover_text(describe(&entry.settings));
-    }
+/// One entry: image (with its palette strip below) and the remove overlay.
+fn draw_entry(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) {
+    draw_entry_image(ui, entry, panel);
+    ui.add_space(2.0);
+    draw_palette_strip(ui, entry);
+    ui.add_space(ENTRY_SPACING);
 }
 
-/// The image at the panel's width, never past 1:1. The texture is only
+/// The image at the panel's width, never past 1:1, with a small "remove"
+/// overlay at its top-right corner. Clicking the image applies the entry's
+/// settings; clicking the overlay removes it instead. The texture is only
 /// uploaded once the row has scrolled into view, and the full resolution one
 /// only while the display size is past the thumbnail's.
 fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) {
@@ -114,7 +116,7 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
 
     let width = ui.available_width().min(entry.width as f32).max(1.0);
     let height = width * entry.height as f32 / entry.width as f32;
-    let (rect, _) = ui.allocate_exact_size(Vec2::new(width, height), Sense::hover());
+    let (rect, image_response) = ui.allocate_exact_size(Vec2::new(width, height), Sense::click());
     if !ui.is_rect_visible(rect) {
         return;
     }
@@ -147,6 +149,29 @@ fn draw_entry_image(ui: &mut egui::Ui, entry: &StoredResult, panel: &mut Panel) 
         Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
         Color32::WHITE,
     );
+
+    let overlay_rect = Rect::from_min_size(
+        egui::pos2(
+            rect.right() - REMOVE_OVERLAY_SIZE - REMOVE_OVERLAY_INSET,
+            rect.top() + REMOVE_OVERLAY_INSET,
+        ),
+        Vec2::splat(REMOVE_OVERLAY_SIZE),
+    );
+    let remove = ui
+        .put(overlay_rect, egui::Button::new("×").small().frame(false))
+        .on_hover_text("Remove");
+
+    if remove.clicked() {
+        _ = panel
+            .sender
+            .send(AppStateRequest::RemoveResult { hash: entry.hash });
+    } else if image_response.clicked() {
+        _ = panel
+            .sender
+            .send(AppStateRequest::ApplyResult { hash: entry.hash });
+    }
+
+    image_response.on_hover_text(describe(&entry.settings));
 }
 
 /// One row per palette, shrunk so a whole palette fits the panel width.
@@ -183,35 +208,6 @@ fn draw_palette_strip(ui: &mut egui::Ui, entry: &StoredResult) {
     }
 }
 
-/// Apply / Export / Remove. Returns whether one of them is hovered.
-fn draw_buttons(ui: &mut egui::Ui, hash: u64, sender: &Sender<AppStateRequest>) -> bool {
-    let mut hovered = false;
-    ui.horizontal(|ui| {
-        let apply = ui.small_button("Apply").on_hover_text("Use these settings");
-        if apply.clicked() {
-            _ = sender.send(AppStateRequest::ApplyResult { hash });
-        }
-        hovered |= apply.hovered();
-
-        let export = ui
-            .small_button("Export")
-            .on_hover_text("Export this image in the selected format");
-        if export.clicked() {
-            _ = sender.send(AppStateRequest::ExportResult { hash });
-        }
-        hovered |= export.hovered();
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let remove = ui.small_button("×").on_hover_text("Remove");
-            if remove.clicked() {
-                _ = sender.send(AppStateRequest::RemoveResult { hash });
-            }
-            hovered |= remove.hovered();
-        });
-    });
-    hovered
-}
-
 /// Swatch size for `colors` swatches in one row of `width`, never above the
 /// size the main view uses.
 fn swatch_size(width: f32, colors: usize) -> f32 {
@@ -244,18 +240,6 @@ fn full_texture(ctx: &egui::Context, entry: &StoredResult) -> Option<egui::Textu
         egui::ColorImage::from_rgba_unmultiplied(size, &indexed.to_rgba()),
         TextureOptions::NEAREST,
     ))
-}
-
-/// The one line under an entry: engine, palette size and dithering.
-fn summary(settings: &SettingsBundle) -> String {
-    let qualetize = &settings.qualetize_settings;
-    format!(
-        "{} {}×{} {}",
-        settings.engine.display_name(),
-        qualetize.n_palettes,
-        qualetize.n_colors,
-        dither_name(settings),
-    )
 }
 
 /// The settings of an entry, one per line, for its tooltip.
@@ -348,27 +332,18 @@ mod tests {
         )
     }
 
+    /// The tilepalquant description names the dither mode and its pattern,
+    /// since that engine's dithering is two settings rather than one.
     #[test]
-    fn the_summary_names_the_engine_the_palette_size_and_the_dithering() {
-        let mut settings = bundle();
-        settings.qualetize_settings.n_palettes = 4;
-        settings.qualetize_settings.n_colors = 16;
-        settings.qualetize_settings.dither_mode = crate::types::DitherMode::Atkinson;
-        assert_eq!(summary(&settings), "qualetize 4×16 Atkinson");
-    }
-
-    /// The tilepalquant summary names the dither mode and its pattern, since
-    /// that engine's dithering is two settings rather than one.
-    #[test]
-    fn the_summary_of_a_tilepalquant_result_names_the_dither_pattern() {
+    fn the_description_of_a_tilepalquant_result_names_the_dither_pattern() {
         let mut settings = bundle();
         settings.engine = QuantEngine::TilePalQuant;
         settings.tpq_settings.dither_mode = TpqDitherMode::Slow;
         settings.tpq_settings.dither_pattern = DitherPattern::Horizontal4;
         assert!(
-            summary(&settings).ends_with("Slow Horizontal 4"),
+            describe(&settings).contains("Dithering: Slow Horizontal 4"),
             "{}",
-            summary(&settings)
+            describe(&settings)
         );
     }
 
