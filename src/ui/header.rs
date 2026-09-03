@@ -221,6 +221,7 @@ pub fn draw_header(ui: &mut egui::Ui, state: &mut AppState) -> (bool, bool) {
             .ui(ui, |ui| {
                 ui.label(egui::widget_text::RichText::new("Canvas").small());
                 ui.checkbox(&mut state.preferences.show_palettes, "Palettes");
+                ui.checkbox(&mut state.preferences.show_results, "Results");
 
                 ui.separator();
 

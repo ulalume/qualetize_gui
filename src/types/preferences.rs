@@ -33,12 +33,18 @@ mod color32_def {
     }
 }
 
+fn default_true() -> bool {
+    true
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct UserPreferences {
     #[serde(default)]
     pub show_advanced: bool,
     #[serde(default)]
     pub show_palettes: bool,
+    #[serde(default = "default_true")]
+    pub show_results: bool,
 
     #[serde(default)]
     pub show_appearance: bool,
@@ -57,6 +63,7 @@ impl Default for UserPreferences {
         Self {
             show_advanced: false,
             show_palettes: true,
+            show_results: true,
             show_appearance: false,
             selected_export_format: ExportFormat::default(),
             appearance_mode: AppearanceMode::default(),
@@ -97,6 +104,7 @@ mod tests {
         let prefs: UserPreferences = serde_json::from_str("{}").expect("loads");
         assert_eq!(prefs.selected_export_format, ExportFormat::PngIndexed);
         assert_eq!(prefs.background_color, None);
+        assert!(prefs.show_results);
     }
 
     /// A preferences file written before a field existed is missing just that one
