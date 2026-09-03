@@ -463,14 +463,7 @@ impl QualetizeApp {
             .output_image
             .as_ref()
             .and_then(|image| image.indexed.as_ref())
-            .map(|indexed| {
-                indexed.sorted(
-                    settings.mode,
-                    settings.order,
-                    settings.ramps_hue_gap,
-                    pin_first,
-                )
-            });
+            .map(|indexed| indexed.sorted(settings.mode, settings.order, pin_first));
     }
 }
 

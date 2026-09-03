@@ -109,7 +109,6 @@ impl SettingsBundle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::image::{SortMode, SortOrder};
 
     #[test]
     fn matches_ignores_the_writer_version() {
@@ -136,20 +135,6 @@ mod tests {
         let mut b = a.clone();
         b.color_correction.enabled = !b.color_correction.enabled;
         assert!(!a.matches(&b));
-    }
-
-    /// A `.qset` written before the Ramps hue gap existed keeps its sort mode
-    /// and picks the gap up from its serde default.
-    #[test]
-    fn sort_settings_without_the_hue_gap_still_load() {
-        let json = r#"{"mode": "Ramps", "order": "Descending"}"#;
-        let sort: PaletteSortSettings = serde_json::from_str(json).expect("loads");
-        assert_eq!(sort.mode, SortMode::Ramps);
-        assert_eq!(sort.order, SortOrder::Descending);
-        assert_eq!(
-            sort.ramps_hue_gap,
-            PaletteSortSettings::default().ramps_hue_gap
-        );
     }
 
     /// A session file written before a field existed still has to load.

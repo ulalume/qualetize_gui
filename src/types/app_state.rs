@@ -439,12 +439,7 @@ impl AppState {
         let indexed = if sort.mode == SortMode::None {
             indexed.clone()
         } else {
-            indexed.sorted(
-                sort.mode,
-                sort.order,
-                sort.ramps_hue_gap,
-                self.first_color_pinned(),
-            )
+            indexed.sorted(sort.mode, sort.order, self.first_color_pinned())
         };
 
         Some((indexed, image.width, image.height))
