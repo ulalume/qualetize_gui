@@ -82,17 +82,19 @@ fn draw_quantization_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
 
     settings_changed |= draw_palette_size_settings(ui, state);
 
+    // Index 0 belongs to the palette layout, so it sits under that row.
+    ui.indent("first_color", |ui| {
+        settings_changed |= draw_first_color_settings(ui, state);
+    });
+    group_space(ui);
+
     match state.engine {
         QuantEngine::Qualetize => {
-            settings_changed |= draw_first_color_settings(ui, state);
-            group_space(ui);
             settings_changed |= draw_dithering_settings(ui, state);
             group_space(ui);
             settings_changed |= draw_color_space_settings(ui, state);
         }
         QuantEngine::TilePalQuant => {
-            settings_changed |= draw_first_color_settings(ui, state);
-            group_space(ui);
             settings_changed |= draw_tpq_dithering_settings(ui, state);
         }
     }
@@ -110,22 +112,15 @@ fn draw_advanced_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
     let mut settings_changed = false;
 
     // A preference, not a setting: toggling it changes nothing about the
-    // output, so it does not report back a change. Right-aligned on its own
-    // row, the same way a section heading right-aligns its toggle.
-    // The horizontal row bounds the height; the nested layout only fills the
-    // row from the right.
-    ui.horizontal(|ui| {
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            _ = widgets::checkbox(
-                ui,
-                &mut state.preferences.show_advanced,
-                "Advanced",
-                Some(
-                    "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tiledpalettequant).",
-                ),
-            );
-        });
-    });
+    // output, so it does not report back a change.
+    _ = widgets::checkbox(
+        ui,
+        &mut state.preferences.show_advanced,
+        "Advanced",
+        Some(
+            "Tile size and output bit depth, plus clustering passes and alpha handling (Qualetize) or the iteration budget, seed and progress preview (tiledpalettequant).",
+        ),
+    );
     if !state.preferences.show_advanced {
         return settings_changed;
     }
@@ -704,7 +699,7 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
                         .radio_value(
                             &mut state.tpq_settings.dither_mode,
                             TpqDitherMode::Fast,
-                            "fast",
+                            "Fast",
                         )
                         .on_hover_text(TpqDitherMode::Fast.description())
                         .changed();
@@ -712,7 +707,7 @@ fn draw_tpq_dithering_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool 
                         .radio_value(
                             &mut state.tpq_settings.dither_mode,
                             TpqDitherMode::Slow,
-                            "slow",
+                            "Slow",
                         )
                         .on_hover_text(TpqDitherMode::Slow.description())
                         .changed();
