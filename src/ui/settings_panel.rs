@@ -570,31 +570,38 @@ fn draw_first_color_settings(ui: &mut egui::Ui, state: &mut AppState) -> bool {
             state.settings.set_first_color(mode);
             settings_changed = true;
         }
-
-        if kind == FirstColorKind::Shared {
-            settings_changed |= ui
-                .color_edit_button_srgb(&mut state.settings.shared_color)
-                .changed();
-            if ui
-                .button("Use top-left color")
-                .on_hover_text(TOP_LEFT_HOVER)
-                .clicked()
-            {
-                match top_left {
-                    Some(TopLeftPixel::Color(rgb)) => {
-                        state.settings.shared_color = rgb;
-                        settings_changed = true;
-                    }
-                    // A shared color is opaque, so there is nothing for a
-                    // transparent top-left pixel to select here.
-                    Some(TopLeftPixel::Transparent) => {
-                        log::info!("top-left pixel is transparent; shared color left unchanged");
-                    }
-                    None => {}
-                }
-            }
-        }
     });
+
+    if kind == FirstColorKind::Shared {
+        ui.indent("shared_color", |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Shared color:");
+                settings_changed |= ui
+                    .color_edit_button_srgb(&mut state.settings.shared_color)
+                    .changed();
+                if ui
+                    .button("Use top-left color")
+                    .on_hover_text(TOP_LEFT_HOVER)
+                    .clicked()
+                {
+                    match top_left {
+                        Some(TopLeftPixel::Color(rgb)) => {
+                            state.settings.shared_color = rgb;
+                            settings_changed = true;
+                        }
+                        // A shared color is opaque, so there is nothing for a
+                        // transparent top-left pixel to select here.
+                        Some(TopLeftPixel::Transparent) => {
+                            log::info!(
+                                "top-left pixel is transparent; shared color left unchanged"
+                            );
+                        }
+                        None => {}
+                    }
+                }
+            });
+        });
+    }
 
     if kind != FirstColorKind::Transparent {
         return settings_changed;
