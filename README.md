@@ -61,41 +61,15 @@ cargo install --git https://github.com/ulalume/qualetize_gui --target x86_64-pc-
 qualetize_gui
 ```
 
-## Web version
-
-A WebAssembly build is published to [https://ulalume.github.io/qualetize_gui/](https://ulalume.github.io/qualetize_gui/) by the `Pages` GitHub Actions workflow on every version tag. The same files are attached to the [GitHub release](https://github.com/ulalume/qualetize_gui/releases/latest) as `qualetize-gui-<version>-web.zip`, with `index.html` at the root, for hosting elsewhere. To build it locally, run `scripts/build-web.sh` and serve the resulting `web/dist` directory with any static file server.
-
-## Usage
-
-1. Drag & drop the image you want to convert
-2. Adjust parameters while previewing the result
-3. Export the image
-
 ## Features
 
-- Two quantization engines: Qualetize and a Rust port of tiledpalettequant (deterministic, shared/transparent color index 0, live convergence preview)
+- Two quantization engines: Qualetize and a Rust port of tiledpalettequant
 - Instant preview updates when parameters are changed
 - Color adjustment tools
 - Display palettes (hover to see palette/index and RGBA/hex)
 - Reorder palette colors
-- Tile count display (with flip/transparent handling)
-- Tile reduce post-pass (blurred MSE + flips, optional threshold)
+- Tile reduce post-pass (blurred MSE + flips)
 - Custom per-channel quantization levels (Genesis preset uses the real hardware brightness steps)
-- Save and load custom settings presets
-
-## Settings Management
-
-You can save and load your custom settings combinations.
-
-### Settings File Format
-
-Settings files use JSON format (`.qset` extension) containing:
-
-- Qualetize parameters (tile size, palettes, dithering, etc.)
-- Color correction values (brightness, contrast, gamma, etc.)
-- Version information for compatibility
-
-Example settings file structure can be found in `examples/genesis.qset`.
 
 ## Licence
 
